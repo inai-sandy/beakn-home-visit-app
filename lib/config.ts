@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { config as configTable } from '@/db/schema';
 
+import { logEvent } from './audit';
 import {
   CONFIG_SCHEMA,
   type ConfigKey,
@@ -82,13 +83,23 @@ export async function setConfig<K extends ConfigKey>(
   key: K,
   value: ConfigValueOf<K>,
 ): Promise<void> {
-  const def = CONFIG_SCHEMA[key];
+  const def: ConfigKeyDef = CONFIG_SCHEMA[key];
   if (!validateValue(value, def)) {
     throw new Error(
       `[config] setConfig("${key}", …) rejected: value does not satisfy type=${def.type}` +
         (def.validation ? ` + validation=${JSON.stringify(def.validation)}` : ''),
     );
   }
+
+  // Capture the prior on-disk value for the audit before_state. Not atomic
+  // with the UPSERT below; concurrent setConfig calls on the same key may
+  // produce overlapping audit windows — acceptable for rare admin writes.
+  const beforeRows = await db
+    .select({ value: configTable.value })
+    .from(configTable)
+    .where(eq(configTable.key, key))
+    .limit(1);
+  const beforeValue = beforeRows[0]?.value;
 
   await db
     .insert(configTable)
@@ -111,10 +122,18 @@ export async function setConfig<K extends ConfigKey>(
 
   cache.delete(key);
 
-  // TODO(HVA-19): emit audit_log row { event_type: 'config.updated',
-  // target_entity_type: 'config_key', target_entity_id: key,
-  // before_state, after_state, actor_user_id }. HVA-19 owns the writer service;
-  // wire it here once it lands.
+  // Audit the config change. logEvent is fire-and-await; failures inside it
+  // are swallowed (the audit service must never break the calling action).
+  // TODO(HVA-25): once auth middleware injects request context, thread the
+  // actor user id / role / ip / user-agent through to here instead of null.
+  await logEvent({
+    eventType: 'configuration_change',
+    actorUserId: null,
+    targetEntityType: 'config_key',
+    targetEntityId: key,
+    beforeState: beforeValue === undefined ? null : { value: beforeValue },
+    afterState: { value: value as unknown },
+  });
 }
 
 /**

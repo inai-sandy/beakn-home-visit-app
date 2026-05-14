@@ -173,6 +173,29 @@ export const CONFIG_SCHEMA = {
   },
 
   // -------------------------------------------------------------------------
+  // Audit trail — spec §14, HVA-18
+  // -------------------------------------------------------------------------
+  audit_enabled_events: {
+    type: 'array',
+    category: 'audit',
+    description:
+      'Event types written to audit_log. Admin can toggle inclusion per type. ' +
+      'reassignment is ALWAYS logged regardless of this list (spec §3.2 hard rule, enforced in lib/audit.ts).',
+    defaultValue: [
+      'status_change',
+      'assignment',
+      'reassignment',
+      'captain_approval',
+      'completion',
+      'cancellation',
+      'payment_entry',
+      'login',
+      'configuration_change',
+    ],
+    editable: true,
+  },
+
+  // -------------------------------------------------------------------------
   // Red-flag thresholds — spec §11 (AI report cards) / §3 (request lifecycle)
   // -------------------------------------------------------------------------
   red_flag_payment_ratio_threshold: {

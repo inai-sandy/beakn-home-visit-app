@@ -102,8 +102,7 @@ export const tasks = pgTable(
 
     taskType: taskTypeEnum('task_type').notNull(),
     description: text('description').notNull(),
-    // NEEDS_REVIEW: HVA-58 estimated_time enum values not yet pinned down (likely "15min" / "30min" / "1hr" / "2hr").
-    // Using varchar(32) so values can be added without a migration; lock to pgEnum once HVA-58 is detailed.
+    // DEFERRED to HVA-58: enum values will be pinned in the Add Task form. Migrate varchar → pgEnum then.
     estimatedTime: varchar('estimated_time', { length: 32 }).notNull(),
     taskDate: date('task_date').notNull(),
 
@@ -120,7 +119,7 @@ export const tasks = pgTable(
       onDelete: 'restrict',
     }),
     outcomeNotes: text('outcome_notes'),
-    // NEEDS_REVIEW: actualTime mirrors estimatedTime's enum once finalised.
+    // DEFERRED to HVA-58: same enum as estimated_time, coupled migration.
     actualTime: varchar('actual_time', { length: 32 }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
 

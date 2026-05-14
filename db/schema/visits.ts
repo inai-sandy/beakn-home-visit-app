@@ -143,7 +143,7 @@ export const requestRescheduleHistory = pgTable(
     rescheduledByUserId: uuid('rescheduled_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    // NEEDS_REVIEW: HVA-72 may require reason NOT NULL — keeping nullable until that issue's UI is built.
+    // DEFERRED to HVA-72: NOT NULL decision waits for the reschedule form's required-field validation.
     reason: text('reason'),
     rescheduledAt: timestamp('rescheduled_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -20,9 +20,9 @@ export const config = pgTable(
   'config',
   {
     key: varchar('key', { length: 100 }).primaryKey(),
+    // Runtime type tag (string/number/boolean/object/array) is encoded by `lib/config-schema.ts`
+    // — the CONFIG_SCHEMA map keyed by config key is the source of truth, not a column.
     value: jsonb('value').$type<unknown>().notNull(),
-    // NEEDS_REVIEW: valueType inferred (string/number/boolean/object/array) — drop if app-side TS types are enough.
-    valueType: varchar('value_type', { length: 32 }).notNull(),
     category: varchar('category', { length: 32 }).notNull(),
     description: text('description'),
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
@@ -46,8 +46,7 @@ export const holidays = pgTable(
     startDate: date('start_date').notNull(),
     // Equals startDate for single-day holidays; bulk-add can produce multi-day ranges.
     endDate: date('end_date').notNull(),
-    // NEEDS_REVIEW: JSONB array of city UUIDs loses per-id FK integrity vs a holidays_cities junction table.
-    // Acceptable for v1 (read-mostly admin config); revisit if integrity matters.
+    // DEFERRED: locked as nullable JSONB — null = applies to all cities sentinel. Stable design choice, not under review.
     appliesToCityIds: jsonb('applies_to_city_ids').$type<string[] | null>(),
     isActive: boolean('is_active').notNull().default(true),
     ...timestamps(),

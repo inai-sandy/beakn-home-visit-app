@@ -67,7 +67,6 @@ CREATE TABLE "users" (
 CREATE TABLE "config" (
 	"key" varchar(100) PRIMARY KEY NOT NULL,
 	"value" jsonb NOT NULL,
-	"value_type" varchar(32) NOT NULL,
 	"category" varchar(32) NOT NULL,
 	"description" text,
 	"updated_by_user_id" uuid,

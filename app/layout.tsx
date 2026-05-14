@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
+import { InstallPrompt } from "@/components/install-prompt";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -26,6 +28,29 @@ export const metadata: Metadata = {
   title: "Beakn Home Visit App",
   description:
     "Beakn Home Visit App — mobile-first field-ops PWA for sales home visits.",
+  applicationName: "Beakn",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Beakn",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "16x16 32x32 48x48", type: "image/x-icon" },
+      { url: "/icon-192x192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512x512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0F766E",
+  // PWA shells render edge-to-edge on devices with display cutouts; cover the safe areas.
+  viewportFit: "cover",
+  initialScale: 1,
+  width: "device-width",
 };
 
 export default function RootLayout({
@@ -56,8 +81,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          <InstallPrompt />
           <Toaster richColors closeButton />
         </ThemeProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

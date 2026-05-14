@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:psql": "docker exec -it beakn-postgres psql -U beakn_app -d beakn_app",
-    "db:seed:config": "tsx scripts/seed-config.ts"
+    "db:seed:config": "tsx scripts/seed-config.ts",
+    "icons:generate": "tsx scripts/generate-icons.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -47,6 +48,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

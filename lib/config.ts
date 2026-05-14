@@ -11,6 +11,9 @@ import {
   type ConfigValueOf,
   type ConfigValueType,
 } from './config-schema';
+import { log } from './logger';
+
+const configLogger = log.child({ component: 'config' });
 
 // 60-second TTL per spec §17 (admin changes propagate within ~1 min) — same
 // number documented in config-schema.ts header. Keep them in sync.
@@ -60,9 +63,9 @@ export async function getConfig<K extends ConfigKey>(key: K): Promise<ConfigValu
     if (validateValue(raw, def)) {
       value = raw;
     } else {
-      console.warn(
-        `[config] key="${key}" stored value failed validation; falling back to default. ` +
-          `Stored: ${JSON.stringify(raw)} — re-set via setConfig() to fix.`,
+      configLogger.warn(
+        { key, stored: raw },
+        'getConfig_value_failed_validation_using_default',
       );
       value = def.defaultValue;
     }
@@ -162,8 +165,9 @@ export async function getAllConfig(): Promise<Record<ConfigKey, unknown>> {
     } else if (validateValue(raw, def)) {
       value = raw;
     } else {
-      console.warn(
-        `[config] key="${key}" stored value failed validation; using default in snapshot.`,
+      configLogger.warn(
+        { key, stored: raw },
+        'getAllConfig_value_failed_validation_using_default',
       );
       value = def.defaultValue;
     }

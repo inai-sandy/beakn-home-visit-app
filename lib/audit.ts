@@ -13,9 +13,9 @@
 // survive admin toggling. Enforced via `SYSTEM_ALWAYS_AUDITED` below.
 //
 // Failure mode: audit writes NEVER throw to the caller. If the DB write
-// fails (connection refused, schema mismatch, …) the error is logged to
-// stderr as structured JSON and the function returns. Audit telemetry must
-// never break the action being audited.
+// fails (connection refused, schema mismatch, …) the error is logged via
+// the application logger (pino) and the function returns. Audit telemetry
+// must never break the action being audited.
 // =============================================================================
 
 import { desc } from 'drizzle-orm';
@@ -24,6 +24,9 @@ import { db } from '@/db/client';
 import { auditLog, userRoleEnum } from '@/db/schema';
 
 import { getConfig } from './config';
+import { log } from './logger';
+
+const auditLogger = log.child({ component: 'audit' });
 
 type UserRole = (typeof userRoleEnum.enumValues)[number];
 
@@ -82,18 +85,14 @@ export async function logEvent(input: LogEventInput): Promise<void> {
       userAgent: input.userAgent ?? null,
     });
   } catch (err) {
-    // Structured stderr line — picked up by Docker logs and any log shipper.
-    // Switch to pino when HVA-?? introduces it; the shape is already compatible.
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        component: 'audit',
-        msg: 'logEvent_failed',
+    auditLogger.error(
+      {
         eventType: input.eventType,
         targetEntityType: input.targetEntityType,
         targetEntityId: input.targetEntityId ?? null,
-        error: err instanceof Error ? err.message : String(err),
-      }),
+        err: err instanceof Error ? err : String(err),
+      },
+      'logEvent_failed',
     );
   }
 }
@@ -111,15 +110,13 @@ async function shouldLog(eventType: string): Promise<boolean> {
     const enabled = (await getConfig('audit_enabled_events')) as string[];
     return enabled.includes(eventType);
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        component: 'audit',
-        msg: 'shouldLog_config_read_failed',
+    auditLogger.error(
+      {
         eventType,
-        error: err instanceof Error ? err.message : String(err),
+        err: err instanceof Error ? err : String(err),
         fallback: 'log',
-      }),
+      },
+      'shouldLog_config_read_failed',
     );
     return true;
   }

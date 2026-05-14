@@ -1,0 +1,40 @@
+# Build artifacts (rebuilt inside the image)
+node_modules
+.next
+out
+build
+
+# Source control
+.git
+.gitignore
+.gitattributes
+
+# Secrets — never bake env into image; runtime gets them via --env-file
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+
+# Dev-only tooling
+.claude/
+.vscode/
+.idea/
+*.log
+.pnpm-debug.log*
+.eslintcache
+
+# Project meta not needed at runtime
+README.md
+infra/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# TypeScript incremental cache
+*.tsbuildinfo
+next-env.d.ts

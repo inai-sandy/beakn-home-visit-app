@@ -1,0 +1,3 @@
+PATH=/usr/local/bin:/usr/bin:/bin
+# Daily Postgres backup at 02:00 IST. Output goes to stderr (docker logs).
+0 2 * * * /usr/local/bin/backup.sh >> /proc/1/fd/2 2>&1

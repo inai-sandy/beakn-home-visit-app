@@ -8,12 +8,9 @@ rag.1site.ai {
 	reverse_proxy rag-mcp:8050
 }
 
-# Beakn Home Visit App (HVA-15). Cloudflare proxy is OFF for this subdomain so
-# DNS resolves direct to the VPS, matching the *.1site.ai pattern above.
-# Next.js currently runs on the host at :3001 (changed from :3000 because
-# dataforseo-mcp owns host port 3000). Caddy reaches the host via the
-# mcp-network gateway IP. When Next.js is containerised + joined to
-# mcp-network, swap the upstream to `beakn-app:3001`.
+# Beakn Home Visit App. Cloudflare proxy is OFF for this subdomain (DNS-only,
+# matches the *.1site.ai pattern above). HVA-16 containerised the app onto
+# mcp-network so Caddy reaches it by container hostname.
 visits.beakn.in {
-	reverse_proxy 172.18.0.1:3001
+	reverse_proxy beakn-app:3001
 }

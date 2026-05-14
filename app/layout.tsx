@@ -1,20 +1,26 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Inter is the M3 default UI typeface per UI/UX §2.3. Loading the four weights
+// we use across the type scale (Regular 400, Medium 500, Semibold 600, Bold 700).
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Material Symbols Rounded is not in next/font/google's catalog (it indexes
+// only the standard text-typeface families). We load it as a normal Google
+// Fonts stylesheet exposing the full variable axes (opsz, wght, FILL, GRAD)
+// so the <Icon> component can tune them per the M3 icon spec (UI/UX §2.4).
+const MATERIAL_SYMBOLS_HREF =
+  "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block";
 
 export const metadata: Metadata = {
   title: "Beakn Home Visit App",
@@ -30,11 +36,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      // next-themes mutates the className on <html> before hydration; suppress
-      // the resulting warning rather than render a flash of the wrong theme.
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link rel="stylesheet" href={MATERIAL_SYMBOLS_HREF} />
+      </head>
       <body className="min-h-full flex flex-col">
         <ThemeProvider
           attribute="class"

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -83,6 +83,56 @@ import { LocationCard, type LocationCoords } from "./location-card";
 //     NO redirect — all three land in HVA-33 / HVA-35.
 // =============================================================================
 
+// =============================================================================
+// HVA-34: Cloudflare Turnstile integration
+// =============================================================================
+//
+// SCRIPT loaded from app/request/page.tsx via next/script (afterInteractive).
+// WIDGET rendered here via explicit window.turnstile.render(...) — explicit
+// rendering gives us the widget id back so cleanup on unmount, expiry, and
+// re-render are all programmatic. Implicit rendering (the
+// `<div class="cf-turnstile" />` data-attrs path) would also work but adds
+// a global window.onTurnstileSuccess footgun.
+//
+// TOKEN handling:
+//   - On success/error/expired callbacks we route into form.setValue so the
+//     Zod schema (turnstileToken: string().min(1)) can gate submit.
+//   - The submit button is disabled while the token is empty. Once present
+//     the button enables; on expiry the widget auto-re-challenges and the
+//     token clears until the user solves it again.
+// =============================================================================
+
+interface TurnstileGlobal {
+  render(
+    container: string | HTMLElement,
+    opts: {
+      sitekey: string;
+      callback?: (token: string) => void;
+      "error-callback"?: () => void;
+      "expired-callback"?: () => void;
+      "timeout-callback"?: () => void;
+      theme?: "light" | "dark" | "auto";
+      size?: "normal" | "flexible" | "compact" | "invisible";
+      retry?: "auto" | "never";
+    },
+  ): string;
+  reset(id?: string): void;
+  remove(id?: string): void;
+}
+
+declare global {
+  interface Window {
+    turnstile?: TurnstileGlobal;
+  }
+}
+
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+
+// Reserved space for the Turnstile widget. Managed mode often renders
+// invisibly; visible challenges occupy ~65px. Pinning min-height stops
+// CLS when the challenge UI does appear.
+const TURNSTILE_CONTAINER_CLASS = "min-h-[65px]";
+
 // Chip className — applied to every ToggleGroupItem in BHK + Interest.
 // Selected state hits via data-[state=on] and inherits from M3 primary.
 const CHIP_CLASS = cn(
@@ -116,9 +166,98 @@ export function RequestForm() {
       latitude: undefined,
       longitude: undefined,
       accuracy: undefined,
+      // HVA-34: Turnstile token; populated by the widget's success callback.
+      turnstileToken: "",
     },
     mode: "onBlur",
   });
+
+  // HVA-34: explicit Turnstile render. The script (loaded in page.tsx) sets
+  // window.turnstile asynchronously, so we poll with a short interval until
+  // it's available. Once rendered, the success/error/expired callbacks route
+  // straight into form state — submit button gates on the token's presence.
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!TURNSTILE_SITE_KEY) {
+      // Mis-configured env. Don't fail silently — surface to the dev
+      // console; the submit button will still be disabled because the
+      // token field is empty.
+      console.warn(
+        "[HVA-34] NEXT_PUBLIC_TURNSTILE_SITE_KEY is not set. Widget will not render.",
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    const renderWidget = () => {
+      if (cancelled) return;
+      const ts = window.turnstile;
+      const container = turnstileContainerRef.current;
+      if (!ts || !container) return;
+      if (turnstileWidgetIdRef.current) return; // already rendered
+
+      turnstileWidgetIdRef.current = ts.render(container, {
+        sitekey: TURNSTILE_SITE_KEY,
+        // 'flexible' lets Cloudflare pick visible vs invisible per risk.
+        size: "flexible",
+        retry: "auto",
+        callback: (token) => {
+          form.setValue("turnstileToken", token, { shouldValidate: true });
+        },
+        "error-callback": () => {
+          form.setValue("turnstileToken", "", { shouldValidate: true });
+        },
+        "expired-callback": () => {
+          form.setValue("turnstileToken", "", { shouldValidate: true });
+        },
+        "timeout-callback": () => {
+          form.setValue("turnstileToken", "", { shouldValidate: true });
+        },
+      });
+    };
+
+    if (window.turnstile) {
+      renderWidget();
+    } else {
+      // Poll for the script to finish loading. Cloudflare's script
+      // doesn't expose an onload event we can hook into reliably.
+      const t = window.setInterval(() => {
+        if (window.turnstile) {
+          window.clearInterval(t);
+          renderWidget();
+        }
+      }, 100);
+      // Safety: give up polling after 15s so a Cloudflare outage doesn't
+      // leak intervals forever.
+      const stopT = window.setTimeout(() => {
+        window.clearInterval(t);
+      }, 15_000);
+      return () => {
+        cancelled = true;
+        window.clearInterval(t);
+        window.clearTimeout(stopT);
+        if (turnstileWidgetIdRef.current && window.turnstile) {
+          window.turnstile.remove(turnstileWidgetIdRef.current);
+          turnstileWidgetIdRef.current = null;
+        }
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (turnstileWidgetIdRef.current && window.turnstile) {
+        window.turnstile.remove(turnstileWidgetIdRef.current);
+        turnstileWidgetIdRef.current = null;
+      }
+    };
+    // form is stable from useForm — referencing it doesn't need to retrigger
+    // the effect. We only re-render the widget if the component mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // HVA-32: lift coords from LocationCard into form state. Stored at full
   // browser precision — never rounded — so HVA-33 can persist the exact
@@ -132,22 +271,81 @@ export function RequestForm() {
   async function onSubmit(values: CustomerRequestInput) {
     setSubmitting(true);
     try {
-      // HVA-33 will replace this with a Server Action that:
-      //  - re-validates server-side with customerRequestSchema
-      //  - generates the visit-request token (HVA-32)
-      //  - inserts the row into visit_requests
-      //  - redirects to /success/<token> (HVA-35)
-      // For now: log the validated payload to dev console so the reviewer
-      // can see the exact shape downstream code will receive.
-      console.log("[HVA-31] validated payload", {
-        ...values,
-        // Echo the storage-shape too so HVA-33's diff is obvious.
+      // HVA-34: POST to /api/customer-request (anti-spam shell + stub
+      // success). HVA-33 replaces the server-side stub with the real
+      // visit_requests insert + token generation + redirect-target
+      // response; the request shape on this side stays the same.
+      const res = await fetch("/api/customer-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      });
+
+      // 429: rate limit hit. Show the server-supplied error message,
+      // since the cooldown window is policy-driven.
+      if (res.status === 429) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(j.error ?? "Too many requests, try again in an hour.");
+        return;
+      }
+
+      // 400: server-side Zod or Turnstile rejection. If field-level
+      // errors are returned, surface them on the form. Otherwise show
+      // a generic toast.
+      if (res.status === 400) {
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          fieldErrors?: Record<string, string>;
+        };
+        if (j.fieldErrors && Object.keys(j.fieldErrors).length > 0) {
+          for (const [field, message] of Object.entries(j.fieldErrors)) {
+            form.setError(field as keyof CustomerRequestInput, { message });
+          }
+          // Clear the Turnstile token so the widget re-challenges; some
+          // 400s (turnstile-failed) imply the token is no longer valid.
+          form.setValue("turnstileToken", "", { shouldValidate: true });
+          if (window.turnstile && turnstileWidgetIdRef.current) {
+            window.turnstile.reset(turnstileWidgetIdRef.current);
+          }
+          toast.error(j.error ?? "Some fields are invalid.");
+          return;
+        }
+        // Generic 400 (likely Turnstile verification fail) — reset widget.
+        form.setValue("turnstileToken", "", { shouldValidate: true });
+        if (window.turnstile && turnstileWidgetIdRef.current) {
+          window.turnstile.reset(turnstileWidgetIdRef.current);
+        }
+        toast.error(
+          j.error ?? "Verification failed. Please retry the challenge.",
+        );
+        return;
+      }
+
+      if (!res.ok) {
+        toast.error("Service temporarily unavailable. Please try again.");
+        return;
+      }
+
+      // 200 (stub) — HVA-34 anti-spam passed. HVA-33 will return
+      // redirect info here; until then we just confirm to the user.
+      toast.success("Anti-spam checks passed. DB write lands in HVA-33.", {
+        description:
+          "Token generation, DB insert, and success redirect are wired in the next issue.",
+      });
+      // Optional dev-console echo so the reviewer can see the validated
+      // payload shape downstream code will receive.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { turnstileToken: _t, ...payload } = values;
+      console.log("[HVA-31/34] validated payload (sans token)", {
+        ...payload,
         phone_storage: `+91${values.phone}`,
       });
-      toast.success("Form validated. Submission lands in HVA-33.", {
-        description:
-          "Token generation and DB write are wired in the next issue.",
-      });
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? `Network error: ${err.message}`
+          : "Network error",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -409,10 +607,20 @@ export function RequestForm() {
           )}
         />
 
-        {/* Submit — Filled primary, 56dp mobile / 48dp desktop, full width */}
+        {/* HVA-34: Cloudflare Turnstile widget. Rendered via the explicit
+            API in the useEffect above. min-h reserves space so a visible
+            challenge doesn't shift layout when it appears. */}
+        <div className={TURNSTILE_CONTAINER_CLASS}>
+          <div ref={turnstileContainerRef} data-slot="turnstile-container" />
+        </div>
+
+        {/* Submit — Filled primary, 56dp mobile / 48dp desktop, full width.
+            HVA-34: disabled until the Turnstile widget produces a token
+            (form.watch('turnstileToken') is empty until success-callback
+            fires). */}
         <Button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !form.watch("turnstileToken")}
           className="w-full h-14 sm:h-12 text-base font-medium"
         >
           {submitting ? (

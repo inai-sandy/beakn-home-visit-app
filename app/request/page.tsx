@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Script from "next/script";
 
 import { RequestForm } from "./request-form";
 
@@ -40,6 +41,18 @@ export const dynamic = "force-dynamic";
 export default function RequestPage() {
   return (
     <main className="min-h-svh flex flex-col items-center px-6 py-10 bg-background">
+      {/* HVA-34: Cloudflare Turnstile script. Scoped to /request only —
+          this page is the sole consumer; loading it from app/layout.tsx
+          would ship the script to every route. afterInteractive runs
+          after hydration so the widget container exists by the time
+          window.turnstile.render is called from request-form.tsx. */}
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+        strategy="afterInteractive"
+        async
+        defer
+      />
+
       <div className="w-full max-w-md sm:max-w-lg flex flex-col items-stretch gap-8">
         {/* Logo + hero */}
         <header className="flex flex-col items-center gap-4 pt-4">

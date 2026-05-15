@@ -112,6 +112,14 @@ export const customerRequestSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   accuracy: z.number().positive().optional(),
+
+  // HVA-34: Cloudflare Turnstile token, required on submit. Client gets
+  // it from the widget's success callback (cf-turnstile-response); server
+  // posts it to challenges.cloudflare.com/turnstile/v0/siteverify in
+  // lib/turnstile.ts. Empty string fails the .min(1) — the widget hasn't
+  // resolved yet — and the submit button on the client is also disabled
+  // in that state.
+  turnstileToken: z.string().min(1, 'Anti-spam challenge required'),
 });
 
 export type CustomerRequestInput = z.infer<typeof customerRequestSchema>;

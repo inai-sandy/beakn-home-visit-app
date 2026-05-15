@@ -23,6 +23,17 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # from --env-file at runtime.
 ENV BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime
 ENV DATABASE_URL=postgres://build:build@localhost:5432/build
+
+# HVA-34: Cloudflare Turnstile site key. NEXT_PUBLIC_* env vars are inlined
+# at build time into the client bundle, so this MUST be set during
+# `next build` — runtime --env-file is too late for client code. Receive
+# the value via a build arg so production builds can pass the real key:
+#   docker build --build-arg NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x… .
+# An unset arg falls through to the placeholder so the build still completes
+# locally; the live deploy passes the real key in the rebuild command.
+ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=build-time-placeholder-set-at-deploy
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
 RUN pnpm build
 
 # ---------- Stage 3: runtime ----------

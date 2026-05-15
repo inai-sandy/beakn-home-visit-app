@@ -36,6 +36,13 @@
       "when": 1778838278929,
       "tag": "0004_hva33_seed_phase1_cities_status_stages",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778847379813,
+      "tag": "0005_hva67_seed_status_stages",
+      "breakpoints": true
     }
   ]
 }

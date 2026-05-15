@@ -79,6 +79,7 @@ const PUBLIC_PAGE_ROUTES = new Set<string>([
 ]);
 const PUBLIC_PAGE_PREFIXES = [
   '/request', // customer visit-request form (HVA-30+)
+  '/submitted/', // HVA-35: post-submission confirmation (/submitted/[token])
   '/track/', // customer tracking page (HVA-1.5)
 ];
 

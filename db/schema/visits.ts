@@ -60,6 +60,23 @@ export const visitRequests = pgTable(
     interest: jsonb('interest').$type<string[]>().notNull(),
     latitude: numeric('latitude', { precision: 10, scale: 7 }),
     longitude: numeric('longitude', { precision: 10, scale: 7 }),
+    // HVA-33: GPS accuracy in metres reported by the browser's
+    // Geolocation API (HVA-32). Nullable — customers who don't share
+    // location have NULL for all three GPS columns. Forensically
+    // valuable: distinguishes coords accurate to ±5m from coords
+    // accurate to ±5km when the team plans visits.
+    locationAccuracy: numeric('location_accuracy', { precision: 10, scale: 2 }),
+
+    // HVA-33: free-text state captured directly from the form. Form
+    // auto-fills this from the selected city (CITY_TO_STATE map in
+    // lib/validators/customer-request.ts) but lets the user edit
+    // afterwards. Nullable so future seed/synthetic inserts that
+    // skip this field don't break. For the 8 seeded cities this is
+    // typically the canonical cities.state value; "Other" city
+    // customers type their own state here (otherwise we'd lose the
+    // signal entirely, since cities.state for the "Other" row is
+    // NULL).
+    customerState: varchar('customer_state', { length: 100 }),
 
     trackingToken: varchar('tracking_token', { length: 32 }).notNull(),
     source: varchar('source', { length: 32 }).notNull().default('web'),

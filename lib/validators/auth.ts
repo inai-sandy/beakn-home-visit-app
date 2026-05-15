@@ -40,3 +40,39 @@ export const setPasswordSchema = z
   });
 
 export type SetPasswordInput = z.infer<typeof setPasswordSchema>;
+
+// Change-password form input — HVA-29 (user-initiated change from Profile).
+// Unlike setPasswordSchema (HVA-26, first-login flow), this requires the
+// user to type their current password. Validation rules verbatim from
+// Linear AC:
+//   - new password: ≥8 chars, ≥1 digit, ≥1 letter (same as HVA-26)
+//   - confirm === new
+//   - new !== current (block trivial reuse of the same password)
+// All three rules surface as inline field errors when react-hook-form
+// runs in onChange/onTouched mode.
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z
+      .string()
+      .min(8, 'At least 8 characters')
+      .regex(/[0-9]/, 'Must contain at least one digit')
+      .regex(/[a-zA-Z]/, 'Must contain at least one letter'),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
+  .refine(
+    (data) =>
+      data.currentPassword.length === 0 ||
+      data.newPassword.length === 0 ||
+      data.currentPassword !== data.newPassword,
+    {
+      message: 'New password must be different from current password',
+      path: ['newPassword'],
+    },
+  );
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

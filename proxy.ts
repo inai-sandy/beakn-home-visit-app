@@ -64,6 +64,7 @@ const SKIP_PREFIXES = [
 const NO_AUTH_PREFIXES = [
   '/api/auth/', // Better-Auth's own surface — never redirect it
   '/api/health', // Docker HEALTHCHECK + monitoring; must stay public
+  '/api/customer-request', // HVA-34: public visit-request submission endpoint
   ...(process.env.NODE_ENV !== 'production'
     ? ['/dev/'] // developer smoke routes — dev/test only; see HVA-99
     : []),

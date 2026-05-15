@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import { Suspense } from "react";
 
 import { LoginForm } from "./login-form";
 
@@ -32,7 +33,11 @@ export default function LoginPage() {
         </p>
 
         <div className="w-full sm:rounded-3xl sm:border sm:bg-card sm:p-6 sm:shadow-sm">
-          <LoginForm />
+          {/* LoginForm uses useSearchParams() (to honour ?next= from HVA-25's
+              proxy redirect). Next 16 requires a Suspense boundary for that. */}
+          <Suspense fallback={null}>
+            <LoginForm />
+          </Suspense>
         </div>
       </div>
     </main>

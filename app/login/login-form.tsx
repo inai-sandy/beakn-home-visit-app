@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -37,8 +37,26 @@ const ROLE_HOME: Record<string, string> = {
   super_admin: "/admin/dashboard",
 };
 
+// Sanitise the ?next= query param into a same-origin destination. proxy.ts
+// (HVA-25) sets it when an unauthenticated user is bounced off a protected
+// route; we honour it here AFTER successful sign-in. Defensive checks:
+//   - must be relative (no scheme, no double-slash → no external redirect)
+//   - must start with "/"
+//   - must not target /login or /forgot-password (would re-enter the auth flow)
+// On any failure we silently fall back to role home — better to land somewhere
+// safe than to crash the page.
+function safeNextPath(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/")) return null;
+  if (raw.startsWith("//")) return null;
+  if (raw.startsWith("/login") || raw.startsWith("/forgot-password")) return null;
+  return raw;
+}
+
 export function LoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const nextParam = safeNextPath(params.get("next"));
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +119,8 @@ export function LoginForm() {
         user?: { role?: string };
       };
       const role = session.user?.role;
-      const destination = role ? ROLE_HOME[role] ?? "/" : "/";
+      // HVA-25: honour ?next= if proxy.ts set it; otherwise fall to role home.
+      const destination = nextParam ?? (role ? ROLE_HOME[role] ?? "/" : "/");
       router.push(destination);
       router.refresh();
     } catch (err) {

@@ -19,3 +19,24 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+// Set-password form input — HVA-26 (mandatory first-login change).
+// No `currentPassword`: the user just logged in with an admin-issued temp,
+// and the server action verifies session ownership + must_change_password
+// gate before flipping the hash. Validation rules verbatim from Linear AC:
+// ≥8 chars, ≥1 digit, ≥1 letter, new === confirm.
+export const setPasswordSchema = z
+  .object({
+    newPassword: z
+      .string()
+      .min(8, 'At least 8 characters')
+      .regex(/[0-9]/, 'Must contain at least one digit')
+      .regex(/[a-zA-Z]/, 'Must contain at least one letter'),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>;

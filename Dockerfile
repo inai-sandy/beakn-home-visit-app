@@ -17,6 +17,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# next build's page-data collection imports server modules — including
+# lib/auth.ts and lib/db. Both throw if their required env vars are unset.
+# These dummy values satisfy the throw at build time; the real values come
+# from --env-file at runtime.
+ENV BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime
+ENV DATABASE_URL=postgres://build:build@localhost:5432/build
 RUN pnpm build
 
 # ---------- Stage 3: runtime ----------

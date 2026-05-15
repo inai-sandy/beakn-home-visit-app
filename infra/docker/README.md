@@ -120,6 +120,35 @@ docker cp infra/caddy/Caddyfile caddy:/etc/caddy/Caddyfile
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
+## Ad-hoc test admin (HVA-24 verification only)
+
+`scripts/seed-test-admin.ts` creates a single `super_admin` user for ad-hoc
+end-to-end auth verification. **Credentials come from env vars only** —
+nothing is hardcoded in the script. Both `TEST_ADMIN_PHONE` and
+`TEST_ADMIN_PASSWORD` are required; the script refuses to run if either
+is missing.
+
+```bash
+# From the host (DATABASE_URL points at 127.0.0.1, not the container hostname,
+# because the host can't resolve beakn-postgres):
+TEST_ADMIN_PHONE="+91XXXXXXXXXX" \
+TEST_ADMIN_PASSWORD="<choose-throwaway>" \
+DATABASE_URL=postgresql://beakn_app:PW@127.0.0.1:5432/beakn_app \
+  pnpm db:seed:test-admin
+```
+
+The script is idempotent: re-running drops the existing row (cascade clears
+sessions + accounts) and recreates a fresh one. After your verification:
+
+```bash
+docker exec beakn-postgres psql -U beakn_app -d beakn_app \
+  -c "DELETE FROM users WHERE phone='+91XXXXXXXXXX';"
+```
+
+The real first super_admin is seeded in **HVA-96** (cities + admin seed
+script), not here. This script is for one-off verification, not production
+bootstrapping.
+
 ## Postgres connectivity
 
 `beakn-postgres` is on `mcp-network` and bound to `127.0.0.1:5432` on the host.

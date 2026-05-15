@@ -53,7 +53,14 @@ function safeNextPath(raw: string | null): string | null {
   return raw;
 }
 
-export function LoginForm() {
+interface LoginFormProps {
+  /** Resolved by the parent server component from the config table. Empty
+   *  string is "not configured" — the Forgot Password modal handles the
+   *  fallback copy and hides the Call Admin button in that case. */
+  adminPhone: string;
+}
+
+export function LoginForm({ adminPhone }: LoginFormProps) {
   const router = useRouter();
   const params = useSearchParams();
   const nextParam = safeNextPath(params.get("next"));
@@ -275,7 +282,11 @@ export function LoginForm() {
         </div>
       </form>
 
-      <ForgotPasswordModal open={forgotOpen} onOpenChange={setForgotOpen} />
+      <ForgotPasswordModal
+        open={forgotOpen}
+        onOpenChange={setForgotOpen}
+        adminPhone={adminPhone}
+      />
     </Form>
   );
 }

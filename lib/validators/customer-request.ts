@@ -102,6 +102,16 @@ export const customerRequestSchema = z.object({
   interest: z
     .array(z.enum(ALLOWED_INTERESTS))
     .min(1, 'Select at least one interest'),
+
+  // HVA-32: optional self-reported GPS coordinates from the browser's
+  // Geolocation API. Customer-driven; permission denial / non-share leaves
+  // these undefined and the form still submits cleanly. Stored verbatim
+  // at whatever precision the device returned — NOT rounded to N decimal
+  // places (AC #3 in HVA-32). HVA-33 reads them off the validated payload
+  // and writes them onto the visit_requests row.
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  accuracy: z.number().positive().optional(),
 });
 
 export type CustomerRequestInput = z.infer<typeof customerRequestSchema>;

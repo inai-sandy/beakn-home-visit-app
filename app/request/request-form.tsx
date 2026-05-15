@@ -36,6 +36,8 @@ import {
   type CustomerRequestInput,
 } from "@/lib/validators/customer-request";
 
+import { LocationCard, type LocationCoords } from "./location-card";
+
 // =============================================================================
 // HVA-31: customer request form (public /request)
 // =============================================================================
@@ -109,9 +111,23 @@ export function RequestForm() {
       state: "",
       bhk: "" as unknown as CustomerRequestInput["bhk"],
       interest: [],
+      // HVA-32: optional GPS coords. Left undefined unless the user opts in
+      // via LocationCard; submission never blocks on missing values.
+      latitude: undefined,
+      longitude: undefined,
+      accuracy: undefined,
     },
     mode: "onBlur",
   });
+
+  // HVA-32: lift coords from LocationCard into form state. Stored at full
+  // browser precision — never rounded — so HVA-33 can persist the exact
+  // device-reported lat/lng/accuracy onto the request row.
+  const handleLocationShared = (coords: LocationCoords) => {
+    form.setValue("latitude", coords.latitude, { shouldDirty: true });
+    form.setValue("longitude", coords.longitude, { shouldDirty: true });
+    form.setValue("accuracy", coords.accuracy, { shouldDirty: true });
+  };
 
   async function onSubmit(values: CustomerRequestInput) {
     setSubmitting(true);
@@ -144,6 +160,12 @@ export function RequestForm() {
         className="space-y-5"
         noValidate
       >
+        {/* HVA-32: optional location share. Renders above Name; the card
+            internally returns null when dismissed (sessionStorage flag) so
+            the layout closes up cleanly. Coords are lifted into form state
+            via handleLocationShared. */}
+        <LocationCard onShare={handleLocationShared} />
+
         {/* 1. Name */}
         <FormField
           control={form.control}

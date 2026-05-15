@@ -72,17 +72,18 @@ function ModalBody({
 
   return (
     <>
-      <p className="text-sm text-muted-foreground">
-        Contact your administrator to reset your password.
-      </p>
-
       {telHref ? (
-        <div className="rounded-2xl border bg-muted/40 p-4 text-center">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
-            Admin support
+        <>
+          <p className="text-sm text-muted-foreground">
+            Contact your administrator to reset your password.
           </p>
-          <p className="text-base font-semibold tracking-tight">{display}</p>
-        </div>
+          <div className="rounded-2xl border bg-muted/40 p-4 text-center">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+              Admin support
+            </p>
+            <p className="text-base font-semibold tracking-tight">{display}</p>
+          </div>
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">
           Please contact your administrator to reset your password.

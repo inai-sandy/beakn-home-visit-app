@@ -193,6 +193,7 @@ export const CONFIG_SCHEMA = {
       'logout',
       'password_changed',
       'request_created',
+      'request_assigned',
       'configuration_change',
     ],
     editable: true,

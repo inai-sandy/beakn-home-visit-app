@@ -190,6 +190,7 @@ export const CONFIG_SCHEMA = {
       'cancellation',
       'payment_entry',
       'login',
+      'logout',
       'configuration_change',
     ],
     editable: true,

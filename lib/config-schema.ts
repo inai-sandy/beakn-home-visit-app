@@ -191,6 +191,7 @@ export const CONFIG_SCHEMA = {
       'payment_entry',
       'login',
       'logout',
+      'password_changed',
       'configuration_change',
     ],
     editable: true,

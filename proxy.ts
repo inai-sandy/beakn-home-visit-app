@@ -110,6 +110,17 @@ function isPublicPage(pathname: string): boolean {
  * every role-prefixed area (decision documented above).
  */
 function canAccess(pathname: string, role: string): boolean {
+  // HVA-99 (production default-deny for /dev/*). The NO_AUTH_PREFIXES guard
+  // above only governs the unauthenticated path; once a session exists the
+  // super_admin escape hatch below would otherwise let signed-in admins
+  // through to /dev/audit-health & friends. Block that explicitly: on
+  // production, /dev/* is unreachable for every role.
+  if (
+    pathname.startsWith('/dev/') &&
+    process.env.NODE_ENV === 'production'
+  ) {
+    return false;
+  }
   if (role === 'super_admin') return true;
   if (pathname === '/today' || pathname.startsWith('/today/')) {
     return role === 'sales_executive';

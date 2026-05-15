@@ -116,12 +116,17 @@ function canAccess(pathname: string, role: string): boolean {
   // above only governs the unauthenticated path; once a session exists the
   // super_admin escape hatch below would otherwise let signed-in admins
   // through to /dev/audit-health & friends. Block that explicitly: on
-  // production, /dev/* is unreachable for every role.
-  if (
-    pathname.startsWith('/dev/') &&
-    process.env.NODE_ENV === 'production'
-  ) {
-    return false;
+  // production, /dev/* is unreachable for every role UNLESS the operator
+  // has flipped DEV_ROUTES_ENABLED=true on the container env-file. HVA-40
+  // added that escape hatch so the SMTP smoke test (/dev/email-test) can
+  // be exercised against prod for deliverability verification without
+  // shipping a "real" customer-facing route.
+  //
+  // The escape hatch is *narrow*: super_admin only, even with the flag on.
+  if (pathname.startsWith('/dev/') && process.env.NODE_ENV === 'production') {
+    return (
+      role === 'super_admin' && process.env.DEV_ROUTES_ENABLED === 'true'
+    );
   }
   if (role === 'super_admin') return true;
   if (pathname === '/today' || pathname.startsWith('/today/')) {

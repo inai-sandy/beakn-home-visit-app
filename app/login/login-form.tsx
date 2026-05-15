@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useSignedOutToast } from "@/lib/hooks/use-signed-out-toast";
 import { loginSchema, type LoginInput } from "@/lib/validators/auth";
 
 import { ForgotPasswordModal } from "./forgot-password-modal";
@@ -61,6 +62,10 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ adminPhone }: LoginFormProps) {
+  // HVA-28: surface a "You've been signed out" toast when logoutAction
+  // redirects here with ?signedOut=1. Mirrors HVA-25's ?denied=1 wiring.
+  useSignedOutToast();
+
   const router = useRouter();
   const params = useSearchParams();
   const nextParam = safeNextPath(params.get("next"));

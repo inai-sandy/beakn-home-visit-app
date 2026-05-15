@@ -29,6 +29,13 @@
       "when": 1778836072724,
       "tag": "0003_hva34_rate_limit_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778838278929,
+      "tag": "0004_hva33_seed_phase1_cities_status_stages",
+      "breakpoints": true
     }
   ]
 }

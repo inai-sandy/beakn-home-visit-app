@@ -1,23 +1,51 @@
-import { and, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { db } from '@/db/client';
-import { rateLimitAttempts } from '@/db/schema';
+import {
+  cities,
+  rateLimitAttempts,
+  statusStages,
+  visitRequests,
+} from '@/db/schema';
+import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 import { verifyTurnstile } from '@/lib/turnstile';
-import { customerRequestSchema } from '@/lib/validators/customer-request';
+import {
+  customerRequestSchema,
+  type CustomerRequestInput,
+} from '@/lib/validators/customer-request';
 
 // =============================================================================
-// HVA-34: customer request submission — anti-spam shell + stub
+// HVA-34 + HVA-33: customer request submission pipeline
 // =============================================================================
 //
-// SHELL ONLY. HVA-34 owns:
-//   1. Zod re-validation (defence-in-depth; client also validates)
-//   2. Cloudflare Turnstile token verification
-//   3. Postgres-backed rate limit (5 Zod-passing attempts per IP / 1h)
-// HVA-33 replaces the trailing stub with the real DB write +
-// token generation + redirect-target response.
+// Order of operations (each gate runs only if the previous succeeded):
+//   1. JSON parse
+//   2. Zod re-validation (HVA-34)
+//   3. Rate-limit check + insert (HVA-34)
+//   4. Turnstile verification (HVA-34)
+//   5. Phone-duplicate soft-block (HVA-33; 1-hour rolling window)
+//   6. nanoid 21-char tracking token, looped on collision
+//   7. Resolve city_id (name → uuid) and status_stage_id ('SUBMITTED')
+//   8. INSERT into visit_requests
+//   9. Audit log (eventType: 'request_created', actor NULL)
+//  10. Notification engine TODO (HVA-48/49 — pino log only for now)
+//  11. Return 200 { ok: true, trackingToken }
+//
+// HVA-33 schema-vs-form reconciliation (resolved before write):
+//   - Form field `bhk` arrives with a space ('2 BHK'); DB enum is space-
+//     less ('2BHK'). Stripped at insert. 'Others' stays as 'Others'.
+//   - Form field `state` has no schema column. Added customer_state
+//     varchar(100) nullable in 0004_hva33_seed_phase1_cities_status_
+//     stages.sql; written through verbatim.
+//   - Form field `accuracy` has no schema column. Added
+//     location_accuracy numeric(10,2) in the same migration.
+//   - Form field `city` arrives as an enum NAME ('Hyderabad'); DB
+//     column is city_id (FK to cities.id). Lookup by name → id at
+//     insert time. 'Other' is a real seeded row in cities.
 //
 // RATE-LIMIT POLICY (locked, see commit body for full reasoning):
 // Count every attempt that PASSES Zod, regardless of Turnstile outcome.
@@ -36,7 +64,35 @@ import { customerRequestSchema } from '@/lib/validators/customer-request';
 const RATE_LIMIT_WINDOW = '1 hour';
 const RATE_LIMIT_MAX = 5;
 const KEY_PREFIX = 'request_submit';
+const DEDUP_WINDOW = '1 hour';
+const TRACKING_TOKEN_LENGTH = 21;
+const MAX_TOKEN_COLLISION_RETRIES = 5;
+const STATUS_STAGE_SUBMITTED = 'SUBMITTED';
 const apiLog = log.child({ route: '/api/customer-request' });
+
+// Form-side BHK values include a space ('2 BHK'); DB enum is spaceless
+// ('2BHK'). 'Others' stays unchanged. Mapping is deterministic — no
+// need for an object lookup.
+function toDbBhk(formBhk: CustomerRequestInput['bhk']): string {
+  return formBhk.replace(/\s+/g, '');
+}
+
+async function generateUniqueTrackingToken(): Promise<string> {
+  for (let i = 0; i < MAX_TOKEN_COLLISION_RETRIES; i++) {
+    const token = nanoid(TRACKING_TOKEN_LENGTH);
+    const existing = await db
+      .select({ id: visitRequests.id })
+      .from(visitRequests)
+      .where(eq(visitRequests.trackingToken, token))
+      .limit(1);
+    if (existing.length === 0) return token;
+  }
+  // 21-char URL-safe nanoid has ~149 bits of entropy. Five consecutive
+  // collisions would require an astronomical number of rows. If we
+  // somehow get here, surface as a 500 — the alternative is a stuck
+  // loop or a token reuse.
+  throw new Error('nanoid token collision retries exhausted');
+}
 
 function extractIp(headers: Headers): string {
   // Caddy forwards via x-forwarded-for. First IP in the comma-separated
@@ -186,19 +242,201 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // 5. STUB. HVA-33 replaces this block with token generation + DB
-  //    insert + redirect-target response. For now: log the validated
-  //    payload (minus the Turnstile token — single-use, no value in
-  //    keeping it) and return success.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { turnstileToken: _t, ...payload } = parsed.data;
+  // 5. Phone-duplicate soft block. The phone is "+91"+10digits at this
+  //    point (formed below by `"+91" + parsed.data.phone`). We dedupe
+  //    on the SAME storage shape that will be written, so the lookup
+  //    matches whatever the previous insert wrote.
+  //
+  //    Policy: 1-hour rolling window. Matches the spec line "duplicate
+  //    phone within 1 hour → soft block". Dedup applies regardless of
+  //    the existing row's status (Cancelled, etc.) — the spec is silent
+  //    on terminal-state behaviour, and a cancelled-then-resubmit
+  //    customer should re-fill the form anyway, not re-receive the
+  //    cancelled token. Revisit when HVA-39 (cancellation backend) lands.
+  const customerPhoneStorage = `+91${parsed.data.phone}`;
+  const dupRows = await db
+    .select({
+      trackingToken: visitRequests.trackingToken,
+      createdAt: visitRequests.createdAt,
+    })
+    .from(visitRequests)
+    .where(
+      and(
+        eq(visitRequests.customerPhone, customerPhoneStorage),
+        gte(
+          visitRequests.createdAt,
+          sql`now() - interval ${sql.raw(`'${DEDUP_WINDOW}'`)}`,
+        ),
+      ),
+    )
+    .orderBy(desc(visitRequests.createdAt))
+    .limit(1);
+
+  if (dupRows.length > 0) {
+    const existing = dupRows[0];
+    reqLog.info(
+      {
+        existingTrackingToken: existing.trackingToken,
+        existingCreatedAt: existing.createdAt,
+      },
+      'customer_request_duplicate_phone_soft_block',
+    );
+    return NextResponse.json(
+      {
+        ok: true,
+        duplicate: true,
+        existingTrackingToken: existing.trackingToken,
+        message:
+          'We already received your request. Check your WhatsApp for the tracking link.',
+      },
+      { status: 200 },
+    );
+  }
+
+  // 6. Resolve FKs: city by name, status_stage by code. Both seeded by
+  //    the 0004_hva33 migration. Missing seed rows are an infra bug,
+  //    not a customer-facing problem — surface as 500.
+  const [cityRow] = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(eq(cities.name, parsed.data.city))
+    .limit(1);
+  if (!cityRow) {
+    reqLog.error(
+      { city: parsed.data.city },
+      'customer_request_city_not_seeded',
+    );
+    return NextResponse.json(
+      { ok: false, error: 'Service temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  const [submittedStage] = await db
+    .select({ id: statusStages.id })
+    .from(statusStages)
+    .where(eq(statusStages.code, STATUS_STAGE_SUBMITTED))
+    .limit(1);
+  if (!submittedStage) {
+    reqLog.error(
+      {},
+      'customer_request_submitted_stage_not_seeded',
+    );
+    return NextResponse.json(
+      { ok: false, error: 'Service temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  // 7. Generate token + INSERT.
+  let trackingToken: string;
+  try {
+    trackingToken = await generateUniqueTrackingToken();
+  } catch (err) {
+    reqLog.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      'customer_request_tracking_token_generation_failed',
+    );
+    return NextResponse.json(
+      { ok: false, error: 'Service temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  let insertedId: string;
+  try {
+    const [row] = await db
+      .insert(visitRequests)
+      .values({
+        customerName: parsed.data.name,
+        customerPhone: customerPhoneStorage,
+        customerEmail: parsed.data.email,
+        address: parsed.data.address,
+        cityId: cityRow.id,
+        customerState: parsed.data.state,
+        // bhk_type enum is spaceless; form gives '2 BHK'.
+        bhk: toDbBhk(parsed.data.bhk) as
+          | '1BHK'
+          | '2BHK'
+          | '3BHK'
+          | '4BHK'
+          | 'Others',
+        interest: parsed.data.interest,
+        // Drizzle's numeric() expects string; tagged template handles
+        // both number and string inputs, but explicit String() keeps
+        // the call site obvious.
+        latitude:
+          parsed.data.latitude !== undefined
+            ? String(parsed.data.latitude)
+            : null,
+        longitude:
+          parsed.data.longitude !== undefined
+            ? String(parsed.data.longitude)
+            : null,
+        locationAccuracy:
+          parsed.data.accuracy !== undefined
+            ? String(parsed.data.accuracy)
+            : null,
+        trackingToken,
+        statusStageId: submittedStage.id,
+        // `source` defaults to 'web' at the column level.
+      })
+      .returning({ id: visitRequests.id });
+    insertedId = row.id;
+  } catch (err) {
+    reqLog.error(
+      { err: err instanceof Error ? err.message : String(err) },
+      'customer_request_insert_failed',
+    );
+    return NextResponse.json(
+      { ok: false, error: 'Service temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  // 8. Audit log. Customer is anonymous — actor_user_id NULL. action
+  //    name 'request_created' is flat snake_case per the HVA-28
+  //    precedent (codebase convention; Linear body's casual
+  //    'request.created' dot-form is descriptive only).
+  await logEvent({
+    eventType: 'request_created',
+    actorUserId: null,
+    actorRole: null,
+    targetEntityType: 'visit_request',
+    targetEntityId: insertedId,
+    afterState: {
+      trackingToken,
+      city: parsed.data.city,
+      bhk: parsed.data.bhk,
+      interestCount: parsed.data.interest.length,
+      hasCoords: parsed.data.latitude !== undefined,
+    },
+    reason: 'customer_form_submission',
+    ipAddress: ip,
+    userAgent: reqHeaders.get('user-agent'),
+  });
+
+  // 9. Notification engine — STUB. HVA-48 (multi-channel dispatch) and
+  //    HVA-49 (WhatsApp/email transport) will replace this with the
+  //    real call.
+  // TODO(HVA-48/HVA-49): dispatchNotification('request.submitted', {
+  //   requestId: insertedId,
+  //   customerName: parsed.data.name,
+  //   customerPhone: customerPhoneStorage,
+  //   customerEmail: parsed.data.email,
+  //   trackingToken,
+  // })
   reqLog.info(
-    { attemptsInWindow, hasCoords: payload.latitude !== undefined },
-    'customer_request_stub_passed_anti_spam',
+    {
+      requestId: insertedId,
+      trackingToken,
+      notificationEngine: 'pending_HVA-48',
+    },
+    'customer_request_notification_pending',
   );
 
   return NextResponse.json(
-    { ok: true, stub: true, message: 'HVA-34 anti-spam checks passed' },
+    { ok: true, trackingToken },
     { status: 200 },
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -145,6 +146,7 @@ const CHIP_CLASS = cn(
 );
 
 export function RequestForm() {
+  const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<CustomerRequestInput>({
@@ -326,20 +328,27 @@ export function RequestForm() {
         return;
       }
 
-      // 200 (stub) — HVA-34 anti-spam passed. HVA-33 will return
-      // redirect info here; until then we just confirm to the user.
-      toast.success("Anti-spam checks passed. DB write lands in HVA-33.", {
-        description:
-          "Token generation, DB insert, and success redirect are wired in the next issue.",
-      });
-      // Optional dev-console echo so the reviewer can see the validated
-      // payload shape downstream code will receive.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { turnstileToken: _t, ...payload } = values;
-      console.log("[HVA-31/34] validated payload (sans token)", {
-        ...payload,
-        phone_storage: `+91${values.phone}`,
-      });
+      // 200 — HVA-33: server inserted the row and returned the
+      // tracking token. Two shapes:
+      //   { ok: true, trackingToken } — fresh submission.
+      //   { ok: true, duplicate: true, existingTrackingToken } —
+      //     phone-duplicate soft block; redirect to the ORIGINAL
+      //     confirmation so the customer recovers their token.
+      // In both cases the destination is /submitted/<token>; the
+      // success screen is the user-facing confirmation. No toast on
+      // the happy path — the page transition is the feedback.
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        trackingToken?: string;
+        duplicate?: boolean;
+        existingTrackingToken?: string;
+      };
+      const token = j.duplicate ? j.existingTrackingToken : j.trackingToken;
+      if (!token) {
+        toast.error("Submission succeeded but no token was returned.");
+        return;
+      }
+      router.push(`/submitted/${token}`);
     } catch (err) {
       toast.error(
         err instanceof Error

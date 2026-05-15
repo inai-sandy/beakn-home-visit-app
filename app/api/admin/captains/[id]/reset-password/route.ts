@@ -1,0 +1,86 @@
+import { hashPassword } from 'better-auth/crypto';
+import { and, eq, ne } from 'drizzle-orm';
+import { headers as headersFn } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+
+import { db } from '@/db/client';
+import { accounts, sessions, users } from '@/db/schema';
+import { requireSuperAdmin } from '@/lib/admin/auth-helper';
+import { generateTempPassword } from '@/lib/admin/temp-password';
+import { logEvent } from '@/lib/audit';
+
+// HVA-91: POST /api/admin/captains/[id]/reset-password
+//
+// Generates a new temp password, hashes it, sets must_change_password=true,
+// AND revokes every active session for this captain so old devices are
+// kicked out. Shown ONCE in response — caller must communicate verbally.
+// Pattern matches HVA-26's set-password atomic transaction (update accounts
+// + flip must_change_password + delete other sessions). Difference: here
+// we delete ALL sessions (no "current session" to preserve — admin is
+// acting on someone else's account).
+
+const paramsSchema = z.object({ id: z.string().uuid() });
+interface Ctx { params: Promise<{ id: string }> }
+
+export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
+  const guard = await requireSuperAdmin();
+  if (!guard.ok) return guard.response;
+  const actor = guard.session.user as { id: string };
+
+  const params = paramsSchema.safeParse(await ctx.params);
+  if (!params.success) {
+    return NextResponse.json({ ok: false, error: 'Invalid id' }, { status: 400 });
+  }
+  const userId = params.data.id;
+
+  const [target] = await db
+    .select({ id: users.id, role: users.role, fullName: users.fullName, isActive: users.isActive })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!target || target.role !== 'captain') {
+    return NextResponse.json({ ok: false, error: 'Captain not found' }, { status: 404 });
+  }
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(accounts)
+        .set({ password: passwordHash, updatedAt: new Date() })
+        .where(and(eq(accounts.userId, userId), eq(accounts.providerId, 'credential')));
+      await tx
+        .update(users)
+        .set({ mustChangePassword: true, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      // Wipe every active session — admin reset implies all devices kicked.
+      await tx.delete(sessions).where(eq(sessions.userId, userId));
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : 'Service temporarily unavailable.' },
+      { status: 503 },
+    );
+  }
+
+  const reqHeaders = await headersFn();
+  await logEvent({
+    eventType: 'captain_password_reset',
+    actorUserId: actor.id,
+    actorRole: 'super_admin',
+    targetEntityType: 'user',
+    targetEntityId: userId,
+    afterState: { fullName: target.fullName, mustChangePassword: true, sessionsRevoked: true },
+    ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+    userAgent: reqHeaders.get('user-agent'),
+  });
+
+  // Excluded — keeping all sessions wiped means signing out the actor too is irrelevant since they're super_admin.
+  // Just suppress the unused-ne import.
+  void ne;
+
+  return NextResponse.json({ ok: true, tempPassword }, { status: 200 });
+}

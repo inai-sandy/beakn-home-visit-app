@@ -1,38 +1,75 @@
+import type { Metadata } from 'next';
+import Image from 'next/image';
+import { redirect } from 'next/navigation';
+
 import { getServerSession } from '@/lib/auth-server';
+
+import { SetPasswordForm } from './set-password-form';
 
 export const dynamic = 'force-dynamic';
 
-// Placeholder for HVA-26 (Set Your Password — mandatory first-login change).
-// HVA-25's proxy.ts pins authenticated users with mustChangePassword=true to
-// this route. The real form (current password / new password / confirm new
-// password + Zod validation + submit handler that flips the flag) lands in
-// HVA-26.
+export const metadata: Metadata = {
+  title: 'Set your password — Beakn',
+  description: 'Set your Beakn account password.',
+};
+
+const ROLE_HOME: Record<string, string> = {
+  sales_executive: '/today',
+  captain: '/captain/dashboard',
+  super_admin: '/admin/dashboard',
+};
+
+// /set-password is the mandatory first-login step. HVA-25's proxy.ts pins
+// authenticated users with mustChangePassword=true here. This server
+// component adds two defense-in-depth checks the proxy already covers:
+//
+//   1. No session at all → /login. (Proxy already redirects, but if proxy
+//      logic regresses or the page is hit from a non-matched context, we
+//      catch it here.)
+//   2. Session present + mustChangePassword=false → role home. Prevents
+//      a user who already has a real password from re-submitting via this
+//      form (which would skip the current-password check).
+//
+// Both checks are cheap (one getServerSession call) and keep the form's
+// preconditions explicit at the page level too.
 export default async function SetPasswordPage() {
   const session = await getServerSession();
+
+  if (!session) {
+    redirect('/login?next=%2Fset-password');
+  }
+
+  const user = session.user as {
+    role?: string;
+    mustChangePassword?: boolean;
+  };
+
+  if (!user.mustChangePassword) {
+    redirect(user.role ? ROLE_HOME[user.role] ?? '/' : '/');
+  }
+
   return (
-    <main className="p-8 font-mono text-sm space-y-4">
-      <h1 className="text-lg font-semibold">Set your password (placeholder)</h1>
-      <p className="text-muted-foreground">
-        Full Set-Password UI lands in HVA-26. You&apos;re seeing this because
-        either (a) <code>mustChangePassword=true</code> pinned you here, or
-        (b) you navigated to <code>/set-password</code> directly.
-      </p>
-      <pre className="bg-muted p-4 rounded-md">
-{JSON.stringify(
-  {
-    user: session?.user
-      ? {
-          id: session.user.id,
-          role: (session.user as { role?: string }).role ?? null,
-          mustChangePassword:
-            (session.user as { mustChangePassword?: boolean }).mustChangePassword ?? null,
-        }
-      : null,
-  },
-  null,
-  2,
-)}
-      </pre>
+    <main className="min-h-svh flex flex-col items-center justify-center px-6 py-10 bg-background">
+      <div className="w-full max-w-md flex flex-col items-center">
+        <Image
+          src="/icon-512x512.png"
+          alt="Beakn"
+          width={64}
+          height={64}
+          priority
+          className="mb-5 rounded-2xl"
+        />
+        <h1 className="text-2xl font-semibold tracking-tight text-center mb-1">
+          Welcome to Beakn — set your password
+        </h1>
+        <p className="text-sm text-muted-foreground text-center mb-8">
+          For security, please choose a new password to continue.
+        </p>
+
+        <div className="w-full sm:rounded-3xl sm:border sm:bg-card sm:p-6 sm:shadow-sm">
+          <SetPasswordForm />
+        </div>
+      </div>
     </main>
   );
 }

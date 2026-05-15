@@ -51,10 +51,22 @@ const SKIP_PREFIXES = [
 // Logged + request_id stamped, but no auth-redirect logic (responses come from
 // the underlying handler verbatim). API routes that need auth do it themselves
 // via lib/auth-server.ts.
+//
+// HVA-99 (security gate): /dev/* routes are exempted from auth-redirect ONLY
+// in non-production environments. On production NODE_ENV='production' so the
+// array drops the entry and proxy.ts default-denies every /dev/* path,
+// bouncing anonymous callers to /login. Rationale (verbatim from HVA-99):
+// /dev/audit-health was writing 2 audit_log rows per anonymous GET, plus
+// /dev/config-health was dumping full config snapshot. Forensic + info
+// disclosure neutralised by gating at the proxy rather than per-page.
+// Local dev / `pnpm dev` (NODE_ENV='development') and Docker build steps
+// (NODE_ENV unset or test-ish) keep the prior keep-it-convenient behaviour.
 const NO_AUTH_PREFIXES = [
   '/api/auth/', // Better-Auth's own surface — never redirect it
   '/api/health', // Docker HEALTHCHECK + monitoring; must stay public
-  '/dev/', // developer smoke routes; convenient to keep public during build-out
+  ...(process.env.NODE_ENV !== 'production'
+    ? ['/dev/'] // developer smoke routes — dev/test only; see HVA-99
+    : []),
 ];
 
 // Public page routes (no session required). Authenticated users hitting

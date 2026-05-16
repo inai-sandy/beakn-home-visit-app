@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
-import { accounts, sessions, users } from '@/db/schema';
+import { accounts, auditLog, sessions, users } from '@/db/schema';
 
 import { setPasswordAction } from '@/app/set-password/actions';
 
@@ -143,6 +143,33 @@ describe('set-password action: success path', () => {
       .limit(1);
     expect(a.password).toBeDefined();
     expect(a.password?.length).toBeGreaterThan(20);
+
+    // HVA-108: audit_log row written with event_type='password_set'.
+    // The action emits this on every first-login completion; without the
+    // allow-list entry the row would be silently dropped (the original
+    // defect). Asserting on count + shape guards against a re-regression.
+    const audit = await db
+      .select({
+        eventType: auditLog.eventType,
+        actorUserId: auditLog.actorUserId,
+        actorRole: auditLog.actorRole,
+        targetEntityType: auditLog.targetEntityType,
+        targetEntityId: auditLog.targetEntityId,
+        reason: auditLog.reason,
+        afterState: auditLog.afterState,
+      })
+      .from(auditLog)
+      .where(eq(auditLog.eventType, 'password_set'));
+    expect(audit.length).toBe(1);
+    expect(audit[0].actorUserId).toBe(cap.id);
+    expect(audit[0].actorRole).toBe('captain');
+    expect(audit[0].targetEntityType).toBe('user');
+    expect(audit[0].targetEntityId).toBe(cap.id);
+    expect(audit[0].reason).toBe('first_login_password_change');
+    expect(audit[0].afterState).toMatchObject({
+      mustChangePassword: false,
+      sessionsRevokedExceptCurrent: true,
+    });
   });
 
   it('redirects super_admin to /admin/dashboard', async () => {

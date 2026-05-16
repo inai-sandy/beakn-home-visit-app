@@ -191,6 +191,7 @@ export const CONFIG_SCHEMA = {
       'payment_entry',
       'login',
       'logout',
+      'password_set',
       'password_changed',
       'request_created',
       'request_assigned',

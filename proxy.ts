@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { nanoid } from 'nanoid';
 
 import { auth } from '@/lib/auth';
+import { isRole, ROLE_HOME, USER_ROLES } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 
 // =============================================================================
@@ -83,12 +84,6 @@ const PUBLIC_PAGE_PREFIXES = [
   '/track/', // customer tracking page (HVA-1.5)
 ];
 
-const ROLE_HOME: Record<string, string> = {
-  sales_executive: '/today',
-  captain: '/captain/dashboard',
-  super_admin: '/admin/dashboard',
-};
-
 const MAX_UA_LEN = 200;
 
 function isSkipped(pathname: string): boolean {
@@ -125,15 +120,15 @@ function canAccess(pathname: string, role: string): boolean {
   // The escape hatch is *narrow*: super_admin only, even with the flag on.
   if (pathname.startsWith('/dev/') && process.env.NODE_ENV === 'production') {
     return (
-      role === 'super_admin' && process.env.DEV_ROUTES_ENABLED === 'true'
+      role === USER_ROLES.SUPER_ADMIN && process.env.DEV_ROUTES_ENABLED === 'true'
     );
   }
-  if (role === 'super_admin') return true;
+  if (role === USER_ROLES.SUPER_ADMIN) return true;
   if (pathname === '/today' || pathname.startsWith('/today/')) {
-    return role === 'sales_executive';
+    return role === USER_ROLES.SALES_EXECUTIVE;
   }
-  if (pathname.startsWith('/captain/')) return role === 'captain';
-  if (pathname.startsWith('/admin/')) return role === 'super_admin';
+  if (pathname.startsWith('/captain/')) return role === USER_ROLES.CAPTAIN;
+  if (pathname.startsWith('/admin/')) return role === USER_ROLES.SUPER_ADMIN;
   // /set-password is accessible to any authenticated user (gated by
   // mustChangePassword check above this in the flow).
   if (pathname === '/set-password') return true;
@@ -221,7 +216,9 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     if (session && (pathname === '/login' || pathname === '/forgot-password')) {
       const target = mustChange
         ? '/set-password'
-        : (role && ROLE_HOME[role]) || '/';
+        : isRole(role)
+          ? ROLE_HOME[role]
+          : '/';
       emitRequestStartLog({ redirectedTo: target, reason: 'authed_visiting_login' });
       return withRequestIdHeaders(
         NextResponse.redirect(new URL(target, req.url), 307),
@@ -257,7 +254,7 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
 
   // 4. Role-based access control.
   if (role && !canAccess(pathname, role)) {
-    const home = ROLE_HOME[role] ?? '/';
+    const home = isRole(role) ? ROLE_HOME[role] : '/';
     const target = `${home}?denied=1`;
     emitRequestStartLog({
       redirectedTo: home,

@@ -7,6 +7,7 @@ import { db } from '@/db/client';
 import { sessions, statusStages, users, visitRequests } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 
 // HVA-92: POST /api/admin/executives/[id]/deactivate
 //
@@ -40,7 +41,7 @@ export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  if (!target || target.role !== 'sales_executive') {
+  if (!target || target.role !== USER_ROLES.SALES_EXECUTIVE) {
     return NextResponse.json({ ok: false, error: 'Executive not found' }, { status: 404 });
   }
   if (!target.isActive) {
@@ -99,7 +100,7 @@ export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
   await logEvent({
     eventType: 'executive_deactivated',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: userId,
     afterState: { fullName: target.fullName, isActive: false, sessionsRevoked: true },

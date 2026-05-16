@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { USER_ROLES } from '@/lib/auth/roles';
 import {
   ForbiddenError,
   requireAuth,
@@ -29,7 +30,7 @@ export type SuperAdminGuardResult =
 
 export async function requireSuperAdmin(): Promise<SuperAdminGuardResult> {
   try {
-    const session = await requireAuth(['super_admin']);
+    const session = await requireAuth([USER_ROLES.SUPER_ADMIN]);
     return { ok: true, session };
   } catch (err) {
     if (err instanceof UnauthorizedError) {

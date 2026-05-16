@@ -7,6 +7,7 @@ import { db } from '@/db/client';
 import { cities } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { cityRoutingEmailUpdateSchema } from '@/lib/validators/admin-cities';
 
 // =============================================================================
@@ -127,7 +128,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
   await logEvent({
     eventType: 'city_routing_email_updated',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'city',
     targetEntityId: cityId,
     beforeState: { name: existing.name, captainRoutingEmail: before },

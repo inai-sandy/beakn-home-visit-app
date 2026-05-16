@@ -13,6 +13,7 @@ import {
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { generateTempPassword } from '@/lib/admin/temp-password';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { captainCreateSchema } from '@/lib/validators/admin-users';
 
 // =============================================================================
@@ -151,7 +152,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       const [u] = await tx
         .insert(users)
         .values({
-          role: 'captain',
+          role: USER_ROLES.CAPTAIN,
           fullName,
           phone: phoneStorage,
           email: email ?? null,
@@ -188,11 +189,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   await logEvent({
     eventType: 'captain_created',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: createdId,
     afterState: {
-      role: 'captain',
+      role: USER_ROLES.CAPTAIN,
       fullName,
       phone: phoneStorage,
       email: email ?? null,

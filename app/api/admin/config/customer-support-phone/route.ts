@@ -6,6 +6,7 @@ import { db } from '@/db/client';
 import { config } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { clearConfigCache } from '@/lib/config';
 import { customerSupportPhoneUpdateSchema } from '@/lib/validators/admin-config';
 
@@ -115,7 +116,7 @@ export async function PATCH(req: Request): Promise<NextResponse> {
   await logEvent({
     eventType: 'configuration_change',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'config_key',
     targetEntityId: KEY,
     beforeState: { value: before },

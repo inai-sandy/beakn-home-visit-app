@@ -7,6 +7,7 @@ import { db } from '@/db/client';
 import { cities, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { captainEditSchema } from '@/lib/validators/admin-users';
 
 // =============================================================================
@@ -54,7 +55,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
     .from(users)
     .where(eq(users.id, captainId))
     .limit(1);
-  if (!existing || existing.role !== 'captain') {
+  if (!existing || existing.role !== USER_ROLES.CAPTAIN) {
     return NextResponse.json({ ok: false, error: 'Captain not found' }, { status: 404 });
   }
 
@@ -186,7 +187,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
   await logEvent({
     eventType: 'captain_updated',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: captainId,
     beforeState: {

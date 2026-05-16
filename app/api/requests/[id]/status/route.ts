@@ -7,6 +7,7 @@ import {
   requireAuth,
   UnauthorizedError,
 } from '@/lib/auth-server';
+import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 import { transitionRequestStatus } from '@/lib/status-transition';
 
@@ -22,7 +23,11 @@ import { transitionRequestStatus } from '@/lib/status-transition';
 // transaction (paired with the exec-assignment write).
 // =============================================================================
 
-const ALLOWED_ROLES = ['sales_executive', 'captain', 'super_admin'] as const;
+const ALLOWED_ROLES = [
+  USER_ROLES.SALES_EXECUTIVE,
+  USER_ROLES.CAPTAIN,
+  USER_ROLES.SUPER_ADMIN,
+] as const;
 const apiLog = log.child({ route: '/api/requests/[id]/status' });
 
 const bodySchema = z.object({
@@ -65,10 +70,7 @@ export async function POST(
     throw err;
   }
   const actorUserId = session.user.id;
-  const actorRole = (session.user as { role?: string }).role as
-    | 'sales_executive'
-    | 'captain'
-    | 'super_admin';
+  const actorRole = (session.user as { role?: string }).role as Role;
 
   const paramsParsed = paramsSchema.safeParse(await ctx.params);
   if (!paramsParsed.success) {

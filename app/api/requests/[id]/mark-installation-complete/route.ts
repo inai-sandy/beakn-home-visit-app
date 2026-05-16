@@ -129,11 +129,12 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
   }
   const note = bodyParsed.data.note;
 
-  // 3. Load the request + its current stage.
+  // 3. Load the request + its current stage + terminal flag.
   const [reqRow] = await db
     .select({
       id: visitRequests.id,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      cancelledAt: visitRequests.cancelledAt,
       statusStageCode: statusStages.code,
       statusStageName: statusStages.name,
     })
@@ -144,6 +145,18 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
 
   if (!reqRow) {
     return NextResponse.json({ ok: false, error: 'Request not found' }, { status: 404 });
+  }
+
+  // HVA-69: a terminal-rejected request cannot be marked complete.
+  // Matches the page-level button-hide; defends against direct curl.
+  if (reqRow.cancelledAt !== null) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Request is terminal-rejected. Cannot mark installation complete.',
+      },
+      { status: 409 },
+    );
   }
 
   // 4. Per-request authorization. super_admin bypasses; otherwise the

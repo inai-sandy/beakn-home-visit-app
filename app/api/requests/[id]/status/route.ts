@@ -105,29 +105,43 @@ export async function POST(
   }
   const { nextStatusId, reason } = bodyParsed.data;
 
-  // HVA-68: defensive role/stage gate. A request at PENDING_CAPTAIN_APPROVAL
-  // is waiting for the captain's Approve/Reject (HVA-80). Hide the button +
-  // refuse the API for a sales_executive standing here, so an exec can't
-  // bypass captain approval by POSTing directly. Captain and super_admin
-  // still go through — captain is the intended next actor; super_admin is
-  // the global escape hatch.
-  if (actorRole === USER_ROLES.SALES_EXECUTIVE) {
-    const [currentRow] = await db
-      .select({ code: statusStages.code })
-      .from(visitRequests)
-      .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
-      .where(eq(visitRequests.id, requestUuid))
-      .limit(1);
-    if (currentRow?.code === 'PENDING_CAPTAIN_APPROVAL') {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Captain approval is required from this stage. Wait for the captain to approve or reject.',
-        },
-        { status: 403 },
-      );
-    }
+  // HVA-68 + HVA-69: defensive stage / terminal-state gates.
+  // - HVA-69: cancelled_at IS NOT NULL → request is terminal-rejected.
+  //   Any actor (including super_admin) gets 409 — once rejected, no
+  //   further forward transitions. A future "reopen" flow would explicitly
+  //   un-set cancelled_at; that's not part of this ship.
+  // - HVA-68: At PENDING_CAPTAIN_APPROVAL, sales_executive is blocked
+  //   (waiting on captain approval). Captain + super_admin pass through.
+  const [currentRow] = await db
+    .select({
+      code: statusStages.code,
+      cancelledAt: visitRequests.cancelledAt,
+    })
+    .from(visitRequests)
+    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .where(eq(visitRequests.id, requestUuid))
+    .limit(1);
+  if (currentRow?.cancelledAt) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Request is terminal-rejected. No further status transitions.',
+      },
+      { status: 409 },
+    );
+  }
+  if (
+    actorRole === USER_ROLES.SALES_EXECUTIVE &&
+    currentRow?.code === 'PENDING_CAPTAIN_APPROVAL'
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Captain approval is required from this stage. Wait for the captain to approve or reject.',
+      },
+      { status: 403 },
+    );
   }
 
   const result = await transitionRequestStatus({

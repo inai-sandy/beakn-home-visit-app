@@ -18,8 +18,11 @@ import {
 import { getServerSession } from "@/lib/auth-server";
 import { cn } from "@/lib/utils";
 
+import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
+
 import { AdvanceStatusButton } from "./advance-status-button";
 import { CopyAddressButton } from "./copy-address-button";
+import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
 
 // =============================================================================
@@ -124,6 +127,13 @@ export default async function RequestDetailPage({ params }: PageProps) {
       currentStageSeq: statusStages.sequenceNumber,
       currentStageName: statusStages.name,
       currentStageCode: statusStages.code,
+      // HVA-69: terminal-state flag + rejection metadata for the
+      // read-only summary card.
+      cancelledAt: visitRequests.cancelledAt,
+      cancellationActor: visitRequests.cancellationActor,
+      cancellationReasonCode: visitRequests.cancellationReasonCode,
+      cancellationReason: visitRequests.cancellationReason,
+      cancelledByUserId: visitRequests.cancelledByUserId,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -335,7 +345,38 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </ol>
         </section>
 
-        {!isTerminal && nextStage && canAdvance && (() => {
+        {reqRow.cancelledAt && (
+          <section className="rounded-3xl border border-destructive/30 bg-destructive/5 p-5 shadow-sm space-y-2">
+            <div className="flex items-center gap-2">
+              <Icon name="cancel" size="sm" className="text-destructive" />
+              <h2 className="text-base font-semibold tracking-tight text-destructive">
+                Customer rejected — request closed
+              </h2>
+            </div>
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Reason</dt>
+              <dd>
+                {reqRow.cancellationReasonCode
+                  ? REJECTION_REASONS[
+                      reqRow.cancellationReasonCode as RejectionReason
+                    ] ?? reqRow.cancellationReasonCode
+                  : "—"}
+              </dd>
+              {reqRow.cancellationReason && (
+                <>
+                  <dt className="text-muted-foreground">Note</dt>
+                  <dd className="whitespace-pre-wrap">{reqRow.cancellationReason}</dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">Marked by</dt>
+              <dd className="capitalize">{reqRow.cancellationActor ?? "—"}</dd>
+              <dt className="text-muted-foreground">When</dt>
+              <dd>{format(reqRow.cancelledAt, "PPpp")}</dd>
+            </dl>
+          </section>
+        )}
+
+        {!reqRow.cancelledAt && !isTerminal && nextStage && canAdvance && (() => {
           // HVA-68: When current stage is INSTALLATION_SCHEDULED or
           // INSTALLATION_CONFIGURATION_DONE, show "Mark Installation
           // Complete" alongside the generic next-stage button. The
@@ -358,8 +399,25 @@ export default async function RequestDetailPage({ params }: PageProps) {
             reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
             role === "sales_executive";
 
+          // HVA-69: Mark Customer Rejected — destructive terminal action.
+          // Visible at any non-terminal stage (i.e. NOT
+          // ORDER_EXECUTED_SUCCESSFULLY and NOT already cancelled — the
+          // surrounding `!reqRow.cancelledAt` gate handles the latter).
+          // Permissioned: assigned exec OR captain of the city OR
+          // super_admin.
+          const showMarkRejected =
+            reqRow.currentStageCode !== "ORDER_EXECUTED_SUCCESSFULLY" &&
+            (role === "super_admin" ||
+              (role === "sales_executive" &&
+                reqRow.assignedExecUserId === user.id) ||
+              (role === "captain" &&
+                reqRow.cityCaptainUserId === user.id));
+
           return (
             <section className="flex justify-end gap-3 flex-wrap">
+              {showMarkRejected && (
+                <MarkCustomerRejectedButton requestId={reqRow.id} />
+              )}
               {showMarkComplete && (
                 <MarkInstallationCompleteButton requestId={reqRow.id} />
               )}

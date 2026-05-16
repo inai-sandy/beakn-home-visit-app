@@ -101,7 +101,13 @@ export const visitRequests = pgTable(
     cancelledByUserId: uuid('cancelled_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // HVA-69 repurposes this column as the optional free-text note.
+    // The typed enum reason value lives in cancellationReasonCode below.
     cancellationReason: text('cancellation_reason'),
+    // HVA-69: enum-value identifier for the reason
+    // (see lib/rejection-reasons.ts). Length 64 leaves headroom for any
+    // future taxonomy expansion without another migration.
+    cancellationReasonCode: varchar('cancellation_reason_code', { length: 64 }),
 
     ...timestamps(),
   },

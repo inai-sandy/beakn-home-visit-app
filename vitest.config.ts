@@ -65,6 +65,8 @@ export default defineConfig({
         'lib/notifications/email-handlers/captain-new-request.ts',
         // HVA-68 coverage target
         'app/api/requests/[id]/mark-installation-complete/route.ts',
+        // HVA-69 coverage target
+        'app/api/requests/[id]/mark-customer-rejected/route.ts',
       ],
       reportOnFailure: true,
     },

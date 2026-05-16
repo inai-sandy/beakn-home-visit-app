@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
-import { auditLog, cities, payments, visitRequests } from '@/db/schema';
+import { auditLog, cities, payments, quotations, visitRequests } from '@/db/schema';
+import { computeCollectionSummary } from '@/lib/collection-summary';
 
 let currentCookieHeader: string | undefined;
 vi.mock('next/headers', () => ({
@@ -16,6 +17,7 @@ vi.mock('next/headers', () => ({
 
 import { POST } from '@/app/api/requests/[id]/payments/route';
 import { POST as voidPOST } from '@/app/api/requests/[id]/payments/[paymentId]/void/route';
+import { POST as quotationPOST } from '@/app/api/requests/[id]/quotation/route';
 
 import { loginByPhone } from '../helpers/auth';
 import {
@@ -466,5 +468,120 @@ describe('payments POST: cancelled guard', () => {
     currentCookieHeader = sess.cookieHeader;
     const res = await POST(buildReq(inboundBody()), buildCtx(req.id));
     expect(res.status).toBe(409);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Summary computation — overpayment surfacing (AC #9 follow-up)
+// ---------------------------------------------------------------------------
+//
+// The Collection section's summary block is server-rendered, but the
+// math lives in lib/collection-summary.ts so we can assert it directly.
+// HVA-101 doesn't render React, so there is no UI snapshot — the value
+// of THIS test is to lock the math behind the new "Overpaid" label.
+//
+// Scenario: quotation ₹800 (80000 paise) + one inbound ₹1,000 (100000
+// paise) → balancePaise = -20000, isOverpaid = true, overpaidPaise =
+// 20000.
+
+describe('payments summary computation: overpayment (AC #9)', () => {
+  it('quotation ₹800 paid ₹1,000 → balance -20000 paise, isOverpaid true', async () => {
+    const { exec, req } = await seedScene();
+    const sess = await loginByPhone(exec.phone, exec.password);
+    currentCookieHeader = sess.cookieHeader;
+
+    const qres = await quotationPOST(
+      new Request('https://x/y', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ totalOrderValuePaise: 80000 }),
+      }),
+      buildCtx(req.id),
+    );
+    expect(qres.status).toBe(201);
+
+    const pres = await POST(
+      buildReq(inboundBody({ amountPaise: 100000 })),
+      buildCtx(req.id),
+    );
+    expect(pres.status).toBe(201);
+
+    const [q] = await db
+      .select({ paise: quotations.totalOrderValuePaise })
+      .from(quotations)
+      .where(eq(quotations.visitRequestId, req.id));
+    const ps = await db
+      .select({
+        direction: payments.direction,
+        amountPaise: payments.amountPaise,
+        voidedAt: payments.voidedAt,
+      })
+      .from(payments)
+      .where(eq(payments.visitRequestId, req.id));
+
+    const summary = computeCollectionSummary(
+      Number(q.paise),
+      ps.map((p) => ({
+        direction: p.direction,
+        amountPaise: Number(p.amountPaise),
+        voidedAt: p.voidedAt,
+      })),
+    );
+
+    expect(summary.quotedPaise).toBe(80000);
+    expect(summary.inboundPaise).toBe(100000);
+    expect(summary.outboundPaise).toBe(0);
+    expect(summary.netReceivedPaise).toBe(100000);
+    expect(summary.balancePaise).toBe(-20000);
+    expect(summary.overpaidPaise).toBe(20000);
+    expect(summary.isOverpaid).toBe(true);
+    expect(summary.isFullyCollected).toBe(false);
+  });
+
+  it('refunding the overpayment returns to balance 0 (isFullyCollected true)', async () => {
+    const { captain, req } = await seedScene();
+    const capSess = await loginByPhone(captain.phone, captain.password);
+    currentCookieHeader = capSess.cookieHeader;
+
+    await quotationPOST(
+      new Request('https://x/y', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ totalOrderValuePaise: 80000 }),
+      }),
+      buildCtx(req.id),
+    );
+    await POST(buildReq(inboundBody({ amountPaise: 100000 })), buildCtx(req.id));
+    await POST(
+      buildReq(outboundBody({ amountPaise: 20000, label: 'Refund overpaid' })),
+      buildCtx(req.id),
+    );
+
+    const [q] = await db
+      .select({ paise: quotations.totalOrderValuePaise })
+      .from(quotations)
+      .where(eq(quotations.visitRequestId, req.id));
+    const ps = await db
+      .select({
+        direction: payments.direction,
+        amountPaise: payments.amountPaise,
+        voidedAt: payments.voidedAt,
+      })
+      .from(payments)
+      .where(eq(payments.visitRequestId, req.id));
+
+    const summary = computeCollectionSummary(
+      Number(q.paise),
+      ps.map((p) => ({
+        direction: p.direction,
+        amountPaise: Number(p.amountPaise),
+        voidedAt: p.voidedAt,
+      })),
+    );
+
+    expect(summary.balancePaise).toBe(0);
+    expect(summary.isOverpaid).toBe(false);
+    expect(summary.isFullyCollected).toBe(true);
+    expect(summary.overpaidPaise).toBe(0);
   });
 });

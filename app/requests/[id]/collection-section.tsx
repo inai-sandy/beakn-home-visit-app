@@ -5,6 +5,7 @@ import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import { payments, quotations, users } from "@/db/schema";
 import { type Role, USER_ROLES } from "@/lib/auth/roles";
+import { computeCollectionSummary } from "@/lib/collection-summary";
 import { formatInrFromPaise } from "@/lib/money";
 import { formatIstDateTime } from "@/lib/request-detail";
 import { cn } from "@/lib/utils";
@@ -114,20 +115,16 @@ export async function CollectionSection({
     .where(eq(payments.visitRequestId, requestId))
     .orderBy(asc(payments.paymentDate), asc(payments.createdAt));
 
-  // Summary — voided rows excluded from totals.
-  let inboundPaise = 0;
-  let outboundPaise = 0;
-  for (const p of paymentRows) {
-    if (p.voidedAt !== null) continue;
-    const amt = Number(p.amountPaise);
-    if (p.direction === "inbound") inboundPaise += amt;
-    else outboundPaise += amt;
-  }
-  const totalQuotedPaise = quotationRow
-    ? Number(quotationRow.totalOrderValuePaise)
-    : 0;
-  const netReceivedPaise = inboundPaise - outboundPaise;
-  const balancePaise = totalQuotedPaise - netReceivedPaise;
+  // Summary — voided rows excluded from totals. Shared with the tests
+  // via lib/collection-summary.ts so the math stays a single source.
+  const summary = computeCollectionSummary(
+    quotationRow ? Number(quotationRow.totalOrderValuePaise) : 0,
+    paymentRows.map((p) => ({
+      direction: p.direction,
+      amountPaise: Number(p.amountPaise),
+      voidedAt: p.voidedAt,
+    })),
+  );
 
   return (
     <section
@@ -303,33 +300,60 @@ export async function CollectionSection({
         </h3>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm font-mono">
           <dt className="text-muted-foreground">Quoted</dt>
-          <dd className="text-right">{formatInrFromPaise(totalQuotedPaise)}</dd>
+          <dd className="text-right">
+            {formatInrFromPaise(summary.quotedPaise)}
+          </dd>
           <dt className="text-muted-foreground">Received (inbound)</dt>
-          <dd className="text-right">{formatInrFromPaise(inboundPaise)}</dd>
+          <dd className="text-right">
+            {formatInrFromPaise(summary.inboundPaise)}
+          </dd>
           <dt className="text-muted-foreground">Refunded (outbound)</dt>
-          <dd className="text-right">{formatInrFromPaise(outboundPaise)}</dd>
+          <dd className="text-right">
+            {formatInrFromPaise(summary.outboundPaise)}
+          </dd>
           <dt className="text-muted-foreground border-t pt-1">Net received</dt>
           <dd className="text-right border-t pt-1 font-semibold">
-            {formatInrFromPaise(netReceivedPaise)}
+            {formatInrFromPaise(summary.netReceivedPaise)}
           </dd>
-          <dt
-            className={cn(
-              "border-t pt-1",
-              balancePaise <= 0
-                ? "text-emerald-700"
-                : "text-muted-foreground",
-            )}
-          >
-            Balance due
-          </dt>
-          <dd
-            className={cn(
-              "text-right border-t pt-1 font-semibold",
-              balancePaise <= 0 ? "text-emerald-700" : "text-foreground",
-            )}
-          >
-            {formatInrFromPaise(Math.max(balancePaise, 0))}
-          </dd>
+          {/*
+            Three-way branch:
+              - overpaid (balance < 0) → amber "Overpaid", magnitude shown
+                via -balancePaise. Open obligation — math is settled but
+                we owe the customer. Distinct from "fully collected".
+              - fully collected (balance == 0) → green "Balance due: ₹0".
+              - outstanding (balance > 0) → destructive red "Balance due".
+          */}
+          {summary.isOverpaid ? (
+            <>
+              <dt className="border-t pt-1 text-amber-700">Overpaid</dt>
+              <dd className="text-right border-t pt-1 font-semibold text-amber-700">
+                {formatInrFromPaise(summary.overpaidPaise)}
+              </dd>
+            </>
+          ) : (
+            <>
+              <dt
+                className={cn(
+                  "border-t pt-1",
+                  summary.isFullyCollected
+                    ? "text-emerald-700"
+                    : "text-destructive",
+                )}
+              >
+                Balance due
+              </dt>
+              <dd
+                className={cn(
+                  "text-right border-t pt-1 font-semibold",
+                  summary.isFullyCollected
+                    ? "text-emerald-700"
+                    : "text-destructive",
+                )}
+              >
+                {formatInrFromPaise(summary.balancePaise)}
+              </dd>
+            </>
+          )}
         </dl>
       </div>
     </section>

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { sendEmail } from '@/lib/email';
 import { customerTrackingLink } from '@/lib/email-templates';
@@ -35,7 +36,7 @@ interface PageProps {
 }
 
 function isAllowed(role: string | undefined): boolean {
-  if (role !== 'super_admin') return false;
+  if (role !== USER_ROLES.SUPER_ADMIN) return false;
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) return true;
   return process.env.DEV_ROUTES_ENABLED === 'true';

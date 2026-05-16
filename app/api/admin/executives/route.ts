@@ -8,6 +8,7 @@ import { accounts, salesExecutives, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { generateTempPassword } from '@/lib/admin/temp-password';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { executiveCreateSchema } from '@/lib/validators/admin-users';
 
 // HVA-92: POST /api/admin/executives — create sales executive on captain's team
@@ -83,7 +84,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     .from(users)
     .where(eq(users.id, captainUserId))
     .limit(1);
-  if (!cap || cap.role !== 'captain') {
+  if (!cap || cap.role !== USER_ROLES.CAPTAIN) {
     return NextResponse.json(
       { ok: false, error: 'Captain not found.', fieldErrors: { captainUserId: 'Invalid captain' } },
       { status: 400 },
@@ -105,7 +106,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       const [u] = await tx
         .insert(users)
         .values({
-          role: 'sales_executive',
+          role: USER_ROLES.SALES_EXECUTIVE,
           fullName,
           phone: phoneStorage,
           email: email ?? null,
@@ -137,11 +138,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   await logEvent({
     eventType: 'executive_created',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: createdId,
     afterState: {
-      role: 'sales_executive',
+      role: USER_ROLES.SALES_EXECUTIVE,
       fullName,
       phone: phoneStorage,
       email: email ?? null,

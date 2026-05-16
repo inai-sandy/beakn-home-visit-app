@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import { redirect } from 'next/navigation';
 
+import { ROLE_HOME, isRole } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 
 import { SetPasswordForm } from './set-password-form';
@@ -11,12 +12,6 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Set your password — Beakn',
   description: 'Set your Beakn account password.',
-};
-
-const ROLE_HOME: Record<string, string> = {
-  sales_executive: '/today',
-  captain: '/captain/dashboard',
-  super_admin: '/admin/dashboard',
 };
 
 // /set-password is the mandatory first-login step. HVA-25's proxy.ts pins
@@ -45,7 +40,7 @@ export default async function SetPasswordPage() {
   };
 
   if (!user.mustChangePassword) {
-    redirect(user.role ? ROLE_HOME[user.role] ?? '/' : '/');
+    redirect(isRole(user.role) ? ROLE_HOME[user.role] : '/');
   }
 
   return (

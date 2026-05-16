@@ -7,6 +7,7 @@ import { db } from '@/db/client';
 import { salesExecutives, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { executiveEditSchema } from '@/lib/validators/admin-users';
 
 // HVA-92: PATCH /api/admin/executives/[id] — edit executive
@@ -42,7 +43,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
     .innerJoin(salesExecutives, eq(salesExecutives.userId, users.id))
     .where(eq(users.id, execId))
     .limit(1);
-  if (!existing || existing.role !== 'sales_executive') {
+  if (!existing || existing.role !== USER_ROLES.SALES_EXECUTIVE) {
     return NextResponse.json({ ok: false, error: 'Executive not found' }, { status: 404 });
   }
 
@@ -95,7 +96,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
     .from(users)
     .where(eq(users.id, captainUserId))
     .limit(1);
-  if (!cap || cap.role !== 'captain') {
+  if (!cap || cap.role !== USER_ROLES.CAPTAIN) {
     return NextResponse.json(
       { ok: false, error: 'Captain not found.', fieldErrors: { captainUserId: 'Invalid captain' } },
       { status: 400 },
@@ -130,7 +131,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
   await logEvent({
     eventType: 'executive_updated',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: execId,
     beforeState: {

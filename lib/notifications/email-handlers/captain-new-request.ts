@@ -5,6 +5,7 @@ import { cities, users } from '@/db/schema';
 import { sendEmail } from '@/lib/email';
 import { captainNewRequest, type RoutingFlavor } from '@/lib/email-templates';
 import { on, type AppEvents } from '@/lib/events';
+import { USER_ROLES } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 
 // =============================================================================
@@ -165,7 +166,7 @@ async function loadActiveSuperAdminEmails(): Promise<string[]> {
   const rows = await db
     .select({ email: users.email })
     .from(users)
-    .where(and(eq(users.role, 'super_admin'), eq(users.isActive, true)));
+    .where(and(eq(users.role, USER_ROLES.SUPER_ADMIN), eq(users.isActive, true)));
   return rows
     .map((r) => r.email?.trim())
     .filter((e): e is string => !!e && e.length > 0);

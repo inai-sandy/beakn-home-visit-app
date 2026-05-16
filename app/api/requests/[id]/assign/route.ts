@@ -17,6 +17,7 @@ import {
   requireAuth,
   UnauthorizedError,
 } from '@/lib/auth-server';
+import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 import { transitionRequestStatus } from '@/lib/status-transition';
 
@@ -59,7 +60,7 @@ import { transitionRequestStatus } from '@/lib/status-transition';
 //     row), leave NULL and let the audit show super_admin acted alone.
 // =============================================================================
 
-const ALLOWED_ROLES = ['captain', 'super_admin'] as const;
+const ALLOWED_ROLES = [USER_ROLES.CAPTAIN, USER_ROLES.SUPER_ADMIN] as const;
 const apiLog = log.child({ route: '/api/requests/[id]/assign' });
 
 const bodySchema = z.object({
@@ -96,10 +97,9 @@ export async function POST(
     throw err;
   }
   const actorUserId = session.user.id;
-  const actorRole = (session.user as { role?: string }).role as
-    | 'captain'
-    | 'super_admin';
-  const isAdmin = actorRole === 'super_admin';
+  // requireAuth(ALLOWED_ROLES) already narrowed runtime to captain/super_admin.
+  const actorRole = (session.user as { role?: string }).role as Role;
+  const isAdmin = actorRole === USER_ROLES.SUPER_ADMIN;
 
   // 2. Validate path + body.
   const paramsParsed = paramsSchema.safeParse(await ctx.params);

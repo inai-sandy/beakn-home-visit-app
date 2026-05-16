@@ -3,6 +3,7 @@ import { desc, eq } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import { type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 
 // =============================================================================
@@ -68,7 +69,7 @@ export interface TransitionInput {
   requestId: string;
   nextStatusId: string;
   actorUserId: string;
-  actorRole: 'sales_executive' | 'captain' | 'super_admin';
+  actorRole: Role;
   reason?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;

@@ -8,6 +8,7 @@ import { db } from '@/db/client';
 import { sessions } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { auth } from '@/lib/auth';
+import { isRole, type Role } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { log } from '@/lib/logger';
 import {
@@ -172,11 +173,7 @@ export async function changePasswordAction(
   await logEvent({
     eventType: 'password_changed',
     actorUserId: userId,
-    actorRole: userRole as
-      | 'sales_executive'
-      | 'captain'
-      | 'super_admin'
-      | undefined,
+    actorRole: isRole(userRole) ? (userRole as Role) : undefined,
     targetEntityType: 'user',
     targetEntityId: userId,
     afterState: {

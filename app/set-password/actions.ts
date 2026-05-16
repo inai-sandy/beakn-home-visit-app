@@ -6,6 +6,7 @@ import { and, eq, ne } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { accounts, sessions, users } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import { ROLE_HOME, isRole, type Role } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { setPasswordSchema, type SetPasswordInput } from '@/lib/validators/auth';
 
@@ -37,12 +38,6 @@ import { setPasswordSchema, type SetPasswordInput } from '@/lib/validators/auth'
 export type SetPasswordResult =
   | { ok: true; redirectTo: string }
   | { ok: false; error: string };
-
-const ROLE_HOME: Record<string, string> = {
-  sales_executive: '/today',
-  captain: '/captain/dashboard',
-  super_admin: '/admin/dashboard',
-};
 
 export async function setPasswordAction(
   input: SetPasswordInput,
@@ -115,7 +110,7 @@ export async function setPasswordAction(
   await logEvent({
     eventType: 'password_set',
     actorUserId: user.id,
-    actorRole: user.role as 'sales_executive' | 'captain' | 'super_admin' | undefined,
+    actorRole: isRole(user.role) ? (user.role as Role) : undefined,
     targetEntityType: 'user',
     targetEntityId: user.id,
     afterState: { mustChangePassword: false, sessionsRevokedExceptCurrent: true },
@@ -124,6 +119,6 @@ export async function setPasswordAction(
 
   // 7. Tell the client where to go. Per AC: not configurable via ?next= —
   //    completion always lands on role home.
-  const redirectTo = (user.role && ROLE_HOME[user.role]) || '/';
+  const redirectTo = isRole(user.role) ? ROLE_HOME[user.role] : '/';
   return { ok: true, redirectTo };
 }

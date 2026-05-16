@@ -9,6 +9,7 @@ import { accounts, sessions, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { generateTempPassword } from '@/lib/admin/temp-password';
 import { logEvent } from '@/lib/audit';
+import { USER_ROLES } from '@/lib/auth/roles';
 
 // HVA-92: POST /api/admin/executives/[id]/reset-password — same pattern as
 // captain reset-password (HVA-91); only difference is the role gate.
@@ -32,7 +33,7 @@ export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  if (!target || target.role !== 'sales_executive') {
+  if (!target || target.role !== USER_ROLES.SALES_EXECUTIVE) {
     return NextResponse.json({ ok: false, error: 'Executive not found' }, { status: 404 });
   }
 
@@ -62,7 +63,7 @@ export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
   await logEvent({
     eventType: 'executive_password_reset',
     actorUserId: actor.id,
-    actorRole: 'super_admin',
+    actorRole: USER_ROLES.SUPER_ADMIN,
     targetEntityType: 'user',
     targetEntityId: userId,
     afterState: { fullName: target.fullName, mustChangePassword: true, sessionsRevoked: true },

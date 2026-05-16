@@ -67,6 +67,8 @@ export default defineConfig({
         'app/api/requests/[id]/mark-installation-complete/route.ts',
         // HVA-69 coverage target
         'app/api/requests/[id]/mark-customer-rejected/route.ts',
+        // HVA-66 coverage target — page-level helpers
+        'lib/request-detail.ts',
       ],
       reportOnFailure: true,
     },

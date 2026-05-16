@@ -1,6 +1,7 @@
 import { and, asc, eq, gt } from "drizzle-orm";
-import { formatDistanceToNow, format } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
@@ -15,10 +16,16 @@ import {
   users,
   visitRequests,
 } from "@/db/schema";
+import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
-import { cn } from "@/lib/utils";
-
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
+import {
+  computeActionVisibility,
+  formatIstDateTime,
+  terminalBadgeMeta,
+  type TerminalActor,
+} from "@/lib/request-detail";
+import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
 import { CopyAddressButton } from "./copy-address-button";
@@ -26,7 +33,7 @@ import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
 
 // =============================================================================
-// HVA-104: /requests/[id] — request detail screen MVP
+// HVA-66 (subsumes HVA-104): /requests/[id] — full request detail screen
 // =============================================================================
 //
 // Shared route across all 3 staff roles. The proxy default-deny path
@@ -43,14 +50,17 @@ import { MarkInstallationCompleteButton } from "./mark-installation-complete-but
 //   - super_admin:     always allow (HVA-99 escape hatch, intentional)
 //   - anonymous:       proxy.ts handles before we get here
 //
-// LAYOUT:
-//   1. Customer info card (top) — name + tel/mailto + address w/ Copy +
-//      BHK + interest tags + Open Maps (when lat AND lng both present)
-//   2. Status timeline — synthetic "Submitted" entry from created_at,
-//      then each request_status_history row (oldest first), then dimmed
-//      "Pending" entries for stages above current sequence_number
-//   3. Forward action button — "Move to {next stage}". Hidden at
-//      terminal stage. POSTs to HVA-67's endpoint.
+// LAYOUT (mobile-first, vertical scroll — explicit decision, no tabs):
+//   0. Sticky top bar: 44×44 back button + customer name (HVA-66 extension)
+//   1. Customer info card — name, tel/mailto (44px tap targets), address
+//      w/ Copy + Open Maps, BHK, interest tags, IST submitted-at
+//   2. Status timeline — synthetic "Submitted" + history rows + future
+//      stages, with past/current/future styling
+//   3. Terminal-state summary card (when cancelled_at set) — title varies
+//      by cancellation_actor: 'customer' → "Customer cancelled" (HVA-39);
+//      'exec'/'captain'/'admin' → "Customer rejected" (HVA-69).
+//   4. Action buttons — visibility derived by lib/request-detail.ts
+//      computeActionVisibility() so the rule is pure + unit-tested.
 // =============================================================================
 
 export const dynamic = "force-dynamic";
@@ -143,21 +153,20 @@ export default async function RequestDetailPage({ params }: PageProps) {
 
   if (!reqRow) notFound();
 
-  // 3. Per-role row-level visibility — the privacy boundary.
-  let canAdvance = false;
-  if (role === "super_admin") {
-    canAdvance = true;
-  } else if (role === "sales_executive") {
-    if (reqRow.assignedExecUserId !== user.id) {
-      redirect(ROLE_HOME_DENIED.sales_executive);
-    }
-    canAdvance = true;
-  } else if (role === "captain") {
-    if (reqRow.cityCaptainUserId !== user.id) {
-      redirect(ROLE_HOME_DENIED.captain);
-    }
-    canAdvance = true;
-  } else {
+  // 3. Per-role row-level visibility — the privacy boundary. The HVA-104
+  // `canAdvance` flag was redundant with computeActionVisibility (HVA-66);
+  // we just need the per-role redirect-or-allow decision here.
+  if (role === "sales_executive" && reqRow.assignedExecUserId !== user.id) {
+    redirect(ROLE_HOME_DENIED.sales_executive);
+  }
+  if (role === "captain" && reqRow.cityCaptainUserId !== user.id) {
+    redirect(ROLE_HOME_DENIED.captain);
+  }
+  if (
+    role !== "super_admin" &&
+    role !== "sales_executive" &&
+    role !== "captain"
+  ) {
     redirect("/login");
   }
 
@@ -202,8 +211,49 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const mapsUrl = buildMapsUrl(reqRow.latitude, reqRow.longitude);
   const interest = Array.isArray(reqRow.interest) ? reqRow.interest : [];
 
+  // HVA-66: derive UI state via pure helpers in lib/request-detail.ts so the
+  // visibility matrix is unit-testable without React Testing Library.
+  const actionVis = computeActionVisibility({
+    role: isRole(role) ? role : undefined,
+    userId: user.id,
+    currentStageCode: reqRow.currentStageCode,
+    assignedExecUserId: reqRow.assignedExecUserId,
+    cityCaptainUserId: reqRow.cityCaptainUserId,
+    cancelledAt: reqRow.cancelledAt,
+    hasNextStage: !!nextStage,
+  });
+  const backHref = isRole(role) ? ROLE_HOME[role] : "/";
+  const submittedIst = formatIstDateTime(reqRow.createdAt);
+  const cancelledIst = formatIstDateTime(reqRow.cancelledAt);
+  const terminalMeta = reqRow.cancelledAt
+    ? terminalBadgeMeta(reqRow.cancellationActor as TerminalActor)
+    : null;
+
   return (
     <main className="min-h-svh bg-background">
+      {/* HVA-66 sticky header: 44×44 back button + customer name so context
+          survives long scrolls. Doesn't reflow the card stack below. */}
+      <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b">
+        <div className="mx-auto max-w-2xl px-4 sm:px-6 h-14 flex items-center gap-3">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 shrink-0"
+          >
+            <Link
+              href={backHref}
+              aria-label="Back"
+            >
+              <Icon name="arrow_back" size="sm" />
+            </Link>
+          </Button>
+          <p className="text-base font-semibold tracking-tight truncate flex-1">
+            {reqRow.customerName}
+          </p>
+        </div>
+      </header>
+
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
         <section
           aria-label="Customer details"
@@ -233,34 +283,47 @@ export default async function RequestDetailPage({ params }: PageProps) {
             </div>
           </header>
 
-          <div className="grid sm:grid-cols-2 gap-4 text-sm">
+          {/*
+            HVA-66 tap targets: phone/email become block-level h-11 affordances
+            so they meet the 44×44 iOS HIG minimum on mobile. Inline text
+            links don't and were the main accessibility gap of the HVA-104 MVP.
+          */}
+          <div className="grid sm:grid-cols-2 gap-3 text-sm">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 Phone
               </p>
-              <a
-                href={`tel:${reqRow.customerPhone}`}
-                className="font-mono text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm inline-flex items-center gap-1"
-              >
-                <Icon name="phone" size="xs" />
-                {reqRow.customerPhone}
-              </a>
+              <Button asChild variant="outline" className="h-11 w-full justify-start font-mono text-primary">
+                <a href={`tel:${reqRow.customerPhone}`} aria-label="Call customer">
+                  <Icon name="phone" size="sm" />
+                  <span>{reqRow.customerPhone}</span>
+                </a>
+              </Button>
             </div>
             {reqRow.customerEmail && (
               <div className="space-y-1">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Email
                 </p>
-                <a
-                  href={`mailto:${reqRow.customerEmail}`}
-                  className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm inline-flex items-center gap-1 truncate"
-                >
-                  <Icon name="mail" size="xs" />
-                  <span className="truncate">{reqRow.customerEmail}</span>
-                </a>
+                <Button asChild variant="outline" className="h-11 w-full justify-start text-primary">
+                  <a
+                    href={`mailto:${reqRow.customerEmail}`}
+                    aria-label="Email customer"
+                  >
+                    <Icon name="mail" size="sm" />
+                    <span className="truncate">{reqRow.customerEmail}</span>
+                  </a>
+                </Button>
               </div>
             )}
           </div>
+
+          {submittedIst && (
+            <p className="text-xs text-muted-foreground">
+              <Icon name="schedule" size="xs" className="inline align-text-bottom mr-1" />
+              Submitted {submittedIst}
+            </p>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
@@ -345,12 +408,12 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </ol>
         </section>
 
-        {reqRow.cancelledAt && (
+        {reqRow.cancelledAt && terminalMeta && (
           <section className="rounded-3xl border border-destructive/30 bg-destructive/5 p-5 shadow-sm space-y-2">
             <div className="flex items-center gap-2">
               <Icon name="cancel" size="sm" className="text-destructive" />
               <h2 className="text-base font-semibold tracking-tight text-destructive">
-                Customer rejected — request closed
+                {terminalMeta.title}
               </h2>
             </div>
             <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
@@ -369,67 +432,36 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 </>
               )}
               <dt className="text-muted-foreground">Marked by</dt>
-              <dd className="capitalize">{reqRow.cancellationActor ?? "—"}</dd>
+              <dd>{terminalMeta.markedByLabel}</dd>
               <dt className="text-muted-foreground">When</dt>
-              <dd>{format(reqRow.cancelledAt, "PPpp")}</dd>
+              <dd>{cancelledIst ?? "—"}</dd>
             </dl>
           </section>
         )}
 
-        {!reqRow.cancelledAt && !isTerminal && nextStage && canAdvance && (() => {
-          // HVA-68: When current stage is INSTALLATION_SCHEDULED or
-          // INSTALLATION_CONFIGURATION_DONE, show "Mark Installation
-          // Complete" alongside the generic next-stage button. The
-          // Mark button is visible to the assigned exec or super_admin
-          // (captain dashboards get their own Approve/Reject in HVA-80).
-          const showMarkComplete =
-            (reqRow.currentStageCode === "INSTALLATION_SCHEDULED" ||
-              reqRow.currentStageCode === "INSTALLATION_CONFIGURATION_DONE") &&
-            (role === "super_admin" ||
-              (role === "sales_executive" &&
-                reqRow.assignedExecUserId === user.id));
-
-          // HVA-68: at PENDING_CAPTAIN_APPROVAL the request is waiting for
-          // the captain's Approve/Reject action — that surface ships with
-          // HVA-80. Hide the generic Move button for execs here so they
-          // don't bypass the captain by clicking it. Captain + super_admin
-          // still see the button (captain needs to drive the next step;
-          // super_admin is the escape hatch).
-          const hideGenericAdvance =
-            reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
-            role === "sales_executive";
-
-          // HVA-69: Mark Customer Rejected — destructive terminal action.
-          // Visible at any non-terminal stage (i.e. NOT
-          // ORDER_EXECUTED_SUCCESSFULLY and NOT already cancelled — the
-          // surrounding `!reqRow.cancelledAt` gate handles the latter).
-          // Permissioned: assigned exec OR captain of the city OR
-          // super_admin.
-          const showMarkRejected =
-            reqRow.currentStageCode !== "ORDER_EXECUTED_SUCCESSFULLY" &&
-            (role === "super_admin" ||
-              (role === "sales_executive" &&
-                reqRow.assignedExecUserId === user.id) ||
-              (role === "captain" &&
-                reqRow.cityCaptainUserId === user.id));
-
-          return (
+        {/* HVA-66: action button visibility derived by lib/request-detail.ts
+            computeActionVisibility. The pure helper makes the role × stage
+            matrix unit-testable; render here only when any button is shown
+            (otherwise the section + its margin would leave a stray gap). */}
+        {nextStage &&
+          (actionVis.showMarkRejected ||
+            actionVis.showMarkComplete ||
+            actionVis.showAdvance) && (
             <section className="flex justify-end gap-3 flex-wrap">
-              {showMarkRejected && (
+              {actionVis.showMarkRejected && (
                 <MarkCustomerRejectedButton requestId={reqRow.id} />
               )}
-              {showMarkComplete && (
+              {actionVis.showMarkComplete && (
                 <MarkInstallationCompleteButton requestId={reqRow.id} />
               )}
-              {!hideGenericAdvance && (
+              {actionVis.showAdvance && (
                 <AdvanceStatusButton
                   requestId={reqRow.id}
                   nextStatus={{ id: nextStage.id, name: nextStage.name }}
                 />
               )}
             </section>
-          );
-        })()}
+          )}
       </div>
     </main>
   );
@@ -450,7 +482,8 @@ function TimelineRow({
   reason,
   variant,
 }: TimelineRowProps) {
-  const absolute = when ? format(when, "yyyy-MM-dd HH:mm") : null;
+  // HVA-66: timeline timestamps in IST too (was UTC-ish via raw format()).
+  const absolute = when ? formatIstDateTime(when) : null;
   const relative = when
     ? formatDistanceToNow(when, { addSuffix: true })
     : null;

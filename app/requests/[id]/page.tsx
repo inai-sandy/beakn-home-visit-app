@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
+import { CollectionSection } from "./collection-section";
 import { CopyAddressButton } from "./copy-address-button";
 import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
@@ -407,6 +408,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
             ))}
           </ol>
         </section>
+
+        <CollectionSection
+          requestId={reqRow.id}
+          role={isRole(role) ? role : undefined}
+          userId={user.id}
+          assignedExecUserId={reqRow.assignedExecUserId}
+          cityCaptainUserId={reqRow.cityCaptainUserId}
+          cancelledAt={reqRow.cancelledAt}
+        />
 
         {reqRow.cancelledAt && terminalMeta && (
           <section className="rounded-3xl border border-destructive/30 bg-destructive/5 p-5 shadow-sm space-y-2">

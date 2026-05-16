@@ -94,6 +94,13 @@ export interface SendEmailInput {
   subject: string;
   html: string;
   text: string;
+  /**
+   * Optional BCC recipients. Used by HVA-42 routing to broadcast unrouted
+   * + "Other"-city requests to every active super_admin without exposing
+   * the list to the visible To. Each address counts toward the same
+   * Hostinger rate-limit envelope as a To recipient.
+   */
+  bcc?: string[];
   /** Optional override for Reply-To. Defaults to SMTP_REPLY_TO env. */
   replyTo?: string;
   /**
@@ -114,13 +121,14 @@ export type SendEmailResult =
  * ok:false+error. Logs every attempt + outcome via pino.
  */
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
-  const { to, subject, html, text, replyTo, templateName, requestId } = input;
+  const { to, subject, html, text, bcc, replyTo, templateName, requestId } = input;
   const redactedTo = redactRecipient(to);
   const startedAt = Date.now();
   const childLog = emailLog.child({
     requestId,
     template: templateName,
     to: redactedTo,
+    bccCount: bcc?.length ?? 0,
   });
 
   childLog.info({ subject }, 'email_send_attempt');
@@ -138,6 +146,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     const result = await transporter.sendMail({
       from: formatFrom(),
       to,
+      bcc: bcc && bcc.length > 0 ? bcc : undefined,
       subject,
       html,
       text,

@@ -11,7 +11,11 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import { emit } from '@/lib/events';
 import { log } from '@/lib/logger';
+// Side-effect import: registers the captain-new-request handler against
+// the request.submitted event. Must run before the first emit() below.
+import '@/lib/notifications';
 import { verifyTurnstile } from '@/lib/turnstile';
 import {
   customerRequestSchema,
@@ -416,24 +420,29 @@ export async function POST(req: Request): Promise<NextResponse> {
     userAgent: reqHeaders.get('user-agent'),
   });
 
-  // 9. Notification engine — STUB. HVA-48 (multi-channel dispatch) and
-  //    HVA-49 (WhatsApp/email transport) will replace this with the
-  //    real call.
-  // TODO(HVA-48/HVA-49): dispatchNotification('request.submitted', {
-  //   requestId: insertedId,
-  //   customerName: parsed.data.name,
-  //   customerPhone: customerPhoneStorage,
-  //   customerEmail: parsed.data.email,
-  //   trackingToken,
-  // })
-  reqLog.info(
-    {
-      requestId: insertedId,
-      trackingToken,
-      notificationEngine: 'pending_HVA-48',
-    },
-    'customer_request_notification_pending',
-  );
+  // 9. Notification dispatch (HVA-42). emit() schedules handlers via
+  //    setImmediate — the HTTP response below is returned BEFORE any
+  //    email is rendered or sent. Handler failures never bubble up
+  //    (events.ts + lib/email.ts both catch); a SMTP outage cannot
+  //    fail a customer submission.
+  //
+  //    HVA-48 will swap the in-process handler registry behind emit()
+  //    for a config-driven engine. The emit() call here stays.
+  emit('request.submitted', {
+    requestId: insertedId,
+    trackingToken,
+    customerName: parsed.data.name,
+    customerPhone: customerPhoneStorage,
+    customerEmail: parsed.data.email ?? null,
+    address: parsed.data.address,
+    cityId: cityRow.id,
+    cityName: parsed.data.city,
+    customerState: parsed.data.state ?? null,
+    bhk: toDbBhk(parsed.data.bhk),
+    interest: parsed.data.interest,
+    submittedAt: new Date().toISOString(),
+    requestIdHeader: requestId,
+  });
 
   return NextResponse.json(
     { ok: true, trackingToken },

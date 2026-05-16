@@ -1,4 +1,8 @@
-export { captainNewRequest, type CaptainNewRequestInput } from './captain-new-request';
+export {
+  captainNewRequest,
+  type CaptainNewRequestInput,
+  type RoutingFlavor,
+} from './captain-new-request';
 export {
   customerStatusUpdate,
   type CustomerStatusUpdateInput,

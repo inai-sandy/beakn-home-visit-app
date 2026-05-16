@@ -48,8 +48,10 @@ export default async function AdminLayout({
     redirect(decision.redirectTo);
   }
 
-  const user = session!.user as { fullName?: string; role: string; email?: string };
-  const displayName = user.fullName ?? user.email ?? "Admin";
+  // Better-Auth exposes the user's name as `name` on session.user (mapped
+  // to our `full_name` column via lib/auth.ts user.fields.name = 'fullName').
+  const user = session!.user as { name?: string; role: string; email?: string };
+  const displayName = user.name ?? user.email ?? "Admin";
 
   return (
     <div className="min-h-svh flex bg-background">

@@ -175,7 +175,7 @@ describe('POST /api/customer-request: Zod rejections', () => {
     expect(body.fieldErrors?.phone).toMatch(/Indian mobile/i);
   });
 
-  it('rejects invalid city (not in ALLOWED_CITIES enum)', async () => {
+  it('rejects unknown city (HVA-100: name not in cities table)', async () => {
     const res = await POST(buildReq({ ...VALID_PAYLOAD, city: 'Goa' }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { fieldErrors?: Record<string, string> };

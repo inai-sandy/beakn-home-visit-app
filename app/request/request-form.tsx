@@ -26,14 +26,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { CityOption } from "@/lib/cities-list";
 import { cn } from "@/lib/utils";
 import {
   ALLOWED_BHKS,
-  ALLOWED_CITIES,
   ALLOWED_INTERESTS,
-  CITY_TO_STATE,
   customerRequestSchema,
-  type AllowedCity,
   type CustomerRequestInput,
 } from "@/lib/validators/customer-request";
 
@@ -145,7 +143,20 @@ const CHIP_CLASS = cn(
   "transition-colors",
 );
 
-export function RequestForm() {
+export interface RequestFormProps {
+  /**
+   * HVA-100: cities for the dropdown — server-fetched per render via
+   * `lib/cities-list.ts > getCitiesForRequestForm()` and passed in
+   * here. "Other" is already ordered last by the helper.
+   */
+  cities: CityOption[];
+}
+
+export function RequestForm({ cities }: RequestFormProps) {
+  // City name → state lookup built from the props. Replaces HVA-31's
+  // CITY_TO_STATE const; "Other" maps to '' because its state column
+  // is NULL in the seed. User can still edit the auto-filled value.
+  const cityStateByName = new Map(cities.map((c) => [c.name, c.state ?? ""]));
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
@@ -156,10 +167,10 @@ export function RequestForm() {
       phone: "",
       email: "",
       address: "",
-      // Cast: empty string isn't part of the city enum, but the Select
-      // trigger needs an "uninitialised" value to render its placeholder.
-      // The zod resolver catches the missing value on submit.
-      city: "" as unknown as AllowedCity,
+      // HVA-100: empty string lets the Select trigger render its
+      // placeholder; the Zod schema's .min(1, 'Select a city') catches
+      // missing on submit.
+      city: "",
       state: "",
       bhk: "" as unknown as CustomerRequestInput["bhk"],
       interest: [],
@@ -492,11 +503,11 @@ export function RequestForm() {
               <Select
                 value={field.value || undefined}
                 onValueChange={(v) => {
-                  const next = v as AllowedCity;
-                  field.onChange(next);
-                  // Auto-fill state. Mark touched so blur-validation has a
-                  // signal to act on if the user later clears the value.
-                  const defaultState = CITY_TO_STATE[next] ?? "";
+                  field.onChange(v);
+                  // HVA-100: auto-fill state from the city row's state
+                  // column. Mark touched so blur-validation has a signal
+                  // to act on if the user later clears the value.
+                  const defaultState = cityStateByName.get(v) ?? "";
                   form.setValue("state", defaultState, {
                     shouldDirty: true,
                     shouldTouch: true,
@@ -514,9 +525,9 @@ export function RequestForm() {
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  {ALLOWED_CITIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
+                  {cities.map((c) => (
+                    <SelectItem key={c.id} value={c.name}>
+                      {c.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

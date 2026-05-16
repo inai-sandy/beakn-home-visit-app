@@ -297,22 +297,29 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // 6. Resolve FKs: city by name, status_stage by code. Both seeded by
-  //    the 0004_hva33 migration. Missing seed rows are an infra bug,
-  //    not a customer-facing problem — surface as 500.
+  // 6. Resolve FKs: city by name, status_stage by code.
+  //    HVA-100: city is no longer validated by a Zod enum; the DB is
+  //    the source of truth. An unknown city name is a client-input
+  //    issue (someone hand-crafting a payload, or a stale dropdown
+  //    after admin removed a city) — surface as 400 + fieldErrors.city
+  //    so the form can re-render the dropdown and show the error.
   const [cityRow] = await db
     .select({ id: cities.id })
     .from(cities)
     .where(eq(cities.name, parsed.data.city))
     .limit(1);
   if (!cityRow) {
-    reqLog.error(
+    reqLog.info(
       { city: parsed.data.city },
-      'customer_request_city_not_seeded',
+      'customer_request_city_not_found',
     );
     return NextResponse.json(
-      { ok: false, error: 'Service temporarily unavailable.' },
-      { status: 503 },
+      {
+        ok: false,
+        error: 'Some fields are invalid. Check the form and try again.',
+        fieldErrors: { city: 'Select a city' },
+      },
+      { status: 400 },
     );
   }
 

@@ -5,51 +5,22 @@ import { z } from 'zod';
 // =============================================================================
 //
 // Source of truth for /request form validation, both client-side via
-// react-hook-form's zodResolver and server-side once HVA-33 wires the submit
-// Server Action (today the action is a no-op toast — see app/request/request-
-// form.tsx). Field order + rules track spec §1.2 verbatim.
+// react-hook-form's zodResolver and server-side via /api/customer-request.
+// Field order + rules track spec §1.2 verbatim.
 //
-// CITIES list:
-// Hard-coded inline below until the `cities` table is seeded. The table
-// already exists in the DB (HVA-14 schema) but is empty in this environment.
-// TODO: source from `cities` table once seeded. Linear HVA-31's body referred
-// to "HVA-87" for the seeding, but that ticket is the Admin notification
-// system, not cities. Track the actual seeding work under a separate ticket
-// when it lands; until then this const stays authoritative.
+// CITIES list (HVA-100): the inline `ALLOWED_CITIES` + `CITY_TO_STATE`
+// consts that HVA-31 used were removed when the `cities` table seed
+// migration landed (HVA-33). The dropdown options + state auto-fill
+// come from `lib/cities-list.ts > getCitiesForRequestForm()`. The Zod
+// `city` field accepts any trimmed non-empty string; the server route
+// resolves it to a `cities.id` via a name lookup (returning 400 +
+// fieldErrors.city if the name is unknown).
 //
 // PHONE rule:
 // Indian mobile = 10 digits, first digit 6-9. Stored at submit time as
 // "+91"+digits — the form collects only the 10-digit half; the +91 adornment
 // is visible-but-non-editable in the UI.
 // =============================================================================
-
-export const ALLOWED_CITIES = [
-  'Hyderabad',
-  'Bangalore',
-  'Chennai',
-  'Ahmedabad',
-  'Vizag',
-  'Vijayawada',
-  'Mumbai',
-  'Pune',
-  'Other',
-] as const;
-export type AllowedCity = (typeof ALLOWED_CITIES)[number];
-
-// City → state default. Used by the form to auto-fill the State field on
-// city selection. User can still edit the auto-filled value (the State
-// field is plain text, not locked).
-export const CITY_TO_STATE: Record<AllowedCity, string> = {
-  Hyderabad: 'Telangana',
-  Bangalore: 'Karnataka',
-  Chennai: 'Tamil Nadu',
-  Ahmedabad: 'Gujarat',
-  Vizag: 'Andhra Pradesh',
-  Vijayawada: 'Andhra Pradesh',
-  Mumbai: 'Maharashtra',
-  Pune: 'Maharashtra',
-  Other: '',
-};
 
 export const ALLOWED_BHKS = [
   '1 BHK',
@@ -89,9 +60,10 @@ export const customerRequestSchema = z.object({
     .string()
     .trim()
     .min(10, 'Address must be at least 10 characters'),
-  city: z.enum(ALLOWED_CITIES, {
-    message: 'Select a city',
-  }),
+  // HVA-100: city is validated as a free-form non-empty string here.
+  // The server route at /api/customer-request resolves the name to a
+  // cities.id and rejects unknown names with 400 + fieldErrors.city.
+  city: z.string().trim().min(1, 'Select a city'),
   state: z
     .string()
     .trim()

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Script from "next/script";
 
+import { getCitiesForRequestForm } from "@/lib/cities-list";
+
 import { RequestForm } from "./request-form";
 
 // =============================================================================
@@ -38,7 +40,10 @@ export const metadata: Metadata = {
 // future iterations don't trip over a stale static build.
 export const dynamic = "force-dynamic";
 
-export default function RequestPage() {
+export default async function RequestPage() {
+  // HVA-100: city dropdown options now come from the DB. React `cache()`
+  // dedups within the render so this is a single sub-ms query.
+  const cities = await getCitiesForRequestForm();
   return (
     <main className="min-h-svh flex flex-col items-center px-6 py-10 bg-background">
       {/* HVA-34: Cloudflare Turnstile script. Scoped to /request only —
@@ -75,7 +80,7 @@ export default function RequestPage() {
           aria-label="Request a home visit"
           className="rounded-3xl border bg-card p-6 sm:p-8 shadow-sm"
         >
-          <RequestForm />
+          <RequestForm cities={cities} />
         </section>
       </div>
     </main>

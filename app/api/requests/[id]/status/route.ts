@@ -1,7 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { db } from '@/db/client';
+import { statusStages, visitRequests } from '@/db/schema';
 import {
   ForbiddenError,
   requireAuth,
@@ -101,6 +104,31 @@ export async function POST(
     );
   }
   const { nextStatusId, reason } = bodyParsed.data;
+
+  // HVA-68: defensive role/stage gate. A request at PENDING_CAPTAIN_APPROVAL
+  // is waiting for the captain's Approve/Reject (HVA-80). Hide the button +
+  // refuse the API for a sales_executive standing here, so an exec can't
+  // bypass captain approval by POSTing directly. Captain and super_admin
+  // still go through — captain is the intended next actor; super_admin is
+  // the global escape hatch.
+  if (actorRole === USER_ROLES.SALES_EXECUTIVE) {
+    const [currentRow] = await db
+      .select({ code: statusStages.code })
+      .from(visitRequests)
+      .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+      .where(eq(visitRequests.id, requestUuid))
+      .limit(1);
+    if (currentRow?.code === 'PENDING_CAPTAIN_APPROVAL') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Captain approval is required from this stage. Wait for the captain to approve or reject.',
+        },
+        { status: 403 },
+      );
+    }
+  }
 
   const result = await transitionRequestStatus({
     requestId: requestUuid,

@@ -81,6 +81,22 @@ export interface TransitionInput {
    * in a single tx.
    */
   preUpdate?: (tx: DbTx) => Promise<void>;
+  /**
+   * HVA-68: opt-in escape hatch from the strict +1 rule. When true, any
+   * forward target stage is accepted (still `nextSeq > currentSeq`) —
+   * skipping intermediate stages is allowed. Backward and same-stage
+   * transitions are still rejected.
+   *
+   * Used by /api/requests/[id]/mark-installation-complete so an exec
+   * standing at "Installation Scheduled" (seq 7) can jump directly to
+   * "Pending Captain Approval" (seq 9), recording that intermediate
+   * "Installation & Configuration Done" was implicitly completed by
+   * the act of marking the whole installation done.
+   *
+   * Default `false` preserves the +1 invariant for every other caller
+   * (the generic "Move to Next Stage" button + HVA-81 assign).
+   */
+  allowForwardSkip?: boolean;
 }
 
 const transitionLog = log.child({ component: 'status-transition' });
@@ -97,6 +113,7 @@ export async function transitionRequestStatus(
     ipAddress,
     userAgent,
     preUpdate,
+    allowForwardSkip = false,
   } = input;
 
   // 1. Load current request + its current stage (join).
@@ -170,13 +187,25 @@ export async function transitionRequestStatus(
     };
   }
 
-  // 4. Strict +1 rule.
-  if (nextRow.sequenceNumber !== currentRow.currentStageSeq + 1) {
+  // 4. Forward-only enforcement.
+  //    - Default: strict +1 (the immediate next stage only). Used by
+  //      the generic "Move to Next Stage" button + HVA-81 assign.
+  //    - allowForwardSkip=true: any strictly-forward target accepted
+  //      (nextSeq > currentSeq). Backward and same-stage still rejected.
+  //      Used by HVA-68 mark-installation-complete (seq 7 → 9 jump).
+  const isStrictlyForward =
+    nextRow.sequenceNumber > currentRow.currentStageSeq;
+  const isExactlyNext =
+    nextRow.sequenceNumber === currentRow.currentStageSeq + 1;
+  const forwardOk = allowForwardSkip ? isStrictlyForward : isExactlyNext;
+  if (!forwardOk) {
     return {
       ok: false,
       status: 400,
       error: 'FORWARD_ONLY',
-      message: `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Only the immediate next stage is allowed.`,
+      message: allowForwardSkip
+        ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Forward-only — target must be strictly after current.`
+        : `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Only the immediate next stage is allowed.`,
       currentSequence: currentRow.currentStageSeq,
       attemptedSequence: nextRow.sequenceNumber,
     };

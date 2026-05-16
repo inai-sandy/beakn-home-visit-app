@@ -206,6 +206,7 @@ export const CONFIG_SCHEMA = {
       'executive_deactivated',
       'executive_activated',
       'city_routing_email_updated',
+      'installation_marked_complete',
       'configuration_change',
     ],
     editable: true,

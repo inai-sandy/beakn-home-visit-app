@@ -20,6 +20,30 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Running tests (HVA-101)
+
+The harness uses [vitest](https://vitest.dev) + [@testcontainers/postgresql](https://node.testcontainers.org/modules/postgresql/) to spin an ephemeral Postgres container per `vitest run`, applies every migration in `db/migrations/` to it, and exposes the container's connection string as `DATABASE_URL` to the test process.
+
+```bash
+pnpm test               # one-shot run (CI-friendly)
+pnpm test:watch         # interactive watch mode
+pnpm test:coverage      # one-shot run + V8 coverage report
+```
+
+**Prerequisites:**
+- Docker daemon reachable on the host. The first run pulls `postgres:16-alpine` (~80MB); subsequent runs reuse the image.
+- No other prerequisites — no `.env.local`, no running app, no migrations to apply manually. The harness sets every env var it needs.
+
+**Test layout:**
+- `tests/setup/global.ts` — once per `vitest run`: boots the container + applies migrations + sets env.
+- `tests/setup/per-file.ts` — once per worker: forces `NODE_ENV=production` so `proxy.ts` captures its prod branches at module load. `afterEach` truncates every test-mutable table (cities + status_stages stay seeded).
+- `tests/helpers/db.ts` — `seedUser`, `seedSuperAdmin`, `seedCaptain`, `seedExecutive`, `seedVisitRequest`, `getOrCreateCity`, `getStatusStage`, `truncateAll`.
+- `tests/helpers/auth.ts` — `loginByPhone(phone, password)` returning `{ userId, token, cookieHeader }` via Better-Auth's `auth.api.signInPhoneNumber`.
+
+**Adding a test:** drop a file at `tests/<area>/<thing>.test.ts`. Import `db` from `@/db/client` and any system-under-test module directly — they pick up the testcontainer's DATABASE_URL via the shared globalSetup. The `afterEach` truncate isolates state.
+
+**Isolation strategy:** truncate per-test (not per-suite transactions). Better-Auth opens its own connections through the Drizzle adapter, so a transaction-wrap-test pattern can't share the test's tx with BA. Truncating `users` would `CASCADE` through `cities.captain_user_id` and wipe the seed; we work around it with `DELETE FROM users` (honors `ON DELETE SET NULL`) after truncating every other table. ~50ms per test.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

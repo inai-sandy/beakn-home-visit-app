@@ -1,0 +1,259 @@
+import { hashPassword } from 'better-auth/crypto';
+import { eq, sql as sqlBuilder } from 'drizzle-orm';
+
+import { db } from '@/db/client';
+import {
+  accounts,
+  captains,
+  cities,
+  salesExecutives,
+  statusStages,
+  users,
+  visitRequests,
+} from '@/db/schema';
+
+// =============================================================================
+// HVA-101: DB helpers for tests
+// =============================================================================
+//
+// All helpers exercise the actual Drizzle schema — no string columns where
+// FKs exist, no fictional `users.captain_id`. The relationships used here
+// were verified against the live schema before the harness was written:
+//
+//   - users.role enum: 'sales_executive' | 'captain' | 'super_admin'
+//     (NOT 'sales_exec')
+//   - cities.captain_user_id → users.id  (nullable, ON DELETE SET NULL)
+//   - cities.captain_routing_email — separate routing column (HVA-90)
+//   - captains.user_id PK + FK to users.id
+//   - sales_executives.user_id PK, sales_executives.captain_user_id FK
+//     to users.id (NOT users.captain_id — that column does not exist)
+//   - visit_requests.status_stage_id FK to status_stages.id
+//
+// Password hashing uses better-auth/crypto so seeded users can sign in
+// through auth.api.signInPhoneNumber.
+// =============================================================================
+
+export function getTestDb() {
+  return db;
+}
+
+// -----------------------------------------------------------------------------
+// Truncate — afterEach hook in tests/setup/per-file.ts
+// -----------------------------------------------------------------------------
+//
+// We do this carefully. `cities` and `status_stages` are seeded by
+// migrations 0004 + 0005, and tests against the system rely on those
+// rows being present. PostgreSQL's `TRUNCATE … CASCADE` walks FK
+// references regardless of `ON DELETE SET NULL` — so a naive cascade
+// from `users` reaches `cities.captain_user_id` and wipes it.
+//
+// Strategy:
+//   1. Truncate every leaf + intermediate table that holds test-fixture
+//      data (audit, sessions, requests, etc.).
+//   2. Null out cities.captain_user_id so the FK to users no longer
+//      blocks step 3.
+//   3. Truncate `users` without CASCADE — nothing references it now.
+//
+// status_stages keeps its seeded rows automatically: nothing the suite
+// truncates references it back, and we never touch it directly.
+
+// Every test-mutable table in the schema EXCEPT cities + status_stages
+// (which are migration seeds and must survive between tests) and config
+// (which is loaded once + cached). This list is enumerated against
+// information_schema in the harness preflight; new tables added by
+// future migrations need to be appended here.
+const SAFE_TRUNCATE_TABLES = [
+  'accounts',
+  'admin_help_messages',
+  'audit_log',
+  'business_types',
+  'captains',
+  'day_plans',
+  'holidays',
+  'in_app_notifications',
+  'leads',
+  'notifications_queue',
+  'outcome_options',
+  'payments',
+  'postpone_reasons',
+  'quotations',
+  'rate_limit_attempts',
+  'rate_limits',
+  'request_reschedule_history',
+  'request_status_history',
+  'sales_executives',
+  'sessions',
+  'tasks',
+  'verifications',
+  'visit_requests',
+];
+
+export async function truncateAll(): Promise<void> {
+  // TRUNCATE everything except cities/status_stages/config (migration
+  // seeds, must survive) and users (cleared via DELETE below).
+  //
+  // We can't include users in a TRUNCATE-CASCADE because the cascade
+  // walks the FK constraint graph (not the value graph) and would drag
+  // cities along, wiping the migration seed. PostgreSQL's `ON DELETE
+  // SET NULL` only kicks in for actual DELETE statements.
+  await db.execute(
+    sqlBuilder.raw(
+      `TRUNCATE TABLE ${SAFE_TRUNCATE_TABLES.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY CASCADE;`,
+    ),
+  );
+  // DELETE FROM users triggers cities.captain_user_id ON DELETE SET NULL,
+  // so the cities seed stays intact and just has its FK column nulled.
+  await db.execute(sqlBuilder.raw('DELETE FROM "users";'));
+}
+
+// -----------------------------------------------------------------------------
+// Seed helpers
+// -----------------------------------------------------------------------------
+
+export interface SeedUserResult {
+  id: string;
+  phone: string;
+  password: string;
+}
+
+export type Role = 'super_admin' | 'captain' | 'sales_executive';
+
+interface SeedUserInput {
+  role: Role;
+  fullName?: string;
+  phone: string;
+  password: string;
+  email?: string | null;
+  isActive?: boolean;
+  mustChangePassword?: boolean;
+}
+
+export async function seedUser(input: SeedUserInput): Promise<SeedUserResult> {
+  const passwordHash = await hashPassword(input.password);
+  const [row] = await db
+    .insert(users)
+    .values({
+      role: input.role,
+      fullName: input.fullName ?? `Test ${input.role}`,
+      phone: input.phone,
+      email: input.email ?? null,
+      phoneVerified: true,
+      isActive: input.isActive ?? true,
+      mustChangePassword: input.mustChangePassword ?? false,
+    })
+    .returning({ id: users.id });
+  await db.insert(accounts).values({
+    accountId: row.id,
+    providerId: 'credential',
+    userId: row.id,
+    password: passwordHash,
+  });
+  return { id: row.id, phone: input.phone, password: input.password };
+}
+
+export async function seedSuperAdmin(
+  overrides: Partial<SeedUserInput> = {},
+): Promise<SeedUserResult> {
+  return seedUser({
+    role: 'super_admin',
+    phone: '+918888800001',
+    password: 'TestAdmin#1',
+    fullName: 'Test Super Admin',
+    ...overrides,
+  });
+}
+
+export async function seedCaptain(
+  overrides: Partial<SeedUserInput> = {},
+): Promise<SeedUserResult> {
+  const u = await seedUser({
+    role: 'captain',
+    phone: '+919000011111',
+    password: 'TestCaptain#1',
+    fullName: 'Test Captain',
+    ...overrides,
+  });
+  await db.insert(captains).values({ userId: u.id });
+  return u;
+}
+
+export async function seedExecutive(
+  captainUserId: string,
+  overrides: Partial<SeedUserInput> = {},
+): Promise<SeedUserResult> {
+  const u = await seedUser({
+    role: 'sales_executive',
+    phone: '+919100011111',
+    password: 'TestExec#1',
+    fullName: 'Test Sales Exec',
+    ...overrides,
+  });
+  await db.insert(salesExecutives).values({ userId: u.id, captainUserId });
+  return u;
+}
+
+export async function getOrCreateCity(name: string): Promise<{ id: string; name: string }> {
+  const existing = await db
+    .select({ id: cities.id, name: cities.name })
+    .from(cities)
+    .where(eq(cities.name, name))
+    .limit(1);
+  if (existing.length > 0) return existing[0];
+  const [row] = await db
+    .insert(cities)
+    .values({ name, isActive: true })
+    .returning({ id: cities.id, name: cities.name });
+  return row;
+}
+
+export async function getStatusStage(code: string): Promise<{
+  id: string;
+  code: string;
+  sequenceNumber: number;
+  name: string;
+}> {
+  const [row] = await db
+    .select({
+      id: statusStages.id,
+      code: statusStages.code,
+      sequenceNumber: statusStages.sequenceNumber,
+      name: statusStages.name,
+    })
+    .from(statusStages)
+    .where(eq(statusStages.code, code))
+    .limit(1);
+  if (!row) throw new Error(`status_stages row missing for code ${code}`);
+  return row;
+}
+
+interface SeedRequestInput {
+  cityId: string;
+  assignedExecUserId?: string | null;
+  assignedCaptainUserId?: string | null;
+  /** Default: 'SUBMITTED'. */
+  statusStageCode?: string;
+}
+
+export async function seedVisitRequest(
+  input: SeedRequestInput,
+): Promise<{ id: string }> {
+  const stage = await getStatusStage(input.statusStageCode ?? 'SUBMITTED');
+  const [row] = await db
+    .insert(visitRequests)
+    .values({
+      customerName: 'Test Customer',
+      customerPhone: '+919999999999',
+      customerEmail: null,
+      address: 'Test address line',
+      cityId: input.cityId,
+      bhk: '3BHK',
+      interest: ['Automation'],
+      trackingToken: `t_${Math.random().toString(36).slice(2, 23)}`,
+      statusStageId: stage.id,
+      assignedExecUserId: input.assignedExecUserId ?? null,
+      assignedCaptainUserId: input.assignedCaptainUserId ?? null,
+      assignedAt: input.assignedExecUserId ? new Date() : null,
+    })
+    .returning({ id: visitRequests.id });
+  return row;
+}

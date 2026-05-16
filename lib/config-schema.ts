@@ -204,6 +204,7 @@ export const CONFIG_SCHEMA = {
       'executive_password_reset',
       'executive_deactivated',
       'executive_activated',
+      'city_routing_email_updated',
       'configuration_change',
     ],
     editable: true,

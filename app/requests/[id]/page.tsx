@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
 import { CopyAddressButton } from "./copy-address-button";
+import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
 
 // =============================================================================
 // HVA-104: /requests/[id] — request detail screen MVP
@@ -122,6 +123,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
       currentStageId: visitRequests.statusStageId,
       currentStageSeq: statusStages.sequenceNumber,
       currentStageName: statusStages.name,
+      currentStageCode: statusStages.code,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -333,14 +335,43 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </ol>
         </section>
 
-        {!isTerminal && nextStage && canAdvance && (
-          <section className="flex justify-end">
-            <AdvanceStatusButton
-              requestId={reqRow.id}
-              nextStatus={{ id: nextStage.id, name: nextStage.name }}
-            />
-          </section>
-        )}
+        {!isTerminal && nextStage && canAdvance && (() => {
+          // HVA-68: When current stage is INSTALLATION_SCHEDULED or
+          // INSTALLATION_CONFIGURATION_DONE, show "Mark Installation
+          // Complete" alongside the generic next-stage button. The
+          // Mark button is visible to the assigned exec or super_admin
+          // (captain dashboards get their own Approve/Reject in HVA-80).
+          const showMarkComplete =
+            (reqRow.currentStageCode === "INSTALLATION_SCHEDULED" ||
+              reqRow.currentStageCode === "INSTALLATION_CONFIGURATION_DONE") &&
+            (role === "super_admin" ||
+              (role === "sales_executive" &&
+                reqRow.assignedExecUserId === user.id));
+
+          // HVA-68: at PENDING_CAPTAIN_APPROVAL the request is waiting for
+          // the captain's Approve/Reject action — that surface ships with
+          // HVA-80. Hide the generic Move button for execs here so they
+          // don't bypass the captain by clicking it. Captain + super_admin
+          // still see the button (captain needs to drive the next step;
+          // super_admin is the escape hatch).
+          const hideGenericAdvance =
+            reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
+            role === "sales_executive";
+
+          return (
+            <section className="flex justify-end gap-3 flex-wrap">
+              {showMarkComplete && (
+                <MarkInstallationCompleteButton requestId={reqRow.id} />
+              )}
+              {!hideGenericAdvance && (
+                <AdvanceStatusButton
+                  requestId={reqRow.id}
+                  nextStatus={{ id: nextStage.id, name: nextStage.name }}
+                />
+              )}
+            </section>
+          );
+        })()}
       </div>
     </main>
   );

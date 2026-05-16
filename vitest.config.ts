@@ -63,6 +63,8 @@ export default defineConfig({
         'app/api/admin/captains/[id]/activate/route.ts',
         'app/api/admin/executives/[id]/deactivate/route.ts',
         'lib/notifications/email-handlers/captain-new-request.ts',
+        // HVA-68 coverage target
+        'app/api/requests/[id]/mark-installation-complete/route.ts',
       ],
       reportOnFailure: true,
     },

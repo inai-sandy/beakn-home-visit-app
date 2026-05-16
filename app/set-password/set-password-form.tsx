@@ -60,14 +60,27 @@ export function SetPasswordForm() {
     setError(null);
     setSubmitting(true);
     try {
+      // HVA-114: the action `redirect()`s on success — it throws a
+      // NEXT_REDIRECT error that Next.js's Server Action runtime
+      // intercepts. If the action returns, it's a validation failure.
       const result = await setPasswordAction(values);
       if (!result.ok) {
         setError(result.error);
-        return;
       }
-      router.push(result.redirectTo);
-      router.refresh();
     } catch (err) {
+      // Re-throw NEXT_REDIRECT so Next.js can do its navigation.
+      // Swallowing it would leave the user stuck on /set-password,
+      // which is exactly the bug HVA-114 closed.
+      if (
+        err &&
+        typeof err === 'object' &&
+        'digest' in err &&
+        typeof (err as { digest: unknown }).digest === 'string' &&
+        ((err as { digest: string }).digest.startsWith('NEXT_REDIRECT') ||
+          (err as { digest: string }).digest === 'NEXT_REDIRECT')
+      ) {
+        throw err;
+      }
       setError(err instanceof Error ? `Server error: ${err.message}` : 'Unexpected error');
     } finally {
       setSubmitting(false);

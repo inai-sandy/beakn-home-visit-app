@@ -2,6 +2,7 @@
 
 import { hashPassword } from 'better-auth/crypto';
 import { and, eq, ne } from 'drizzle-orm';
+import { redirect } from 'next/navigation';
 
 import { db } from '@/db/client';
 import { accounts, sessions, users } from '@/db/schema';
@@ -35,9 +36,14 @@ import { setPasswordSchema, type SetPasswordInput } from '@/lib/validators/auth'
 // alive. Defends against a stale device that signed in with the temp
 // continuing to roam after the change.
 
-export type SetPasswordResult =
-  | { ok: true; redirectTo: string }
-  | { ok: false; error: string };
+// HVA-114: success "returns" by throwing a NEXT_REDIRECT via `redirect()`,
+// not by returning a value. The return type covers only failures. Calling
+// `router.push()` from the client after a successful direct-invoked
+// Server Action is unreliable in App Router — the navigation can silently
+// no-op when called outside a transition. The documented fix is
+// `redirect()` from inside the action; Next.js intercepts the thrown
+// NEXT_REDIRECT digest and emits a navigation response.
+export type SetPasswordResult = { ok: false; error: string };
 
 export async function setPasswordAction(
   input: SetPasswordInput,
@@ -117,8 +123,18 @@ export async function setPasswordAction(
     reason: 'first_login_password_change',
   });
 
-  // 7. Tell the client where to go. Per AC: not configurable via ?next= —
-  //    completion always lands on role home.
+  // 7. HVA-114: hand off to Next.js's redirect machinery. `redirect()`
+  //    throws a NEXT_REDIRECT error with the target URL + push directive
+  //    baked into its `digest` (shape: `NEXT_REDIRECT;push;/path;307;`).
+  //    Next.js's Server Action runtime intercepts that digest and emits
+  //    a navigation response — the browser actually lands on
+  //    /captain/dashboard, /admin/dashboard, or /today instead of
+  //    staying on /set-password.
+  //
+  //    Tests assert the redirect target by catching the thrown error
+  //    and parsing its `digest`. The client form's catch block must
+  //    re-throw NEXT_REDIRECT errors; swallowing them would re-introduce
+  //    the original symptom (stuck on /set-password until manual refresh).
   const redirectTo = isRole(user.role) ? ROLE_HOME[user.role] : '/';
-  return { ok: true, redirectTo };
+  redirect(redirectTo);
 }

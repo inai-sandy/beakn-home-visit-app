@@ -10,6 +10,55 @@ import { loginByPhone } from '../helpers/auth';
 import { seedCaptain } from '../helpers/db';
 
 // =============================================================================
+// HVA-114: success branch throws NEXT_REDIRECT instead of returning.
+// `redirect()` from next/navigation throws an error whose `digest` carries
+// the navigation target ("NEXT_REDIRECT;push;/captain/dashboard;307;").
+// captureRedirectDigest invokes the action and returns the parsed
+// destination path so tests can assert ergonomically.
+// =============================================================================
+
+interface RedirectDigest {
+  url: string;
+  type: 'push' | 'replace';
+  status: number;
+}
+
+function parseRedirectDigest(raw: string): RedirectDigest | null {
+  // `redirect()` emits `NEXT_REDIRECT;<type>;<url>;<status>;` (trailing
+  // semicolon optional across Next versions). Some versions emit
+  // `NEXT_REDIRECT;<url>;<status>` (3 parts). Cover both shapes.
+  const parts = raw.split(';').filter(Boolean);
+  if (parts[0] !== 'NEXT_REDIRECT') return null;
+  if (parts.length >= 4) {
+    return {
+      type: parts[1] === 'replace' ? 'replace' : 'push',
+      url: parts[2],
+      status: Number(parts[3]) || 307,
+    };
+  }
+  if (parts.length === 3) {
+    return { type: 'push', url: parts[1], status: Number(parts[2]) || 307 };
+  }
+  return null;
+}
+
+async function captureRedirectDigest(
+  fn: () => Promise<unknown>,
+): Promise<RedirectDigest> {
+  try {
+    await fn();
+  } catch (err) {
+    if (err && typeof err === 'object' && 'digest' in err) {
+      const digest = String((err as { digest: unknown }).digest);
+      const parsed = parseRedirectDigest(digest);
+      if (parsed) return parsed;
+    }
+    throw err;
+  }
+  throw new Error('Expected setPasswordAction to throw NEXT_REDIRECT');
+}
+
+// =============================================================================
 // HVA-101 / Area 1: HVA-26 first-login set-password Server Action
 // =============================================================================
 //
@@ -93,7 +142,7 @@ describe('set-password action: validation', () => {
 });
 
 describe('set-password action: success path', () => {
-  it('flips mustChangePassword, updates accounts.password, wipes other sessions, returns role home', async () => {
+  it('flips mustChangePassword, updates accounts.password, wipes other sessions, redirects to role home (captain → /captain/dashboard)', async () => {
     const cap = await seedCaptain({ mustChangePassword: true });
     const sess = await loginByPhone(cap.phone, cap.password);
     // Open a second session for the same user. The action should wipe
@@ -109,12 +158,13 @@ describe('set-password action: success path', () => {
     expect(before.length).toBe(2);
     void sessExtra; // silence unused — its purpose is the pre-condition row.
 
-    const result = await setPasswordAction({
-      newPassword: 'Newpass123',
-      confirmPassword: 'Newpass123',
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.redirectTo).toBe('/captain/dashboard');
+    const redirectInfo = await captureRedirectDigest(() =>
+      setPasswordAction({
+        newPassword: 'Newpass123',
+        confirmPassword: 'Newpass123',
+      }),
+    );
+    expect(redirectInfo.url).toBe('/captain/dashboard');
 
     // post-condition: must_change_password=false, last_login_at set,
     // exactly one session remaining (the current one).
@@ -173,7 +223,6 @@ describe('set-password action: success path', () => {
   });
 
   it('redirects super_admin to /admin/dashboard', async () => {
-    // re-use the seedCaptain machinery by passing super_admin role
     const u = await (await import('../helpers/db')).seedUser({
       role: 'super_admin',
       phone: '+918888899999',
@@ -182,11 +231,35 @@ describe('set-password action: success path', () => {
     });
     const sess = await loginByPhone(u.phone, u.password);
     currentCookieHeader = sess.cookieHeader;
-    const result = await setPasswordAction({
-      newPassword: 'Newpass123',
-      confirmPassword: 'Newpass123',
+    const redirectInfo = await captureRedirectDigest(() =>
+      setPasswordAction({
+        newPassword: 'Newpass123',
+        confirmPassword: 'Newpass123',
+      }),
+    );
+    expect(redirectInfo.url).toBe('/admin/dashboard');
+  });
+
+  it('redirects sales_executive to /today (HVA-114 — third role)', async () => {
+    const helpers = await import('../helpers/db');
+    // seedExecutive needs a captain to attach to.
+    const cap = await helpers.seedCaptain({
+      phone: '+918888888880',
+      mustChangePassword: false,
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.redirectTo).toBe('/admin/dashboard');
+    const exec = await helpers.seedExecutive(cap.id, {
+      phone: '+918888899998',
+      password: 'ExecFirstLogin#1',
+      mustChangePassword: true,
+    });
+    const sess = await loginByPhone(exec.phone, exec.password);
+    currentCookieHeader = sess.cookieHeader;
+    const redirectInfo = await captureRedirectDigest(() =>
+      setPasswordAction({
+        newPassword: 'Newpass123',
+        confirmPassword: 'Newpass123',
+      }),
+    );
+    expect(redirectInfo.url).toBe('/today');
   });
 });

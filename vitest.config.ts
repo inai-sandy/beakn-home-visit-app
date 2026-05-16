@@ -52,9 +52,17 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],
       include: [
+        // HVA-101 originals
         'proxy.ts',
         'lib/status-transition.ts',
         'app/set-password/actions.ts',
+        // HVA-109 retroactive coverage targets
+        'app/api/customer-request/route.ts',
+        'app/api/requests/[id]/assign/route.ts',
+        'app/api/admin/captains/[id]/deactivate/route.ts',
+        'app/api/admin/captains/[id]/activate/route.ts',
+        'app/api/admin/executives/[id]/deactivate/route.ts',
+        'lib/notifications/email-handlers/captain-new-request.ts',
       ],
       reportOnFailure: true,
     },

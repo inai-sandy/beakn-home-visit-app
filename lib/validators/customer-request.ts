@@ -8,11 +8,11 @@ import { z } from 'zod';
 // react-hook-form's zodResolver and server-side via /api/customer-request.
 // Field order + rules track spec §1.2 verbatim.
 //
-// CITIES list (HVA-100): the inline `ALLOWED_CITIES` + `CITY_TO_STATE`
-// consts that HVA-31 used were removed when the `cities` table seed
-// migration landed (HVA-33). The dropdown options + state auto-fill
-// come from `lib/cities-list.ts > getCitiesForRequestForm()`. The Zod
-// `city` field accepts any trimmed non-empty string; the server route
+// CITIES list (HVA-100): the inline TS consts that HVA-31 used were
+// removed when the cities table seed migration landed (HVA-33). The
+// dropdown options + state auto-fill come from
+// `lib/cities-list.ts > getCitiesForRequestForm()`. The Zod `city`
+// field accepts any trimmed non-empty string; the server route
 // resolves it to a `cities.id` via a name lookup (returning 400 +
 // fieldErrors.city if the name is unknown).
 //

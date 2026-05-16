@@ -153,9 +153,10 @@ export interface RequestFormProps {
 }
 
 export function RequestForm({ cities }: RequestFormProps) {
-  // City name → state lookup built from the props. Replaces HVA-31's
-  // CITY_TO_STATE const; "Other" maps to '' because its state column
-  // is NULL in the seed. User can still edit the auto-filled value.
+  // City name → state lookup built from the props (HVA-100 replaces
+  // HVA-31's hardcoded state-default map). "Other" maps to '' because
+  // its state column is NULL in the seed; the user can still edit the
+  // auto-filled value.
   const cityStateByName = new Map(cities.map((c) => [c.name, c.state ?? ""]));
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);

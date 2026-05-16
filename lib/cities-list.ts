@@ -8,9 +8,9 @@ import { cities } from '@/db/schema';
 // HVA-100: cities list helper for the public /request form
 // =============================================================================
 //
-// Single source of truth for the city dropdown on /request, replacing the
-// hardcoded `ALLOWED_CITIES` + `CITY_TO_STATE` consts that HVA-31 added
-// when the seed migration didn't yet exist.
+// Single source of truth for the city dropdown on /request, replacing
+// the two hardcoded TS consts that HVA-31 added when the seed migration
+// didn't yet exist (names + state-defaults — both gone as of this ship).
 //
 // Wrapped in React's `cache()` so multiple consumers within one render
 // (e.g. the server-component page + any other server consumer) hit the

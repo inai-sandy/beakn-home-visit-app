@@ -104,6 +104,16 @@ export async function truncateAll(): Promise<void> {
   // DELETE FROM users triggers cities.captain_user_id ON DELETE SET NULL,
   // so the cities seed stays intact and just has its FK column nulled.
   await db.execute(sqlBuilder.raw('DELETE FROM "users";'));
+  // Reset the mutable cities columns (HVA-90 / HVA-110) — these are
+  // admin-editable routing config that tests freely mutate. Without an
+  // explicit reset, the testcontainer's .withReuse() option means
+  // mutations bleed across runs (Bangalore left with a captain_routing_email
+  // from yesterday's session showed up as a flake here).
+  await db.execute(
+    sqlBuilder.raw(
+      'UPDATE cities SET captain_routing_email = NULL, other_routing_email = NULL, discord_webhook_url = NULL;',
+    ),
+  );
 }
 
 // -----------------------------------------------------------------------------

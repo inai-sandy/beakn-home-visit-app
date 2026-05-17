@@ -19,6 +19,12 @@ import {
   type RequestAssignedContext,
 } from './request-assigned';
 import {
+  composeRequestReassignedEmailCaptain,
+  composeRequestReassignedInAppAssigned,
+  composeRequestReassignedInAppRemoved,
+  type RequestReassignedContext,
+} from './request-reassigned';
+import {
   composeRequestRolledBackInApp,
   type RequestRolledBackContext,
 } from './request-rolled-back';
@@ -40,10 +46,37 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   // a request back one stage.
   'request.rolled_back': (ctx) =>
     composeRequestRolledBackInApp(ctx as unknown as RequestRolledBackContext),
+  // HVA-140: in-app fan-out for captain reassigning the current exec.
+  // Two rules seeded under the same event_type; the engine looks up
+  // the composer per (eventType, channel) here. The rule's
+  // recipient_role (exec_removed vs exec_assigned) only changes who
+  // receives the SAME body — both composers below differ in copy so
+  // we resolve the composer at lookup time based on the rule's
+  // recipient_role. Since the registry is keyed on eventType alone,
+  // we delegate to a thin selector via the role embedded in the
+  // context. The engine sets `recipientRole` on the context just
+  // before invoking the adapter; see HVA-140 engine patch for that.
+  'request.reassigned': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'exec_removed') {
+      return composeRequestReassignedInAppRemoved(
+        ctx as unknown as RequestReassignedContext,
+      );
+    }
+    return composeRequestReassignedInAppAssigned(
+      ctx as unknown as RequestReassignedContext,
+    );
+  },
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {
   'request.assigned': (ctx) => composeRequestAssignedEmail(ctx as unknown as RequestAssignedContext),
+  // HVA-140: confirmation email to the captain who clicked Reassign.
+  'request.reassigned': (ctx) =>
+    composeRequestReassignedEmailCaptain(
+      ctx as unknown as RequestReassignedContext,
+    ),
 };
 
 // WhatsApp + Discord composers are stub-side: their adapters log the

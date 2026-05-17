@@ -86,6 +86,11 @@ export interface ActionVisibility {
    * stage. PENDING_CAPTAIN_APPROVAL has its own Reject path; SUBMITTED and
    * terminal stages have nothing to roll back to. */
   showRollback: boolean;
+  /** HVA-140 Reassign Exec — captain-of-city / super_admin at any
+   * post-Submitted, non-terminal, non-cancelled stage where an exec is
+   * currently assigned. Status stage does NOT change on reassignment;
+   * the flow continues from where the previous exec left off. */
+  showReassign: boolean;
 }
 
 /**
@@ -103,6 +108,7 @@ export function computeActionVisibility(
       showAdvance: false,
       showAssignExec: false,
       showRollback: false,
+      showReassign: false,
     };
   }
   // No next stage = at terminal pipeline state (ORDER_EXECUTED_SUCCESSFULLY).
@@ -113,6 +119,7 @@ export function computeActionVisibility(
       showAdvance: false,
       showAssignExec: false,
       showRollback: false,
+      showReassign: false,
     };
   }
 
@@ -173,12 +180,23 @@ export function computeActionVisibility(
     input.hasPreviousStage &&
     (isAdmin || isAssignedExec || isCityCaptain);
 
+  // HVA-140: Reassign Exec — captain-of-city / super_admin at any stage
+  // where an exec is currently assigned. The action carries operational
+  // weight (affects two execs + customer perception), so we require an
+  // exec to actually be on the request before offering it.
+  // Cancellation + terminal are already short-circuited above.
+  const showReassign =
+    input.currentStageCode !== 'SUBMITTED' &&
+    input.assignedExecUserId !== null &&
+    (isAdmin || isCityCaptain);
+
   return {
     showMarkRejected,
     showMarkComplete,
     showAdvance,
     showAssignExec,
     showRollback,
+    showReassign,
   };
 }
 

@@ -7,7 +7,13 @@ import { notFound } from "next/navigation";
 
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
-import { requestStatusHistory, statusStages, visitRequests } from "@/db/schema";
+import {
+  requestExecAssignments,
+  requestStatusHistory,
+  statusStages,
+  users,
+  visitRequests,
+} from "@/db/schema";
 import { getCustomerFacingReason } from "@/lib/cancellation-reasons";
 import { getConfig } from "@/lib/config";
 import { log } from "@/lib/logger";
@@ -148,6 +154,63 @@ export default async function TrackPage({ params }: PageProps) {
     .leftJoin(fromStage, eq(fromStage.id, requestStatusHistory.fromStatusStageId))
     .where(eq(visitRequests.trackingToken, token))
     .orderBy(asc(requestStatusHistory.transitionOrder));
+
+  // HVA-140: reassignment events live in their own table because they
+  // do NOT change status_stage_id. Fetch them in the customer's
+  // chronological order (oldest first); the renderer below merges them
+  // with cleanHistoryRows into a single timeline. We only surface the
+  // NEW exec's name to the customer — captain's reason + previous exec
+  // stay internal (audit_log + in-app notifications).
+  const reassignRows = await db
+    .select({
+      id: requestExecAssignments.id,
+      newExecName: users.fullName,
+      createdAt: requestExecAssignments.createdAt,
+    })
+    .from(requestExecAssignments)
+    .innerJoin(
+      visitRequests,
+      eq(visitRequests.id, requestExecAssignments.requestId),
+    )
+    .innerJoin(users, eq(users.id, requestExecAssignments.toExecUserId))
+    .where(eq(visitRequests.trackingToken, token))
+    .orderBy(asc(requestExecAssignments.createdAt));
+
+  // Merge into a single chronological timeline. Each entry carries
+  // enough discriminator info for the renderer to pick a variant +
+  // label without re-querying.
+  type TimelineEntry =
+    | {
+        kind: 'history';
+        id: string;
+        when: Date;
+        stageName: string;
+        isRollback: boolean;
+        isCurrent: boolean;
+      }
+    | {
+        kind: 'reassign';
+        id: string;
+        when: Date;
+        newExecName: string;
+      };
+
+  const timelineEntries: TimelineEntry[] = [
+    ...cleanHistoryRows.map<TimelineEntry>((h) => ({
+      kind: 'history',
+      id: h.id,
+      when: h.changedAt,
+      stageName: h.toStageName,
+      isRollback: h.fromStageSeq !== null && h.toStageSeq < h.fromStageSeq,
+      isCurrent: h.sequenceNumber === reqRow.currentStageSeq,
+    })),
+    ...reassignRows.map<TimelineEntry>((r) => ({
+      kind: 'reassign',
+      id: r.id,
+      when: r.createdAt,
+      newExecName: r.newExecName ?? 'a new sales executive',
+    })),
+  ].sort((a, b) => a.when.getTime() - b.when.getTime());
 
   const futureStages = await db
     .select({
@@ -303,22 +366,37 @@ export default async function TrackPage({ params }: PageProps) {
               isFirst
             />
 
-            {cleanHistoryRows.map((h) => {
-              // HVA-141: rollback rows have to_seq < from_seq. Render
-              // them as "Moved back to {stage}" with the rollback
-              // variant (subdued, distinct from forward transitions).
-              const isRollback =
-                h.fromStageSeq !== null && h.toStageSeq < h.fromStageSeq;
-              const isCurrent = h.sequenceNumber === reqRow.currentStageSeq;
+            {/* HVA-141 + HVA-140: merged chronological timeline. History
+                rows carry the rollback/current/past variants; reassign
+                rows render as a generic "Now being handled by {name}"
+                informational entry — customer-safe phrasing, NO mention
+                of the previous exec or the captain's reason. */}
+            {timelineEntries.map((entry) => {
+              if (entry.kind === 'reassign') {
+                return (
+                  <TimelineDot
+                    key={`reassign-${entry.id}`}
+                    stageName={`Your visit is now being handled by ${entry.newExecName}`}
+                    when={entry.when}
+                    variant="reassign"
+                  />
+                );
+              }
               return (
                 <TimelineDot
-                  key={h.id}
+                  key={entry.id}
                   stageName={
-                    isRollback ? `Moved back to ${h.toStageName}` : h.toStageName
+                    entry.isRollback
+                      ? `Moved back to ${entry.stageName}`
+                      : entry.stageName
                   }
-                  when={h.changedAt}
+                  when={entry.when}
                   variant={
-                    isRollback ? "rollback" : isCurrent ? "current" : "past"
+                    entry.isRollback
+                      ? "rollback"
+                      : entry.isCurrent
+                        ? "current"
+                        : "past"
                   }
                 />
               );
@@ -384,7 +462,13 @@ export default async function TrackPage({ params }: PageProps) {
 interface TimelineDotProps {
   stageName: string;
   when: Date | null;
-  variant: "past" | "current" | "future" | "cancelled" | "rollback";
+  variant:
+    | "past"
+    | "current"
+    | "future"
+    | "cancelled"
+    | "rollback"
+    | "reassign";
   isFirst?: boolean;
   /** HVA-142: shown only for the cancelled variant when a customer-safe
    * reason is available; null otherwise. */
@@ -418,6 +502,11 @@ function TimelineDot({
           // alarm the customer.
           variant === "rollback" &&
             "bg-background border-muted-foreground/40",
+          // HVA-140: reassignment is informational. Same muted outline
+          // treatment as rollback so the customer reads it as a
+          // routine handoff, not an interruption.
+          variant === "reassign" &&
+            "bg-background border-muted-foreground/40",
         )}
       >
         {variant === "current" && (
@@ -437,6 +526,7 @@ function TimelineDot({
             variant === "future" && "text-muted-foreground",
             variant === "cancelled" && "font-semibold text-destructive",
             variant === "rollback" && "font-medium text-muted-foreground",
+            variant === "reassign" && "font-medium text-muted-foreground",
           )}
         >
           {stageName}

@@ -223,9 +223,19 @@ export default async function CaptainRequestsListPage({
                     <h3 className="text-sm font-semibold tracking-tight">
                       {r.customerName}
                     </h3>
-                    <Badge variant="outline" className="text-[10px]">
-                      {r.statusName}
-                    </Badge>
+                    {/* HVA-142: cancellation is orthogonal to
+                        status_stage_id (HVA-69), so without this branch
+                        the column showed e.g. "Assigned" for a row sitting
+                        in the Cancelled bucket. */}
+                    {r.cancelledAt !== null ? (
+                      <Badge variant="destructive" className="text-[10px]">
+                        Cancelled
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px]">
+                        {r.statusName}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs font-mono text-muted-foreground mt-1">
                     {maskCustomerPhone(r.customerPhone)}
@@ -281,9 +291,16 @@ export default async function CaptainRequestsListPage({
                       {r.cityName}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant="outline" className="text-[10px]">
-                        {r.statusName}
-                      </Badge>
+                      {/* HVA-142: see mobile-card variant above. */}
+                      {r.cancelledAt !== null ? (
+                        <Badge variant="destructive" className="text-[10px]">
+                          Cancelled
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">
+                          {r.statusName}
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {r.assignedExecName ?? (

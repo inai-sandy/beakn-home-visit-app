@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -83,12 +83,21 @@ export default async function TodayPage() {
   // query (they're not in sales_executives and have no assignments) —
   // empty state will render, matching the intentional escape hatch
   // semantics from HVA-99.
+  // HVA-142: cancelled requests should not appear on the exec's active
+  // Today view. HVA-69 cancellation is orthogonal to status_stage_id, so
+  // the existing ne(statusStageId, terminal.id) check is insufficient
+  // (e.g. a request cancelled while ASSIGNED would otherwise remain
+  // here, even though no exec action is possible on it).
   const baseWhere = terminal
     ? and(
         eq(visitRequests.assignedExecUserId, user.id),
         ne(visitRequests.statusStageId, terminal.id),
+        isNull(visitRequests.cancelledAt),
       )
-    : eq(visitRequests.assignedExecUserId, user.id);
+    : and(
+        eq(visitRequests.assignedExecUserId, user.id),
+        isNull(visitRequests.cancelledAt),
+      );
 
   // SORT: assigned_at desc nulls last, then created_at desc as the
   // tiebreaker / fallback for any row where assigned_at didn't get

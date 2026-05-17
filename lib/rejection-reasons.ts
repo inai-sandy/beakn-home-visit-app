@@ -23,6 +23,11 @@ export const REJECTION_REASONS = {
   CHANGED_MIND: 'Customer changed mind',
   FOUND_ALTERNATIVE: 'Found alternative solution',
   NO_LONGER_INTERESTED: 'No longer interested',
+  // HVA-142: customer-safe codes added so the tracking page (and any
+  // future customer-visible surface) can show a friendly reason via
+  // `lib/cancellation-reasons.getCustomerFacingReason`.
+  OUT_OF_SERVICE_AREA: 'Outside our service area',
+  DUPLICATE_REQUEST: 'Duplicate of another request',
   OTHER: 'Other (specify in note)',
 } as const satisfies Record<string, string>;
 

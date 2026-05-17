@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
 import { auditLog, config } from '@/db/schema';
-import { clearConfigCache, getConfig } from '@/lib/config';
+import { getConfig } from '@/lib/config';
 
 let currentCookieHeader: string | undefined;
 vi.mock('next/headers', () => ({
@@ -31,8 +31,9 @@ import { seedCaptain, seedExecutive, seedSuperAdmin } from '../helpers/db';
 //   - config.value is jsonb; strings round-trip as JS strings.
 //   - audit_log event_type='configuration_change' is in the allow-list
 //     (HVA-91/92 migration 0006 + schema default). No new migration here.
-//   - cache invalidation: clearConfigCache() drops the in-process Map so the
-//     next getConfig sees the new value.
+//   - cache invalidation: not applicable post-HVA-112. lib/config carries
+//     no in-memory cache; every getConfig hits Postgres. Tests just verify
+//     the DB write + audit row + route response.
 // =============================================================================
 
 const KEY = 'customer_support_phone';
@@ -55,9 +56,6 @@ afterEach(async () => {
   // so absence is equivalent to a fresh test container's "no row" state.
   // (Same pollution shape that HVA-109 PR #41 fixed for cities columns.)
   await db.delete(config).where(eq(config.key, KEY));
-  // The route invalidates cache after a successful write, but the previous
-  // test's last call may have been a rejection that didn't clear. Reset.
-  clearConfigCache();
 });
 
 describe('PATCH customer-support-phone: RBAC', () => {
@@ -110,11 +108,16 @@ describe('PATCH customer-support-phone: happy path', () => {
       .limit(1);
     expect(row.value).toBe('+919876543210');
 
-    // getConfig sees the new value (cache cleared by the route).
+    // getConfig sees the new value — no in-memory cache to invalidate
+    // post-HVA-112; every read hits Postgres.
     const live = await getConfig('customer_support_phone');
     expect(live).toBe('+919876543210');
 
     // Audit row with the super_admin actor + before/after.
+    // HVA-112 routes setConfig writes through lib/config, which records
+    // beforeState as null when no prior row existed (previously the
+    // direct-upsert path wrote `{ value: '' }`). Matches the standard
+    // create-vs-update audit convention used elsewhere in the codebase.
     const audit = await db
       .select({
         eventType: auditLog.eventType,
@@ -132,7 +135,7 @@ describe('PATCH customer-support-phone: happy path', () => {
     expect(audit[0].actorUserId).toBe(sa.id);
     expect(audit[0].actorRole).toBe('super_admin');
     expect(audit[0].targetEntityType).toBe('config_key');
-    expect(audit[0].beforeState).toMatchObject({ value: '' });
+    expect(audit[0].beforeState).toBeNull();
     expect(audit[0].afterState).toMatchObject({ value: '+919876543210' });
   });
 

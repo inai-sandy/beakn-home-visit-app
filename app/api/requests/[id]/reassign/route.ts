@@ -1,5 +1,6 @@
 import { desc, eq } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -358,6 +359,11 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       );
     });
   });
+
+  // HVA-143: invalidate the client Router Cache so the captain's
+  // listing + the customer's track page reflect the new exec on the
+  // next navigation without manual refresh.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

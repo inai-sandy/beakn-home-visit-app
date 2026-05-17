@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -87,6 +88,9 @@ export async function PATCH(req: Request): Promise<NextResponse> {
       { status: 503 },
     );
   }
+
+  // HVA-143: client Router Cache invalidation for cross-page nav.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     { ok: true, value: next, changed: true },

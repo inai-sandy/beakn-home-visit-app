@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -239,6 +240,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       { status: 503 },
     );
   }
+
+  // HVA-143: client Router Cache invalidation for sibling pages.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

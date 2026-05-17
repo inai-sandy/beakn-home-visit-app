@@ -130,17 +130,22 @@ export async function POST(
       { status: 409 },
     );
   }
-  if (
-    actorRole === USER_ROLES.SALES_EXECUTIVE &&
-    currentRow?.code === 'PENDING_CAPTAIN_APPROVAL'
-  ) {
+  // HVA-137: lock ALL transitions out of PENDING_CAPTAIN_APPROVAL behind
+  // the dedicated /approve and /reject routes. Those routes carry the
+  // captain-only auth gate AND the audit/notification fan-out the
+  // generic status route doesn't. Exec hitting this would have been
+  // blocked by the HVA-68 gate too; the WRONG_ROUTE error makes the
+  // diagnosis explicit and now also catches captain/admin who must
+  // use the dedicated routes.
+  if (currentRow?.code === 'PENDING_CAPTAIN_APPROVAL') {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          'Captain approval is required from this stage. Wait for the captain to approve or reject.',
+        error: 'WRONG_ROUTE',
+        message:
+          'Use POST /api/requests/[id]/approve or /reject from this stage; the generic status route is disabled here.',
       },
-      { status: 403 },
+      { status: 409 },
     );
   }
 

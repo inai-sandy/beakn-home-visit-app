@@ -350,3 +350,126 @@ describe('HVA-141 transition service: allowRollback', () => {
     if (result.ok) expect(result.current.sequenceNumber).toBe(2);
   });
 });
+
+describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
+  async function advanceTo(code: string): Promise<{
+    requestId: string;
+    captainId: string;
+    execId: string;
+  }> {
+    const { requestId, captainId, execId } = await makeAssignableRequest();
+    const stages = [
+      'ASSIGNED',
+      'VISIT_SCHEDULED',
+      'VISIT_COMPLETED',
+      'QUOTATION_GIVEN',
+      'ORDER_CONFIRMED',
+      'INSTALLATION_SCHEDULED',
+      'INSTALLATION_CONFIGURATION_DONE',
+      'PENDING_CAPTAIN_APPROVAL',
+    ];
+    for (const c of stages) {
+      const target = await getStatusStage(c);
+      const result = await transitionRequestStatus({
+        requestId,
+        nextStatusId: target.id,
+        actorUserId: captainId,
+        actorRole: 'captain',
+        preUpdate:
+          c === 'ASSIGNED'
+            ? async (tx) => {
+                await tx
+                  .update(visitRequests)
+                  .set({
+                    assignedExecUserId: execId,
+                    assignedAt: new Date(),
+                  })
+                  .where(eq(visitRequests.id, requestId));
+              }
+            : undefined,
+      });
+      if (!result.ok)
+        throw new Error(`fixture: failed to advance to ${c}: ${result.error}`);
+      if (c === code) break;
+    }
+    return { requestId, captainId, execId };
+  }
+
+  it('accepts PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED when the named pair is set', async () => {
+    const { requestId, captainId } = await advanceTo(
+      'PENDING_CAPTAIN_APPROVAL',
+    );
+    const installation = await getStatusStage('INSTALLATION_SCHEDULED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: installation.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowSpecificBackwardTransition: {
+        fromCode: 'PENDING_CAPTAIN_APPROVAL',
+        toCode: 'INSTALLATION_SCHEDULED',
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.previous.sequenceNumber).toBe(9);
+      expect(result.current.sequenceNumber).toBe(7);
+    }
+  });
+
+  it('rejects PENDING_CAPTAIN_APPROVAL → ASSIGNED even with the option set (wrong toCode)', async () => {
+    const { requestId, captainId } = await advanceTo(
+      'PENDING_CAPTAIN_APPROVAL',
+    );
+    const assigned = await getStatusStage('ASSIGNED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowSpecificBackwardTransition: {
+        fromCode: 'PENDING_CAPTAIN_APPROVAL',
+        toCode: 'INSTALLATION_SCHEDULED',
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+  });
+
+  it('rejects VISIT_COMPLETED → ASSIGNED with the option (wrong fromCode)', async () => {
+    const { requestId, captainId } = await advanceTo('VISIT_COMPLETED');
+    const assigned = await getStatusStage('ASSIGNED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowSpecificBackwardTransition: {
+        fromCode: 'PENDING_CAPTAIN_APPROVAL',
+        toCode: 'INSTALLATION_SCHEDULED',
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+  });
+
+  it('without the option set, PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED is rejected (forward-only intact)', async () => {
+    const { requestId, captainId } = await advanceTo(
+      'PENDING_CAPTAIN_APPROVAL',
+    );
+    const installation = await getStatusStage('INSTALLATION_SCHEDULED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: installation.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      // No allowSpecificBackwardTransition.
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+  });
+});

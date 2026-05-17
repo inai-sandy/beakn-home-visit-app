@@ -216,6 +216,11 @@ export const CONFIG_SCHEMA = {
       // Separate event from request_assigned so dashboards can split
       // initial-assignment from later handoffs cleanly.
       'request_reassigned',
+      // HVA-137 — captain approval gate. request_approved fires on
+      // forward to ORDER_EXECUTED_SUCCESSFULLY; request_rejected_by_captain
+      // fires on the 3-stage backward jump to INSTALLATION_SCHEDULED.
+      'request_approved',
+      'request_rejected_by_captain',
     ],
     editable: true,
   },

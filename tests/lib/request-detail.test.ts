@@ -81,6 +81,8 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showAssignExec: false,
       showRollback: false,
       showReassign: false,
+      showApprove: false,
+      showReject: false,
     });
   });
 
@@ -97,6 +99,8 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showAssignExec: false,
       showRollback: false,
       showReassign: false,
+      showApprove: false,
+      showReject: false,
     });
   });
 });
@@ -298,24 +302,90 @@ describe('computeActionVisibility — Generic Advance (HVA-104)', () => {
     expect(out.showAdvance).toBe(false);
   });
 
-  it('visible to captain at PENDING_CAPTAIN_APPROVAL (next actor)', () => {
+  it('hidden to captain at PENDING_CAPTAIN_APPROVAL (HVA-137 — Approve/Reject takes over)', () => {
     const out = computeActionVisibility({
       ...baseInput(),
       role: 'captain',
       userId: CAPTAIN_ID,
       currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
     });
-    expect(out.showAdvance).toBe(true);
+    expect(out.showAdvance).toBe(false);
   });
 
-  it('visible to super_admin at PENDING_CAPTAIN_APPROVAL (escape hatch)', () => {
+  it('hidden to super_admin at PENDING_CAPTAIN_APPROVAL (HVA-137 — same)', () => {
     const out = computeActionVisibility({
       ...baseInput(),
       role: 'super_admin',
       userId: ADMIN_ID,
       currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
     });
-    expect(out.showAdvance).toBe(true);
+    expect(out.showAdvance).toBe(false);
+  });
+});
+
+describe('computeActionVisibility — Approve/Reject at PENDING_CAPTAIN_APPROVAL (HVA-137)', () => {
+  it('captain-of-city → showApprove true, showReject true, showAdvance/showMarkRejected/showRollback false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+    });
+    expect(out.showApprove).toBe(true);
+    expect(out.showReject).toBe(true);
+    expect(out.showAdvance).toBe(false);
+    expect(out.showMarkRejected).toBe(false);
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('super_admin → showApprove true, showReject true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+    });
+    expect(out.showApprove).toBe(true);
+    expect(out.showReject).toBe(true);
+    expect(out.showAdvance).toBe(false);
+    expect(out.showMarkRejected).toBe(false);
+  });
+
+  it('assigned exec → showApprove false, showReject false (captain owns the decision)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'sales_executive',
+      userId: EXEC_ID,
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+    });
+    expect(out.showApprove).toBe(false);
+    expect(out.showReject).toBe(false);
+    expect(out.showAdvance).toBe(false);
+    expect(out.showMarkRejected).toBe(false);
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('captain at any non-PENDING_CAPTAIN_APPROVAL stage → showApprove false, showReject false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'VISIT_SCHEDULED',
+    });
+    expect(out.showApprove).toBe(false);
+    expect(out.showReject).toBe(false);
+  });
+
+  it('cancelled at PENDING_CAPTAIN_APPROVAL → showApprove false, showReject false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+      cancelledAt: new Date(),
+    });
+    expect(out.showApprove).toBe(false);
+    expect(out.showReject).toBe(false);
   });
 });
 

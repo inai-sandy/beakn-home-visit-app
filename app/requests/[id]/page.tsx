@@ -29,12 +29,14 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
+import { ApproveRequestButton } from "./approve-request-button";
 import { AssignRequestButton } from "./assign-request-button";
 import { CollectionSection } from "./collection-section";
 import { CopyAddressButton } from "./copy-address-button";
 import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
 import { ReassignRequestButton } from "./reassign-request-button";
+import { RejectRequestButton } from "./reject-request-button";
 import { RollbackStatusButton } from "./rollback-status-button";
 
 // =============================================================================
@@ -323,6 +325,43 @@ export default async function RequestDetailPage({ params }: PageProps) {
       .orderBy(asc(users.fullName));
     reassignCandidates = team.filter((e) => e.id !== reqRow.assignedExecUserId);
   }
+
+  // HVA-137: at PENDING_CAPTAIN_APPROVAL we render the captain's
+  // Approve/Reject UI and (for the exec) a static "Waiting for
+  // {captainName}" section that surfaces the exec's submitted note.
+  // The note lives on the most recent request_status_history row
+  // pointing INTO PENDING_CAPTAIN_APPROVAL — use transition_order to
+  // pick the latest in case a request was rejected and re-advanced.
+  let pendingApprovalNote: string | null = null;
+  let cityCaptainName: string | null = null;
+  if (reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL") {
+    const [latestIntoApproval] = await db
+      .select({ reason: requestStatusHistory.reason })
+      .from(requestStatusHistory)
+      .innerJoin(
+        statusStages,
+        eq(statusStages.id, requestStatusHistory.toStatusStageId),
+      )
+      .where(
+        and(
+          eq(requestStatusHistory.requestId, requestUuid),
+          eq(statusStages.code, "PENDING_CAPTAIN_APPROVAL"),
+        ),
+      )
+      .orderBy(desc(requestStatusHistory.transitionOrder))
+      .limit(1);
+    pendingApprovalNote = latestIntoApproval?.reason ?? null;
+
+    if (reqRow.cityCaptainUserId) {
+      const [c] = await db
+        .select({ fullName: users.fullName })
+        .from(users)
+        .where(eq(users.id, reqRow.cityCaptainUserId))
+        .limit(1);
+      cityCaptainName = c?.fullName ?? null;
+    }
+  }
+
   const backHref = isRole(role) ? ROLE_HOME[role] : "/";
   const submittedIst = formatIstDateTime(reqRow.createdAt);
   const cancelledIst = formatIstDateTime(reqRow.cancelledAt);
@@ -583,17 +622,52 @@ export default async function RequestDetailPage({ params }: PageProps) {
             computeActionVisibility. The pure helper makes the role × stage
             matrix unit-testable; render here only when any button is shown
             (otherwise the section + its margin would leave a stray gap). */}
+        {/* HVA-137: exec-facing waiting section at PENDING_CAPTAIN_APPROVAL.
+            Shows only to the assigned exec. The note here is what the
+            exec submitted via Mark Installation Complete (HVA-68);
+            captain name comes from the request's city. */}
+        {reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
+          role === "sales_executive" &&
+          reqRow.assignedExecUserId === user.id && (
+            <section className="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-5 shadow-sm space-y-2">
+              <div className="flex items-center gap-2">
+                <Icon name="hourglass_top" size="sm" className="text-amber-700" />
+                <h2 className="text-base font-semibold tracking-tight text-amber-900">
+                  Waiting for {cityCaptainName ?? "your captain"} to approve
+                </h2>
+              </div>
+              {pendingApprovalNote ? (
+                <div className="rounded-2xl bg-background/70 border px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                    Your note
+                  </p>
+                  <p className="text-sm whitespace-pre-wrap">
+                    {pendingApprovalNote}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No note was attached when you marked installation
+                  complete.
+                </p>
+              )}
+            </section>
+          )}
+
         {nextStage &&
           (actionVis.showMarkRejected ||
             actionVis.showMarkComplete ||
             actionVis.showAdvance ||
             actionVis.showAssignExec ||
             actionVis.showRollback ||
-            actionVis.showReassign) && (
+            actionVis.showReassign ||
+            actionVis.showApprove ||
+            actionVis.showReject) && (
             <section className="flex justify-end gap-3 flex-wrap">
               {/* Outline / subordinate buttons first (rollback +
-                  reassign), then destructive Mark Rejected, then the
-                  primary forward action on the right. */}
+                  reassign + reject), then destructive Mark Rejected,
+                  then the primary forward action (incl. Approve) on the
+                  right. */}
               {actionVis.showRollback && previousStage && (
                 <RollbackStatusButton
                   requestId={reqRow.id}
@@ -612,6 +686,12 @@ export default async function RequestDetailPage({ params }: PageProps) {
                   candidates={reassignCandidates}
                 />
               )}
+              {actionVis.showReject && (
+                <RejectRequestButton
+                  requestId={reqRow.id}
+                  customerName={reqRow.customerName}
+                />
+              )}
               {actionVis.showMarkRejected && (
                 <MarkCustomerRejectedButton requestId={reqRow.id} />
               )}
@@ -622,6 +702,12 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 <AssignRequestButton
                   requestId={reqRow.id}
                   execs={execsForAssignment}
+                />
+              )}
+              {actionVis.showApprove && (
+                <ApproveRequestButton
+                  requestId={reqRow.id}
+                  customerName={reqRow.customerName}
                 />
               )}
               {actionVis.showAdvance && (

@@ -144,6 +144,34 @@ export async function POST(
     );
   }
 
+  // HVA-139: lock the SUBMITTED → ASSIGNED transition behind the
+  // dedicated /api/requests/[id]/assign route. That route atomically
+  // sets assigned_exec_user_id + assigned_captain_user_id + assigned_at
+  // INSIDE the same tx as the stage advance; the generic status route
+  // does not, so allowing this transition here would leave a request
+  // at ASSIGNED with assigned_exec_user_id = NULL (the production bug
+  // Arjun ran into on Preethi, 2026-05-17). Defence-in-depth: the UI
+  // also hides the "Move to Assigned" button for captain/admin at
+  // SUBMITTED via computeActionVisibility.
+  if (currentRow?.code === 'SUBMITTED') {
+    const [nextRow] = await db
+      .select({ code: statusStages.code })
+      .from(statusStages)
+      .where(eq(statusStages.id, nextStatusId))
+      .limit(1);
+    if (nextRow?.code === 'ASSIGNED') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'WRONG_ROUTE',
+          message:
+            'Use POST /api/requests/[id]/assign to assign an exec; this route does not set assigned_exec_user_id.',
+        },
+        { status: 409 },
+      );
+    }
+  }
+
   const result = await transitionRequestStatus({
     requestId: requestUuid,
     nextStatusId,

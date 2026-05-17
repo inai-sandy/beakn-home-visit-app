@@ -75,6 +75,7 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showMarkRejected: false,
       showMarkComplete: false,
       showAdvance: false,
+      showAssignExec: false,
     });
   });
 
@@ -88,7 +89,75 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showMarkRejected: false,
       showMarkComplete: false,
       showAdvance: false,
+      showAssignExec: false,
     });
+  });
+});
+
+describe('computeActionVisibility — Assign Sales Executive (HVA-139)', () => {
+  it('captain-of-city at SUBMITTED → showAssignExec true, showAdvance false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+    });
+    expect(out.showAssignExec).toBe(true);
+    expect(out.showAdvance).toBe(false);
+    // Captain can still reject a spam/bad-quality submission without
+    // assigning first; HVA-69 path stays open.
+    expect(out.showMarkRejected).toBe(true);
+  });
+
+  it('super_admin at SUBMITTED → showAssignExec true, showAdvance false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+    });
+    expect(out.showAssignExec).toBe(true);
+    expect(out.showAdvance).toBe(false);
+  });
+
+  it('exec at SUBMITTED → showAssignExec false (cannot self-assign)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'sales_executive',
+      userId: EXEC_ID,
+      currentStageCode: 'SUBMITTED',
+      // At SUBMITTED, assignedExecUserId is null by definition.
+      assignedExecUserId: null,
+    });
+    expect(out.showAssignExec).toBe(false);
+    // showAdvance is also false: the exec isn't the assigned exec for
+    // an as-yet-unassigned request, so isAssignedExec gates them out.
+    expect(out.showAdvance).toBe(false);
+  });
+
+  it('captain at ASSIGNED → showAssignExec false; generic advance returns', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'ASSIGNED',
+    });
+    expect(out.showAssignExec).toBe(false);
+    expect(out.showAdvance).toBe(true);
+  });
+
+  it('cancelled request → showAssignExec false (terminal short-circuit honored)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+      cancelledAt: new Date(),
+    });
+    expect(out.showAssignExec).toBe(false);
   });
 });
 
@@ -190,6 +259,28 @@ describe('computeActionVisibility — Generic Advance (HVA-104)', () => {
   it('visible to assigned exec at VISIT_SCHEDULED', () => {
     const out = computeActionVisibility(baseInput());
     expect(out.showAdvance).toBe(true);
+  });
+
+  it('hidden to captain at SUBMITTED (HVA-139 — Assign Exec replaces it)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+    });
+    expect(out.showAdvance).toBe(false);
+  });
+
+  it('hidden to super_admin at SUBMITTED (HVA-139 — same)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+    });
+    expect(out.showAdvance).toBe(false);
   });
 
   it('hidden to exec at PENDING_CAPTAIN_APPROVAL (HVA-68 gate)', () => {

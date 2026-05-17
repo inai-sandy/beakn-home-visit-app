@@ -1,13 +1,18 @@
 import { alias } from "drizzle-orm/pg-core";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Badge } from "@/components/ui/badge";
-import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
-import { cities, statusStages, users, visitRequests } from "@/db/schema";
+import {
+  cities,
+  salesExecutives,
+  statusStages,
+  users,
+  visitRequests,
+} from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
 import { loadCaptainCities } from "@/lib/captain/cities";
 import {
@@ -19,6 +24,8 @@ import {
 } from "@/lib/captain/request-buckets";
 import { maskCustomerPhone } from "@/lib/format/phone";
 import { cn } from "@/lib/utils";
+
+import { InlineAssignButton } from "./inline-assign-button";
 
 // =============================================================================
 // HVA-127: /captain/requests — all requests in the captain's cities
@@ -143,6 +150,46 @@ export default async function CaptainRequestsListPage({
             }) === activeBucket,
         );
 
+  // HVA-139: load the captain's exec list once so any row that qualifies
+  // for an inline Assign trigger can pass it down. Super_admin gets the
+  // full active-exec list (they may assign across teams for support).
+  // Captain gets only execs reporting to them.
+  const hasAssignableRow = visible.some(
+    (r) =>
+      r.cancelledAt === null &&
+      r.statusCode === "SUBMITTED" &&
+      r.assignedExecUserId === null,
+  );
+  const execsForAssignment: Array<{ id: string; fullName: string }> =
+    hasAssignableRow
+      ? isAdmin
+        ? await db
+            .select({ id: users.id, fullName: users.fullName })
+            .from(users)
+            .innerJoin(salesExecutives, eq(salesExecutives.userId, users.id))
+            .where(eq(users.isActive, true))
+            .orderBy(asc(users.fullName))
+        : await db
+            .select({ id: users.id, fullName: users.fullName })
+            .from(salesExecutives)
+            .innerJoin(users, eq(users.id, salesExecutives.userId))
+            .where(
+              and(
+                eq(salesExecutives.captainUserId, actor.id),
+                eq(users.isActive, true),
+              ),
+            )
+            .orderBy(asc(users.fullName))
+      : [];
+
+  function rowQualifiesForInlineAssign(r: (typeof visible)[number]): boolean {
+    return (
+      r.cancelledAt === null &&
+      r.statusCode === "SUBMITTED" &&
+      r.assignedExecUserId === null
+    );
+  }
+
   return (
     <div className="p-6 sm:p-8 max-w-6xl space-y-5">
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
@@ -211,47 +258,63 @@ export default async function CaptainRequestsListPage({
         </div>
       ) : (
         <>
-          {/* Mobile: card list */}
+          {/* Mobile: card list.
+              HVA-139: uses the stretched-link pattern so the inline
+              Assign button can sit ABOVE the Link without React's "<a>
+              inside <a>" warning and without the button click bubbling
+              to the row navigation. */}
           <ul className="lg:hidden space-y-3" aria-label="Requests (mobile)">
-            {visible.map((r) => (
-              <li key={r.id}>
-                <Link
-                  href={`/requests/${r.id}`}
-                  className="block rounded-2xl border bg-card p-4 shadow-sm hover:bg-muted/40 transition-colors"
-                >
-                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                    <h3 className="text-sm font-semibold tracking-tight">
-                      {r.customerName}
-                    </h3>
-                    {/* HVA-142: cancellation is orthogonal to
-                        status_stage_id (HVA-69), so without this branch
-                        the column showed e.g. "Assigned" for a row sitting
-                        in the Cancelled bucket. */}
-                    {r.cancelledAt !== null ? (
-                      <Badge variant="destructive" className="text-[10px]">
-                        Cancelled
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[10px]">
-                        {r.statusName}
-                      </Badge>
-                    )}
+            {visible.map((r) => {
+              const qualifies = rowQualifiesForInlineAssign(r);
+              return (
+                <li key={r.id}>
+                  <div className="relative rounded-2xl border bg-card p-4 shadow-sm transition-colors hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
+                    <Link
+                      href={`/requests/${r.id}`}
+                      className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none"
+                      aria-label={`Open request from ${r.customerName}`}
+                    />
+                    <div className="relative z-20 pointer-events-none">
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold tracking-tight">
+                          {r.customerName}
+                        </h3>
+                        {/* HVA-142: destructive badge for cancelled
+                            (cancellation is orthogonal to
+                            status_stage_id per HVA-69). */}
+                        {r.cancelledAt !== null ? (
+                          <Badge variant="destructive" className="text-[10px]">
+                            Cancelled
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            {r.statusName}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs font-mono text-muted-foreground mt-1">
+                        {maskCustomerPhone(r.customerPhone)}
+                      </p>
+                      <div className="flex items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
+                        <span>{r.cityName}</span>
+                        <span>{r.assignedExecName ?? "—"}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {formatDistanceToNow(r.createdAt, { addSuffix: true })}
+                      </p>
+                      {qualifies && (
+                        <div className="mt-3 flex justify-end pointer-events-auto">
+                          <InlineAssignButton
+                            requestId={r.id}
+                            execs={execsForAssignment}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-xs font-mono text-muted-foreground mt-1">
-                    {maskCustomerPhone(r.customerPhone)}
-                  </p>
-                  <div className="flex items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
-                    <span>{r.cityName}</span>
-                    <span>
-                      {r.assignedExecName ?? "—"}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {formatDistanceToNow(r.createdAt, { addSuffix: true })}
-                  </p>
-                </Link>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
 
           {/* Desktop: table */}
@@ -268,71 +331,78 @@ export default async function CaptainRequestsListPage({
                   <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-left px-4 py-3 font-medium">Assigned exec</th>
                   <th className="text-left px-4 py-3 font-medium">Submitted</th>
+                  {/* HVA-139: per-row action column for inline Assign
+                      on Submitted+unassigned rows. Empty for other
+                      rows to keep alignment. */}
+                  <th className="text-left px-4 py-3 font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-t hover:bg-muted/30 transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/requests/${r.id}`}
-                        className="font-medium hover:underline"
-                      >
-                        {r.customerName}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {maskCustomerPhone(r.customerPhone)}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {r.cityName}
-                    </td>
-                    <td className="px-4 py-3">
-                      {/* HVA-142: see mobile-card variant above. */}
-                      {r.cancelledAt !== null ? (
-                        <Badge variant="destructive" className="text-[10px]">
-                          Cancelled
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px]">
-                          {r.statusName}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {r.assignedExecName ?? (
-                        <span className="text-muted-foreground/60">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      <span title={r.createdAt.toISOString()}>
-                        {formatDistanceToNow(r.createdAt, { addSuffix: true })}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {visible.map((r) => {
+                  const qualifies = rowQualifiesForInlineAssign(r);
+                  return (
+                    <tr
+                      key={r.id}
+                      className="border-t hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/requests/${r.id}`}
+                          className="font-medium hover:underline"
+                        >
+                          {r.customerName}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                        {maskCustomerPhone(r.customerPhone)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {r.cityName}
+                      </td>
+                      <td className="px-4 py-3">
+                        {/* HVA-142: see mobile-card variant above. */}
+                        {r.cancelledAt !== null ? (
+                          <Badge variant="destructive" className="text-[10px]">
+                            Cancelled
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            {r.statusName}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {r.assignedExecName ?? (
+                          <span className="text-muted-foreground/60">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        <span title={r.createdAt.toISOString()}>
+                          {formatDistanceToNow(r.createdAt, { addSuffix: true })}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {qualifies && (
+                          <InlineAssignButton
+                            requestId={r.id}
+                            execs={execsForAssignment}
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </>
       )}
 
-      {/* Discoverability hint — point captains at the narrower unassigned
-          queue when they're triaging new requests. */}
-      <p className="text-xs text-muted-foreground">
-        <Icon name="info" size="xs" className="inline align-text-bottom mr-1" />
-        Need to assign new requests?{" "}
-        <Link
-          href="/captain/requests/unassigned"
-          className="underline hover:no-underline"
-        >
-          Open the unassigned queue
-        </Link>
-        .
-      </p>
+      {/* HVA-139: the "Open the unassigned queue" hint used to live here.
+          Inline Assign buttons on Submitted+unassigned rows make that
+          deep link redundant — the queue page itself is still functional
+          and is the documented HVA-81 surface, but is no longer the
+          dominant assignment path. */}
     </div>
   );
 }

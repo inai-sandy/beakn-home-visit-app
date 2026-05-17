@@ -69,8 +69,14 @@ export interface ActionVisibility {
   /** HVA-68 Mark Installation Complete — INSTALLATION_* stages only. */
   showMarkComplete: boolean;
   /** HVA-104 generic next-stage button. Hidden when sales_exec at
-   * PENDING_CAPTAIN_APPROVAL (HVA-68 captain-approval gate). */
+   * PENDING_CAPTAIN_APPROVAL (HVA-68 captain-approval gate), and at
+   * SUBMITTED for captain/admin (HVA-139 — must go through the dedicated
+   * Assign Sales Executive flow instead, which atomically sets the exec
+   * id + advances the stage). */
   showAdvance: boolean;
+  /** HVA-139 Assign Sales Executive — captain-of-city / admin at SUBMITTED.
+   * Opens the shared AssignRequestModal that posts to /api/requests/[id]/assign. */
+  showAssignExec: boolean;
 }
 
 /**
@@ -82,11 +88,21 @@ export function computeActionVisibility(
 ): ActionVisibility {
   // Terminal-state requests have no actionable buttons.
   if (input.cancelledAt !== null) {
-    return { showMarkRejected: false, showMarkComplete: false, showAdvance: false };
+    return {
+      showMarkRejected: false,
+      showMarkComplete: false,
+      showAdvance: false,
+      showAssignExec: false,
+    };
   }
   // No next stage = at terminal pipeline state (ORDER_EXECUTED_SUCCESSFULLY).
   if (!input.hasNextStage) {
-    return { showMarkRejected: false, showMarkComplete: false, showAdvance: false };
+    return {
+      showMarkRejected: false,
+      showMarkComplete: false,
+      showAdvance: false,
+      showAssignExec: false,
+    };
   }
 
   const isAssignedExec =
@@ -113,12 +129,28 @@ export function computeActionVisibility(
     input.currentStageCode === 'PENDING_CAPTAIN_APPROVAL' &&
     input.role === USER_ROLES.SALES_EXECUTIVE;
 
-  // Advance button visibility: any of the three eligible roles, except when
-  // the exec-at-PENDING-APPROVAL gate fires.
-  const isEligibleForAdvance = isAdmin || isAssignedExec || isCityCaptain;
-  const showAdvance = isEligibleForAdvance && !hideGenericForExecAtPendingApproval;
+  // HVA-139: at SUBMITTED, captain + admin must go through the dedicated
+  // Assign Sales Executive flow (which atomically sets the exec id +
+  // advances the stage via /api/requests/[id]/assign). Hide the generic
+  // "Move to Assigned" button for them; show showAssignExec instead.
+  const isSubmitted = input.currentStageCode === 'SUBMITTED';
+  const hideGenericAtSubmittedForCaptainOrAdmin =
+    isSubmitted && (isAdmin || isCityCaptain);
 
-  return { showMarkRejected, showMarkComplete, showAdvance };
+  // HVA-139: Assign Sales Executive — captain-of-city / admin at SUBMITTED.
+  // Execs never see this; they're not yet assigned and can't self-assign.
+  const showAssignExec = isSubmitted && (isAdmin || isCityCaptain);
+
+  // Advance button visibility: any of the three eligible roles, EXCEPT:
+  //   - exec at PENDING_CAPTAIN_APPROVAL (HVA-68 gate)
+  //   - captain/admin at SUBMITTED (HVA-139 — Assign Exec takes over)
+  const isEligibleForAdvance = isAdmin || isAssignedExec || isCityCaptain;
+  const showAdvance =
+    isEligibleForAdvance &&
+    !hideGenericForExecAtPendingApproval &&
+    !hideGenericAtSubmittedForCaptainOrAdmin;
+
+  return { showMarkRejected, showMarkComplete, showAdvance, showAssignExec };
 }
 
 // -----------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,9 +28,17 @@ export function AdvanceStatusButton({
 }: AdvanceStatusButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  // HVA-136: useTransition keeps `isPending` true until the RSC payload
+  // requested by router.refresh() is reconciled. The button stays
+  // disabled across the POST + refresh window, closing the double-click
+  // race that produced "FORWARD_ONLY currentSeq=4 attemptedSeq=4" when
+  // an exec re-clicked before the parent re-rendered with the new
+  // nextStatus.id.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   async function onClick() {
-    if (submitting) return;
+    if (busy) return;
     setSubmitting(true);
     try {
       const res = await fetch(`/api/requests/${requestId}/status`, {
@@ -50,8 +58,14 @@ export function AdvanceStatusButton({
         return;
       }
       toast.success(`Moved to ${nextStatus.name}`);
-      // Server-data refresh — timeline + next-stage label update.
-      router.refresh();
+      // Server-data refresh — timeline + next-stage label update. Wrapped
+      // in startTransition so the button below stays disabled until the
+      // new RSC payload lands (parent re-renders with the next stage's
+      // id, so the now-stale id in this component's props is replaced
+      // before the user can click again).
+      startTransition(() => {
+        router.refresh();
+      });
     } catch (err) {
       toast.error(
         err instanceof Error ? `Network error: ${err.message}` : "Network error",
@@ -65,10 +79,10 @@ export function AdvanceStatusButton({
     <Button
       type="button"
       onClick={onClick}
-      disabled={submitting}
+      disabled={busy}
       className="w-full sm:w-auto h-12 px-5 text-base font-medium"
     >
-      {submitting ? (
+      {busy ? (
         <>
           <Icon name="progress_activity" size="sm" className="animate-spin" />
           <span>Moving…</span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -77,9 +77,14 @@ function ConfirmDialog({
   const [submitting, setSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  // HVA-136: keep the dialog buttons disabled until the page's RSC
+  // payload has been re-fetched, so the user can't see stale state
+  // behind the closing modal.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   async function onConfirm() {
-    if (submitting) return;
+    if (busy) return;
     setSubmitting(true);
     setGeneralError(null);
     setFieldError(null);
@@ -105,7 +110,9 @@ function ConfirmDialog({
         return;
       }
       toast.success("Marked complete — captain will be asked to approve.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -134,7 +141,7 @@ function ConfirmDialog({
             placeholder="e.g. All 6 switches installed, demo done with customer."
             value={note}
             onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
-            disabled={submitting}
+            disabled={busy}
             maxLength={NOTE_MAX}
             rows={4}
             className="resize-none"
@@ -158,11 +165,11 @@ function ConfirmDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={onConfirm} disabled={submitting}>
-            {submitting ? (
+          <Button onClick={onConfirm} disabled={busy}>
+            {busy ? (
               <>
                 <Icon name="progress_activity" size="sm" className="animate-spin" />
                 <span>Submitting…</span>

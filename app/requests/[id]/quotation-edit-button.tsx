@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -92,10 +92,14 @@ function QuotationDialog({
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  // HVA-136: pending-refresh signal — see advance-status-button for the
+  // full rationale (same race fix, different surface).
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const paise = rupeesStringToPaise(amount);
   const amountValid = paise !== null;
-  const canSubmit = !submitting && amountValid;
+  const canSubmit = !busy && amountValid;
 
   async function onSubmit() {
     if (!canSubmit || paise === null) return;
@@ -126,7 +130,9 @@ function QuotationDialog({
         return;
       }
       toast.success(existing ? "Quotation updated." : "Quotation recorded.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -160,7 +166,7 @@ function QuotationDialog({
               placeholder="e.g. 125000"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              disabled={submitting}
+              disabled={busy}
               className="h-12 font-mono"
             />
             {fieldErrors.totalOrderValuePaise && (
@@ -187,7 +193,7 @@ function QuotationDialog({
               placeholder="e.g. Q-2025-001"
               value={number}
               onChange={(e) => setNumber(e.target.value.slice(0, NUMBER_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={NUMBER_MAX}
               className="h-12"
             />
@@ -207,7 +213,7 @@ function QuotationDialog({
               placeholder="Internal context — scope, exclusions, special terms…"
               value={notes}
               onChange={(e) => setNotes(e.target.value.slice(0, NOTES_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={NOTES_MAX}
               rows={3}
               className="resize-none"
@@ -235,11 +241,11 @@ function QuotationDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={onSubmit} disabled={!canSubmit}>
-            {submitting ? (
+            {busy ? (
               <>
                 <Icon
                   name="progress_activity"

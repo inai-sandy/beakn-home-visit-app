@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,10 @@ function ConfirmDialog({
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  // HVA-136: refresh-in-flight signal so the dialog stays inert until
+  // the page's RSC payload is reconciled.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const reasonRequiresNote =
     reason !== "" && REASON_REQUIRES_NOTE.has(reason);
@@ -93,7 +97,7 @@ function ConfirmDialog({
   const noteShortForOther = reasonRequiresNote && noteTrimmedLen < OTHER_NOTE_MIN;
   // "Mark Rejected" is gated client-side: must pick a reason; if OTHER,
   // note must be ≥10 chars. Server re-validates either way.
-  const canSubmit = !submitting && reason !== "" && !noteShortForOther;
+  const canSubmit = !busy && reason !== "" && !noteShortForOther;
 
   async function onConfirm() {
     if (!canSubmit) return;
@@ -125,7 +129,9 @@ function ConfirmDialog({
         return;
       }
       toast.success("Marked rejected — request is now closed.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -153,7 +159,7 @@ function ConfirmDialog({
             <Select
               value={reason || undefined}
               onValueChange={(v) => setReason(v as RejectionReason)}
-              disabled={submitting}
+              disabled={busy}
             >
               <SelectTrigger id="rejection-reason" className="h-12 w-full rounded-input">
                 <SelectValue placeholder="Select a reason…" />
@@ -185,7 +191,7 @@ function ConfirmDialog({
               placeholder="What did the customer say specifically?"
               value={note}
               onChange={(e) => setNote(e.target.value.slice(0, NOTE_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={NOTE_MAX}
               rows={3}
               className="resize-none"
@@ -218,7 +224,7 @@ function ConfirmDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button
@@ -226,7 +232,7 @@ function ConfirmDialog({
             onClick={onConfirm}
             disabled={!canSubmit}
           >
-            {submitting ? (
+            {busy ? (
               <>
                 <Icon name="progress_activity" size="sm" className="animate-spin" />
                 <span>Submitting…</span>

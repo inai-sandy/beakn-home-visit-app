@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -73,9 +73,13 @@ function VoidDialog({
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
+  // HVA-136: pending-refresh signal — see other mutation buttons in
+  // this directory for full rationale.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const trimmed = reason.trim();
-  const canSubmit = !submitting && trimmed.length >= REASON_MIN;
+  const canSubmit = !busy && trimmed.length >= REASON_MIN;
 
   async function onConfirm() {
     if (!canSubmit) return;
@@ -100,7 +104,9 @@ function VoidDialog({
         return;
       }
       toast.success("Payment voided.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -129,7 +135,7 @@ function VoidDialog({
             placeholder="Wrong amount entered, duplicate, customer reversed UPI…"
             value={reason}
             onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))}
-            disabled={submitting}
+            disabled={busy}
             maxLength={REASON_MAX}
             rows={3}
             className="resize-none"
@@ -158,7 +164,7 @@ function VoidDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button
@@ -166,7 +172,7 @@ function VoidDialog({
             onClick={onConfirm}
             disabled={!canSubmit}
           >
-            {submitting ? (
+            {busy ? (
               <>
                 <Icon
                   name="progress_activity"

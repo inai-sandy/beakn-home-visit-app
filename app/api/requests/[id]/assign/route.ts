@@ -349,6 +349,14 @@ export async function POST(
   // /captain/requests listing reflects the new assignment on the
   // next navigation without manual refresh.
   revalidatePath('/', 'layout');
+  // HVA-143 diag: temporary log to confirm the call fires on prod
+  // for the cross-page-staleness diagnostic. Remove after Sandeep
+  // walks the repro once.
+  console.log('[HVA-143 diag] revalidatePath fired for assign route', {
+    requestUuid,
+    execUserId: execRow.userId,
+    at: new Date().toISOString(),
+  });
 
   return NextResponse.json(
     {

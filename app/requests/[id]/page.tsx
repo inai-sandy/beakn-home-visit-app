@@ -175,12 +175,19 @@ export default async function RequestDetailPage({ params }: PageProps) {
   }
 
   // 4. Timeline history + future stages.
+  //    HVA-144: project + order by transition_order so a request that
+  //    has been rolled back (and thus has multiple history rows with
+  //    the same target stage seq) renders chronologically + can be
+  //    uniquely tagged "current" on the latest row only. Pre-HVA-141
+  //    requests have transition_order populated via the backfill in
+  //    migration 0013.
   const historyRows = await db
     .select({
       id: requestStatusHistory.id,
       toStageId: requestStatusHistory.toStatusStageId,
       toStageName: statusStages.name,
       sequenceNumber: requestStatusHistory.sequenceNumber,
+      transitionOrder: requestStatusHistory.transitionOrder,
       changedAt: requestStatusHistory.changedAt,
       reason: requestStatusHistory.reason,
       changedByUserId: requestStatusHistory.changedByUserId,
@@ -193,7 +200,17 @@ export default async function RequestDetailPage({ params }: PageProps) {
     )
     .leftJoin(users, eq(users.id, requestStatusHistory.changedByUserId))
     .where(eq(requestStatusHistory.requestId, requestUuid))
-    .orderBy(asc(requestStatusHistory.sequenceNumber));
+    .orderBy(asc(requestStatusHistory.transitionOrder));
+
+  // HVA-144: the "Current" badge belongs on exactly one history row —
+  // the latest transition. Without this, two rows that share a target
+  // stage seq (e.g. forward → rollback → forward-again, both landing
+  // on VISIT_SCHEDULED) would both match `h.sequenceNumber === currentSeq`
+  // and both render with the "Current" badge.
+  const maxTransitionOrder =
+    historyRows.length > 0
+      ? historyRows[historyRows.length - 1].transitionOrder
+      : 0;
 
   const futureStages = await db
     .select({
@@ -444,16 +461,26 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </header>
 
           <ol className="space-y-3">
+            {/* HVA-144: the synthetic Submitted row is "current" only
+                when there are NO history rows (i.e., the request is
+                still at SUBMITTED). Without this guard, a request that
+                has moved past Submitted but came back via some future
+                rollback path landing at seq 1 would briefly double-tag.
+                Today's pipeline forbids rolling back to SUBMITTED, so
+                this is defence-in-depth. */}
             <TimelineRow
               stageName="Submitted"
               when={reqRow.createdAt}
               changedByName="Customer"
               reason={null}
-              variant={reqRow.currentStageSeq === 1 ? "current" : "past"}
+              variant={historyRows.length === 0 ? "current" : "past"}
             />
 
             {historyRows.map((h) => {
-              const isCurrent = h.sequenceNumber === reqRow.currentStageSeq;
+              // HVA-144: only the last transition (max transition_order)
+              // gets the "Current" badge — fixes the double-Current bug
+              // after a rollback re-traverses a previously-visited stage.
+              const isCurrent = h.transitionOrder === maxTransitionOrder;
               return (
                 <TimelineRow
                   key={h.id}

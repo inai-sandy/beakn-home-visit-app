@@ -39,6 +39,9 @@ function baseInput() {
     cityCaptainUserId: CAPTAIN_ID,
     cancelledAt: null,
     hasNextStage: true,
+    // HVA-141: defaults to true; tests for the SUBMITTED case override
+    // (no previous stage exists when at seq 1).
+    hasPreviousStage: true,
   };
 }
 
@@ -76,6 +79,7 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showMarkComplete: false,
       showAdvance: false,
       showAssignExec: false,
+      showRollback: false,
     });
   });
 
@@ -90,6 +94,7 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showMarkComplete: false,
       showAdvance: false,
       showAssignExec: false,
+      showRollback: false,
     });
   });
 });
@@ -309,6 +314,104 @@ describe('computeActionVisibility — Generic Advance (HVA-104)', () => {
       currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
     });
     expect(out.showAdvance).toBe(true);
+  });
+});
+
+describe('computeActionVisibility — Rollback (HVA-141)', () => {
+  it('assigned exec at ASSIGNED → showRollback true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'ASSIGNED',
+    });
+    expect(out.showRollback).toBe(true);
+  });
+
+  it('captain-of-city at VISIT_COMPLETED → showRollback true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'VISIT_COMPLETED',
+    });
+    expect(out.showRollback).toBe(true);
+  });
+
+  it('super_admin at any non-terminal stage → showRollback true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'QUOTATION_GIVEN',
+    });
+    expect(out.showRollback).toBe(true);
+  });
+
+  it('any role at SUBMITTED → showRollback false (nothing to roll back to)', () => {
+    const captainAtSubmitted = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+      hasPreviousStage: false,
+    });
+    expect(captainAtSubmitted.showRollback).toBe(false);
+
+    const adminAtSubmitted = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+      hasPreviousStage: false,
+    });
+    expect(adminAtSubmitted.showRollback).toBe(false);
+  });
+
+  it('exec at PENDING_CAPTAIN_APPROVAL → showRollback false (Reject handles it)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+    });
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('captain at PENDING_CAPTAIN_APPROVAL → showRollback false (same reason)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+    });
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('cancelled request → showRollback false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'VISIT_COMPLETED',
+      cancelledAt: new Date(),
+    });
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('non-assigned exec → showRollback false (per-row authz)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'VISIT_COMPLETED',
+      userId: OTHER_USER_ID,
+    });
+    expect(out.showRollback).toBe(false);
+  });
+
+  it('captain of different city → showRollback false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: OTHER_USER_ID,
+      currentStageCode: 'VISIT_COMPLETED',
+    });
+    expect(out.showRollback).toBe(false);
   });
 });
 

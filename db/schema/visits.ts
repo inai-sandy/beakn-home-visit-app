@@ -136,7 +136,12 @@ export const requestStatusHistory = pgTable(
     toStatusStageId: uuid('to_status_stage_id')
       .notNull()
       .references(() => statusStages.id, { onDelete: 'restrict' }),
+    // HVA-141 split: sequence_number stays as the target stage's seq for
+    // human-readable filters; transition_order is the monotonic per-request
+    // counter that carries the UNIQUE so backward transitions (rollback)
+    // don't collide with the original forward row at the same stage seq.
     sequenceNumber: integer('sequence_number').notNull(),
+    transitionOrder: integer('transition_order').notNull(),
     changedByUserId: uuid('changed_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -147,9 +152,11 @@ export const requestStatusHistory = pgTable(
   (table) => [
     index('request_status_history_request_idx').on(table.requestId),
     index('request_status_history_changed_at_idx').on(table.changedAt),
-    uniqueIndex('request_status_history_request_sequence_unique').on(
+    // HVA-141: UNIQUE moved to transition_order; the old
+    // (request_id, sequence_number) unique is dropped in 0013.
+    uniqueIndex('request_status_history_request_transition_order_unique').on(
       table.requestId,
-      table.sequenceNumber,
+      table.transitionOrder,
     ),
   ],
 );

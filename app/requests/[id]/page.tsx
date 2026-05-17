@@ -1,4 +1,4 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -34,6 +34,7 @@ import { CollectionSection } from "./collection-section";
 import { CopyAddressButton } from "./copy-address-button";
 import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
+import { RollbackStatusButton } from "./rollback-status-button";
 
 // =============================================================================
 // HVA-66 (subsumes HVA-104): /requests/[id] — full request detail screen
@@ -209,6 +210,25 @@ export default async function RequestDetailPage({ params }: PageProps) {
     )
     .orderBy(asc(statusStages.sequenceNumber));
 
+  // HVA-141: previous active stage (highest seq < current). Powers the
+  // Rollback button's "Go back to {previousStage.name}" label and the
+  // hasPreviousStage flag fed to computeActionVisibility.
+  const [previousStage] = await db
+    .select({
+      id: statusStages.id,
+      name: statusStages.name,
+      sequenceNumber: statusStages.sequenceNumber,
+    })
+    .from(statusStages)
+    .where(
+      and(
+        eq(statusStages.isActive, true),
+        lt(statusStages.sequenceNumber, reqRow.currentStageSeq),
+      ),
+    )
+    .orderBy(desc(statusStages.sequenceNumber))
+    .limit(1);
+
   const isTerminal = futureStages.length === 0;
   const nextStage = futureStages[0] ?? null;
   const mapsUrl = buildMapsUrl(reqRow.latitude, reqRow.longitude);
@@ -224,6 +244,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
     cityCaptainUserId: reqRow.cityCaptainUserId,
     cancelledAt: reqRow.cancelledAt,
     hasNextStage: !!nextStage,
+    hasPreviousStage: !!previousStage,
   });
 
   // HVA-139: when the Assign Sales Executive button will render, also
@@ -506,8 +527,22 @@ export default async function RequestDetailPage({ params }: PageProps) {
           (actionVis.showMarkRejected ||
             actionVis.showMarkComplete ||
             actionVis.showAdvance ||
-            actionVis.showAssignExec) && (
+            actionVis.showAssignExec ||
+            actionVis.showRollback) && (
             <section className="flex justify-end gap-3 flex-wrap">
+              {/* Rollback first — outline / subordinate to the forward
+                  action so the destructive-feeling "Mark Rejected" and
+                  the primary forward button sit on the right. */}
+              {actionVis.showRollback && previousStage && (
+                <RollbackStatusButton
+                  requestId={reqRow.id}
+                  customerName={reqRow.customerName}
+                  previousStage={{
+                    id: previousStage.id,
+                    name: previousStage.name,
+                  }}
+                />
+              )}
               {actionVis.showMarkRejected && (
                 <MarkCustomerRejectedButton requestId={reqRow.id} />
               )}

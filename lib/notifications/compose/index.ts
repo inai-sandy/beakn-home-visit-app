@@ -18,6 +18,10 @@ import {
   type InAppBody,
   type RequestAssignedContext,
 } from './request-assigned';
+import {
+  composeRequestRolledBackInApp,
+  type RequestRolledBackContext,
+} from './request-rolled-back';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -32,6 +36,10 @@ export type EmailComposer = (
 // that (eventType, channel) tuple.
 export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   'request.assigned': (ctx) => composeRequestAssignedInApp(ctx as unknown as RequestAssignedContext),
+  // HVA-141: captain in-app drawer when an exec / captain / admin rolls
+  // a request back one stage.
+  'request.rolled_back': (ctx) =>
+    composeRequestRolledBackInApp(ctx as unknown as RequestRolledBackContext),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

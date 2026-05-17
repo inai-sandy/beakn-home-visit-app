@@ -232,3 +232,121 @@ describe('HVA-67 transition service: preUpdate hook composes (HVA-81 path)', () 
     expect(vr.assignedExecUserId).toBe(execId);
   });
 });
+
+describe('HVA-141 transition service: allowRollback', () => {
+  async function advanceToVisitScheduled(): Promise<{
+    requestId: string;
+    captainId: string;
+  }> {
+    const { requestId, captainId } = await makeAssignableRequest();
+    const assigned = await getStatusStage('ASSIGNED');
+    const visitScheduled = await getStatusStage('VISIT_SCHEDULED');
+    await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+    });
+    await transitionRequestStatus({
+      requestId,
+      nextStatusId: visitScheduled.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+    });
+    return { requestId, captainId };
+  }
+
+  it('allowRollback=true with target seq = current-1 succeeds and writes a new history row', async () => {
+    const { requestId, captainId } = await advanceToVisitScheduled();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowRollback: true,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.previous.sequenceNumber).toBe(3);
+      expect(result.current.sequenceNumber).toBe(2);
+    }
+
+    // visit_requests reflects the rollback.
+    const [vr] = await db
+      .select({ statusStageId: visitRequests.statusStageId })
+      .from(visitRequests)
+      .where(eq(visitRequests.id, requestId))
+      .limit(1);
+    expect(vr.statusStageId).toBe(assigned.id);
+
+    // history has 3 rows now: SUBMITTED→ASSIGNED, ASSIGNED→VISIT_SCHEDULED,
+    // VISIT_SCHEDULED→ASSIGNED. The new row gets the next transition_order
+    // (3) and doesn't collide with the existing ASSIGNED row at seq 2.
+    const history = await db
+      .select({
+        toStageId: requestStatusHistory.toStatusStageId,
+        sequenceNumber: requestStatusHistory.sequenceNumber,
+        transitionOrder: requestStatusHistory.transitionOrder,
+      })
+      .from(requestStatusHistory)
+      .where(eq(requestStatusHistory.requestId, requestId));
+    expect(history.length).toBe(3);
+    const rollback = history.find((h) => h.transitionOrder === 3);
+    expect(rollback).toBeDefined();
+    expect(rollback?.toStageId).toBe(assigned.id);
+    expect(rollback?.sequenceNumber).toBe(2);
+  });
+
+  it('allowRollback=true with target seq = current-2 rejects with FORWARD_ONLY (one step only)', async () => {
+    const { requestId, captainId } = await advanceToVisitScheduled();
+    const submitted = await getStatusStage('SUBMITTED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: submitted.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowRollback: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('FORWARD_ONLY');
+      if (result.error === 'FORWARD_ONLY') {
+        expect(result.currentSequence).toBe(3);
+        expect(result.attemptedSequence).toBe(1);
+      }
+    }
+  });
+
+  it('allowRollback=false (default) with target seq = current-1 still rejects', async () => {
+    const { requestId, captainId } = await advanceToVisitScheduled();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      // allowRollback NOT supplied — defaults to false.
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+  });
+
+  it('allowRollback=true with target seq = current+1 still succeeds (forward path unaffected)', async () => {
+    const { requestId, captainId } = await makeAssignableRequest();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    const result = await transitionRequestStatus({
+      requestId,
+      nextStatusId: assigned.id,
+      actorUserId: captainId,
+      actorRole: 'captain',
+      allowRollback: true,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.current.sequenceNumber).toBe(2);
+  });
+});

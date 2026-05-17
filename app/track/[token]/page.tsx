@@ -1,4 +1,5 @@
 import { asc, eq, gt } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
 import Image from "next/image";
@@ -123,22 +124,30 @@ export default async function TrackPage({ params }: PageProps) {
   //    initial Submitted stage). Joined back to visit_requests by
   //    tracking_token so we don't have to round-trip via the
   //    visit_requests row's id.
+  //
+  // HVA-141: also pull the from-stage's seq so the renderer can detect a
+  // rollback row (to_seq < from_seq) and label it "Moved back to …".
+  // Order by transition_order (the new monotonic per-request counter
+  // from migration 0013) so a rollback row sits chronologically after
+  // the forward row it undid, not interleaved by stage seq.
+  const fromStage = alias(statusStages, 'from_stage');
+  const toStage = alias(statusStages, 'to_stage');
   const cleanHistoryRows = await db
     .select({
       id: requestStatusHistory.id,
-      toStageCode: statusStages.code,
-      toStageName: statusStages.name,
+      toStageCode: toStage.code,
+      toStageName: toStage.name,
+      toStageSeq: toStage.sequenceNumber,
+      fromStageSeq: fromStage.sequenceNumber,
       sequenceNumber: requestStatusHistory.sequenceNumber,
       changedAt: requestStatusHistory.changedAt,
     })
     .from(requestStatusHistory)
     .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
-    .innerJoin(
-      statusStages,
-      eq(statusStages.id, requestStatusHistory.toStatusStageId),
-    )
+    .innerJoin(toStage, eq(toStage.id, requestStatusHistory.toStatusStageId))
+    .leftJoin(fromStage, eq(fromStage.id, requestStatusHistory.fromStatusStageId))
     .where(eq(visitRequests.trackingToken, token))
-    .orderBy(asc(requestStatusHistory.sequenceNumber));
+    .orderBy(asc(requestStatusHistory.transitionOrder));
 
   const futureStages = await db
     .select({
@@ -294,16 +303,26 @@ export default async function TrackPage({ params }: PageProps) {
               isFirst
             />
 
-            {cleanHistoryRows.map((h) => (
-              <TimelineDot
-                key={h.id}
-                stageName={h.toStageName}
-                when={h.changedAt}
-                variant={
-                  h.sequenceNumber === reqRow.currentStageSeq ? "current" : "past"
-                }
-              />
-            ))}
+            {cleanHistoryRows.map((h) => {
+              // HVA-141: rollback rows have to_seq < from_seq. Render
+              // them as "Moved back to {stage}" with the rollback
+              // variant (subdued, distinct from forward transitions).
+              const isRollback =
+                h.fromStageSeq !== null && h.toStageSeq < h.fromStageSeq;
+              const isCurrent = h.sequenceNumber === reqRow.currentStageSeq;
+              return (
+                <TimelineDot
+                  key={h.id}
+                  stageName={
+                    isRollback ? `Moved back to ${h.toStageName}` : h.toStageName
+                  }
+                  when={h.changedAt}
+                  variant={
+                    isRollback ? "rollback" : isCurrent ? "current" : "past"
+                  }
+                />
+              );
+            })}
 
             {/* HVA-142: when cancelled, the timeline terminates at the
                 cancellation entry — pending future stages would be
@@ -365,7 +384,7 @@ export default async function TrackPage({ params }: PageProps) {
 interface TimelineDotProps {
   stageName: string;
   when: Date | null;
-  variant: "past" | "current" | "future" | "cancelled";
+  variant: "past" | "current" | "future" | "cancelled" | "rollback";
   isFirst?: boolean;
   /** HVA-142: shown only for the cancelled variant when a customer-safe
    * reason is available; null otherwise. */
@@ -394,6 +413,11 @@ function TimelineDot({
           variant === "past" && "bg-primary/70 border-primary/70",
           variant === "future" && "bg-background border-muted",
           variant === "cancelled" && "bg-destructive border-destructive",
+          // HVA-141: rollback is a normal flow event but visually
+          // distinct — outline with muted foreground so it doesn't
+          // alarm the customer.
+          variant === "rollback" &&
+            "bg-background border-muted-foreground/40",
         )}
       >
         {variant === "current" && (
@@ -412,6 +436,7 @@ function TimelineDot({
             variant === "past" && "font-medium text-foreground",
             variant === "future" && "text-muted-foreground",
             variant === "cancelled" && "font-semibold text-destructive",
+            variant === "rollback" && "font-medium text-muted-foreground",
           )}
         >
           {stageName}

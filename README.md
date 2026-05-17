@@ -53,7 +53,34 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deploying (Beakn VPS)
+
+Production runs as a Docker container on a single VPS, behind a shared Caddy reverse proxy on `mcp-network`. The Postgres database lives in a sibling `beakn-postgres` container on the same network.
+
+To deploy after merging to `main`:
+
+```bash
+cd /opt/beakn-home-visit-app
+git checkout main && git pull
+bash scripts/deploy.sh
+```
+
+The script:
+
+1. Sources required `NEXT_PUBLIC_*` values from `.env.local`, refusing to proceed if any are missing or still hold the Dockerfile placeholder.
+2. Runs `docker build` with the corresponding `--build-arg` flags so the values are baked into the client bundle at build time (Next.js inlines `process.env.NEXT_PUBLIC_*` references statically — runtime `--env-file` is too late for client code).
+3. Verifies the built image actually carries the real values and no placeholder strings.
+4. Stops + removes the old `beakn-app` container, runs a fresh one on `mcp-network` with `--env-file=.env.local`, and waits up to 30s for the healthcheck.
+
+Adding a new `NEXT_PUBLIC_*` env var:
+
+1. Add the corresponding `ARG NAME=build-time-placeholder-...` + `ENV NAME=$NAME` lines to the Dockerfile (matching the existing `NEXT_PUBLIC_TURNSTILE_SITE_KEY` pattern).
+2. Add the name to `REQUIRED_BUILD_ARGS` in `scripts/deploy.sh`.
+3. Set the real value in `.env.local` on the VPS.
+
+Background: this script was added after the Turnstile outage of 2026-05-17, where five rebuilds in a row missed the `--build-arg` and baked the placeholder string into the client bundle. The customer form's CAPTCHA widget couldn't render until the next deploy script-ed rebuild. The fallback placeholder pattern in the Dockerfile is intentional — it keeps `next build` working locally + in CI without secrets — but production deploys must always go through this script.
+
+## Deploy on Vercel (template default, unused — Beakn deploys via the VPS Docker path above)
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 

@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Beakn HVA — production deploy
+# =============================================================================
+#
+# Rebuilds the beakn-app Docker image with the required NEXT_PUBLIC_*
+# build-args sourced from .env.local, then restarts the running container
+# on mcp-network with --env-file pointing at the same .env.local.
+#
+# Why this script exists:
+#   Next.js inlines `process.env.NEXT_PUBLIC_*` references into the client
+#   bundle at BUILD time. Runtime --env-file is too late for client code.
+#   The Dockerfile carries an ARG for each NEXT_PUBLIC_* value with a
+#   placeholder default so `next build` succeeds in CI/local without
+#   secrets. Production rebuilds MUST pass the real values via --build-arg
+#   or the placeholder gets baked into the bundle (HVA Turnstile outage
+#   2026-05-17 was caused by exactly this — five rebuilds in a row missed
+#   the --build-arg).
+#
+# Run from the repo root on the VPS:
+#   bash scripts/deploy.sh
+#
+# Or with a tag override (e.g. for a hot fix where you want to keep the
+# prior image around):
+#   IMAGE_TAG=hva119 bash scripts/deploy.sh
+#
+# Fails loudly if any required NEXT_PUBLIC_* is missing from .env.local or
+# still holds the placeholder string from the Dockerfile.
+# =============================================================================
+
+set -euo pipefail
+
+REPO_ROOT="${REPO_ROOT:-/opt/beakn-home-visit-app}"
+ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env.local}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+CONTAINER_NAME="${CONTAINER_NAME:-beakn-app}"
+NETWORK="${NETWORK:-mcp-network}"
+
+cd "$REPO_ROOT"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "ERROR: $ENV_FILE not found" >&2
+  exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Required build-args. Add new NEXT_PUBLIC_* keys here as they're introduced;
+# the script will validate each one against the .env.local row.
+# -----------------------------------------------------------------------------
+REQUIRED_BUILD_ARGS=(
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY
+)
+
+# Known placeholder values that must NOT be in the live build. Keep in sync
+# with the Dockerfile defaults.
+PLACEHOLDER_PATTERN='build-time-placeholder'
+
+BUILD_ARG_FLAGS=()
+for name in "${REQUIRED_BUILD_ARGS[@]}"; do
+  value=$(grep "^${name}=" "$ENV_FILE" | cut -d= -f2- | head -1 || true)
+  if [ -z "$value" ]; then
+    echo "ERROR: $name missing from $ENV_FILE" >&2
+    exit 1
+  fi
+  if echo "$value" | grep -q "$PLACEHOLDER_PATTERN"; then
+    echo "ERROR: $name in $ENV_FILE still holds the Dockerfile placeholder ('$value')" >&2
+    echo "       Set the real value in $ENV_FILE before re-running deploy." >&2
+    exit 1
+  fi
+  # Mask the value in stdout so the log doesn't leak the key.
+  if [ "${#value}" -gt 8 ]; then
+    masked="${value:0:6}…${value: -4}"
+  else
+    masked="(${#value}-char value)"
+  fi
+  echo "[deploy] using build-arg $name=$masked"
+  BUILD_ARG_FLAGS+=("--build-arg" "$name=$value")
+done
+
+# -----------------------------------------------------------------------------
+# Build
+# -----------------------------------------------------------------------------
+echo "[deploy] docker build beakn-app:$IMAGE_TAG"
+docker build "${BUILD_ARG_FLAGS[@]}" -t "beakn-app:$IMAGE_TAG" -f Dockerfile .
+
+# -----------------------------------------------------------------------------
+# Verify build-args actually landed in the client bundle. Catches the
+# Dockerfile drifting away from the script's REQUIRED_BUILD_ARGS list.
+# -----------------------------------------------------------------------------
+for name in "${REQUIRED_BUILD_ARGS[@]}"; do
+  value=$(grep "^${name}=" "$ENV_FILE" | cut -d= -f2- | head -1)
+  match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$value' /app/.next/static 2>/dev/null | head -1" || true)
+  if [ -z "$match" ]; then
+    echo "ERROR: $name was not embedded in the built bundle — check Dockerfile ARG/ENV wiring" >&2
+    exit 1
+  fi
+  echo "[deploy] verified $name baked into $match"
+done
+
+placeholder_match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$PLACEHOLDER_PATTERN' /app/.next/static 2>/dev/null | head -1" || true)
+if [ -n "$placeholder_match" ]; then
+  echo "ERROR: '$PLACEHOLDER_PATTERN' still appears in the built bundle ($placeholder_match)" >&2
+  echo "       A NEXT_PUBLIC_* var is missing from REQUIRED_BUILD_ARGS or the Dockerfile." >&2
+  exit 1
+fi
+echo "[deploy] confirmed no placeholder strings in /app/.next/static"
+
+# -----------------------------------------------------------------------------
+# Restart
+# -----------------------------------------------------------------------------
+if [ "$IMAGE_TAG" != "latest" ]; then
+  docker tag "beakn-app:$IMAGE_TAG" "beakn-app:latest"
+fi
+
+echo "[deploy] stop + remove existing container"
+docker stop "$CONTAINER_NAME" 2>/dev/null || true
+docker rm "$CONTAINER_NAME" 2>/dev/null || true
+
+echo "[deploy] starting new container on network $NETWORK"
+docker run -d \
+  --name "$CONTAINER_NAME" \
+  --restart unless-stopped \
+  --network "$NETWORK" \
+  --env-file "$ENV_FILE" \
+  -e NODE_ENV=production \
+  "beakn-app:latest"
+
+# Healthcheck poll. Container's internal HEALTHCHECK can take ~10s.
+echo "[deploy] waiting for healthy status"
+for i in $(seq 1 30); do
+  status=$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "starting")
+  if [ "$status" = "healthy" ]; then
+    echo "[deploy] container healthy after ${i}s"
+    break
+  fi
+  if [ "$i" = "30" ]; then
+    echo "ERROR: container did not become healthy in 30s. State: $status" >&2
+    docker logs --tail 30 "$CONTAINER_NAME" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "[deploy] done"

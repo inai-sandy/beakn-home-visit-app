@@ -45,6 +45,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: "/captain/dashboard", label: "Dashboard", icon: "dashboard" },
+  // HVA-127: surfaces every request in the captain's cities across all
+  // statuses. Placed second since this is the captain's primary workflow.
+  { href: "/captain/requests", label: "Requests", icon: "list_alt" },
   { href: "/captain/team", label: "My Team", icon: "groups" },
   { href: "/captain/approvals", label: "Pending Approvals", icon: "task_alt" },
   { href: "/captain/collections", label: "Pending Collections", icon: "payments" },

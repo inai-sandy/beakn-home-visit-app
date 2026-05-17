@@ -160,21 +160,14 @@ export const CONFIG_SCHEMA = {
   },
 
   // -------------------------------------------------------------------------
-  // Notification routing — spec §1.4
-  // -------------------------------------------------------------------------
-  other_orders_webhook: {
-    type: 'string',
-    category: 'notifications',
-    description:
-      'Discord webhook URL used to route requests submitted for the "Other" pseudo-city. Per-city webhooks live on cities.discord_webhook_url.',
-    defaultValue: '',
-    editable: true,
-    validation: { pattern: '^(https?://[^\\s]+)?$' },
-  },
-
-  // -------------------------------------------------------------------------
   // Audit trail — spec §14, HVA-18
   // -------------------------------------------------------------------------
+  // (Notification-routing keys were removed in HVA-122. `other_orders_webhook`
+  // was defined here for Discord-routing of the "Other" city per spec §1.4
+  // but never wired to a consumer. Current "Other" flow is email-to-
+  // super_admin via lib/notifications/email-handlers/captain-new-request.ts.
+  // If Discord-for-Other becomes a real requirement, re-add the key as part
+  // of the issue that ships the consumer.)
   audit_enabled_events: {
     type: 'array',
     category: 'audit',

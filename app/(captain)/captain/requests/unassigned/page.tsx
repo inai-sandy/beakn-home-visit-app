@@ -11,6 +11,7 @@ import {
   visitRequests,
 } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
+import { loadCaptainCities } from "@/lib/captain/cities";
 
 import { AssignRequestRow } from "./assign-request-row";
 
@@ -72,12 +73,9 @@ export default async function CaptainUnassignedRequestsPage() {
 
   // Captain's owned cities + execs on captain's team. For super_admin,
   // skip the city filter entirely (load all unassigned + all execs).
-  const myCities = isAdmin
-    ? []
-    : await db
-        .select({ id: cities.id, name: cities.name })
-        .from(cities)
-        .where(eq(cities.captainUserId, actor.id));
+  // HVA-127: lookup centralised in lib/captain/cities.ts so the new
+  // /captain/requests page reuses the same authority.
+  const myCities = isAdmin ? [] : await loadCaptainCities(actor.id);
   const myCityIds = myCities.map((c) => c.id);
 
   // Execs on the captain's team. super_admin gets all sales executives.

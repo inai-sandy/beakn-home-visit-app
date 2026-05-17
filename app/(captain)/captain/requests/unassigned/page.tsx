@@ -130,14 +130,20 @@ export default async function CaptainUnassignedRequestsPage() {
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(
+      // HVA-142: exclude cancelled rows defensively. Cancellation doesn't
+      // change status_stage_id per HVA-69 design, so without this filter
+      // a cancelled-then-untouched Submitted+unassigned row could appear
+      // here and offer an Assign action against a closed request.
       isAdmin
         ? and(
             eq(visitRequests.statusStageId, submittedStage.id),
             isNull(visitRequests.assignedExecUserId),
+            isNull(visitRequests.cancelledAt),
           )
         : and(
             eq(visitRequests.statusStageId, submittedStage.id),
             isNull(visitRequests.assignedExecUserId),
+            isNull(visitRequests.cancelledAt),
             inArray(visitRequests.cityId, myCityIds),
           ),
     )

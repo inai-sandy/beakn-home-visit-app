@@ -265,9 +265,29 @@ export default async function RequestDetailPage({ params }: PageProps) {
               <h1 className="text-2xl font-semibold tracking-tight">
                 {reqRow.customerName}
               </h1>
-              <Badge variant="secondary" className="text-[10px]">
-                {reqRow.currentStageName}
-              </Badge>
+              {/* HVA-142: when cancelled, the destructive badge is the
+                  primary signal; the underlying stage name moves to an
+                  outline secondary badge so the historical context isn't
+                  lost. Cancellation doesn't move status_stage_id by
+                  design (HVA-69), so without this branch the captain
+                  saw "Assigned" with no visible cancellation cue. */}
+              {reqRow.cancelledAt !== null ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="destructive" className="text-[10px]">
+                    Cancelled
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] text-muted-foreground"
+                  >
+                    was {reqRow.currentStageName}
+                  </Badge>
+                </div>
+              ) : (
+                <Badge variant="secondary" className="text-[10px]">
+                  {reqRow.currentStageName}
+                </Badge>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               <Badge variant="outline" className="text-[10px]">

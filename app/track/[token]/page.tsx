@@ -7,6 +7,7 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import { requestStatusHistory, statusStages, visitRequests } from "@/db/schema";
+import { getCustomerFacingReason } from "@/lib/cancellation-reasons";
 import { getConfig } from "@/lib/config";
 import { log } from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -92,6 +93,9 @@ export default async function TrackPage({ params }: PageProps) {
   const { token } = await params;
 
   // 1. Lookup by tracking_token. Cheap (UNIQUE indexed). 404 on miss.
+  //    HVA-142: cancelledAt + cancellationReasonCode pulled so the page
+  //    can swap the Current Status centerpiece + Timeline tail when the
+  //    request has been closed.
   const [reqRow] = await db
     .select({
       customerName: visitRequests.customerName,
@@ -100,6 +104,8 @@ export default async function TrackPage({ params }: PageProps) {
       currentStageCode: statusStages.code,
       currentStageName: statusStages.name,
       currentStageSeq: statusStages.sequenceNumber,
+      cancelledAt: visitRequests.cancelledAt,
+      cancellationReasonCode: visitRequests.cancellationReasonCode,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -107,6 +113,11 @@ export default async function TrackPage({ params }: PageProps) {
     .limit(1);
 
   if (!reqRow) notFound();
+
+  const isCancelled = reqRow.cancelledAt !== null;
+  const customerFacingReason = getCustomerFacingReason(
+    reqRow.cancellationReasonCode,
+  );
 
   // 2. Timeline history (transitions only — HVA-67 doesn't record the
   //    initial Submitted stage). Joined back to visit_requests by
@@ -193,38 +204,75 @@ export default async function TrackPage({ params }: PageProps) {
           </p>
         </section>
 
-        {/* Status centerpiece */}
-        <section
-          aria-label="Current status"
-          className={cn(
-            "rounded-3xl p-8 md:p-10 text-center space-y-3 border",
-            isTerminal
-              ? "border-primary/30 bg-primary/10"
-              : "border-primary/20 bg-primary/5",
-          )}
-        >
-          {isTerminal && (
+        {/* Status centerpiece.
+            HVA-142: when the request is cancelled, the centerpiece flips
+            to a destructive variant that names the closure plainly +
+            shows a customer-safe reason (only if the recorded code is
+            on the whitelist in lib/cancellation-reasons.ts). Exec-only
+            reasons like "Price too high" fall through to no reason line,
+            so we don't echo internal pricing context back at the
+            customer. */}
+        {isCancelled ? (
+          <section
+            aria-label="Current status"
+            className="rounded-3xl p-8 md:p-10 text-center space-y-3 border border-destructive/30 bg-destructive/5"
+          >
             <div className="flex justify-center">
               <Icon
-                name="check_circle"
+                name="cancel"
                 fill
-                className="text-primary"
+                className="text-destructive"
                 style={{ fontSize: "48px" }}
               />
             </div>
-          )}
-          <p className="text-xs uppercase tracking-wide text-primary/80">
-            {isTerminal ? "Completed" : "Current status"}
-          </p>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
-            {reqRow.currentStageName}
-          </h2>
-          {currentStageDescription && (
-            <p className="text-sm md:text-base text-muted-foreground max-w-prose mx-auto">
-              {currentStageDescription}
+            <p className="text-xs uppercase tracking-wide text-destructive/80">
+              Closed
             </p>
-          )}
-        </section>
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-destructive">
+              Request Cancelled
+            </h2>
+            <p className="text-sm md:text-base text-muted-foreground max-w-prose mx-auto">
+              Your request has been closed.
+            </p>
+            {customerFacingReason && (
+              <p className="text-sm md:text-base text-muted-foreground max-w-prose mx-auto">
+                Reason: {customerFacingReason}
+              </p>
+            )}
+          </section>
+        ) : (
+          <section
+            aria-label="Current status"
+            className={cn(
+              "rounded-3xl p-8 md:p-10 text-center space-y-3 border",
+              isTerminal
+                ? "border-primary/30 bg-primary/10"
+                : "border-primary/20 bg-primary/5",
+            )}
+          >
+            {isTerminal && (
+              <div className="flex justify-center">
+                <Icon
+                  name="check_circle"
+                  fill
+                  className="text-primary"
+                  style={{ fontSize: "48px" }}
+                />
+              </div>
+            )}
+            <p className="text-xs uppercase tracking-wide text-primary/80">
+              {isTerminal ? "Completed" : "Current status"}
+            </p>
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+              {reqRow.currentStageName}
+            </h2>
+            {currentStageDescription && (
+              <p className="text-sm md:text-base text-muted-foreground max-w-prose mx-auto">
+                {currentStageDescription}
+              </p>
+            )}
+          </section>
+        )}
 
         {/* Timeline — compact list with left vertical line + dots */}
         <section aria-label="Status timeline" className="space-y-4">
@@ -257,14 +305,26 @@ export default async function TrackPage({ params }: PageProps) {
               />
             ))}
 
-            {futureStages.map((s) => (
+            {/* HVA-142: when cancelled, the timeline terminates at the
+                cancellation entry — pending future stages would be
+                misleading because the pipeline has stopped. */}
+            {isCancelled ? (
               <TimelineDot
-                key={s.id}
-                stageName={s.name}
-                when={null}
-                variant="future"
+                stageName="Cancelled"
+                when={reqRow.cancelledAt}
+                variant="cancelled"
+                reasonText={customerFacingReason}
               />
-            ))}
+            ) : (
+              futureStages.map((s) => (
+                <TimelineDot
+                  key={s.id}
+                  stageName={s.name}
+                  when={null}
+                  variant="future"
+                />
+              ))
+            )}
           </ol>
         </section>
 
@@ -305,11 +365,20 @@ export default async function TrackPage({ params }: PageProps) {
 interface TimelineDotProps {
   stageName: string;
   when: Date | null;
-  variant: "past" | "current" | "future";
+  variant: "past" | "current" | "future" | "cancelled";
   isFirst?: boolean;
+  /** HVA-142: shown only for the cancelled variant when a customer-safe
+   * reason is available; null otherwise. */
+  reasonText?: string | null;
 }
 
-function TimelineDot({ stageName, when, variant, isFirst }: TimelineDotProps) {
+function TimelineDot({
+  stageName,
+  when,
+  variant,
+  isFirst,
+  reasonText,
+}: TimelineDotProps) {
   const relative = when
     ? formatDistanceToNow(when, { addSuffix: true })
     : null;
@@ -324,10 +393,14 @@ function TimelineDot({ stageName, when, variant, isFirst }: TimelineDotProps) {
           variant === "current" && "bg-primary border-primary",
           variant === "past" && "bg-primary/70 border-primary/70",
           variant === "future" && "bg-background border-muted",
+          variant === "cancelled" && "bg-destructive border-destructive",
         )}
       >
         {variant === "current" && (
           <span className="h-2 w-2 rounded-full bg-primary-foreground" />
+        )}
+        {variant === "cancelled" && (
+          <span className="h-2 w-2 rounded-full bg-destructive-foreground" />
         )}
       </span>
 
@@ -338,12 +411,18 @@ function TimelineDot({ stageName, when, variant, isFirst }: TimelineDotProps) {
             variant === "current" && "font-semibold text-foreground",
             variant === "past" && "font-medium text-foreground",
             variant === "future" && "text-muted-foreground",
+            variant === "cancelled" && "font-semibold text-destructive",
           )}
         >
           {stageName}
         </p>
         {relative && (
           <p className="text-xs text-muted-foreground">{relative}</p>
+        )}
+        {variant === "cancelled" && reasonText && (
+          <p className="text-xs text-muted-foreground">
+            Reason: {reasonText}
+          </p>
         )}
       </div>
     </li>

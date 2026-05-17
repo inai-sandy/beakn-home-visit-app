@@ -207,6 +207,7 @@ export const CONFIG_SCHEMA = {
       'refund_recorded',
       'payment_voided',
       'configuration_change',
+      'notification_dispatched',
     ],
     editable: true,
   },

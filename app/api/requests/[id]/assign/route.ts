@@ -19,6 +19,7 @@ import {
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import { transitionRequestStatus } from '@/lib/status-transition';
 
 // =============================================================================
@@ -130,6 +131,7 @@ export async function POST(
   const [reqRow] = await db
     .select({
       id: visitRequests.id,
+      customerName: visitRequests.customerName,
       cityId: visitRequests.cityId,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
@@ -306,24 +308,41 @@ export async function POST(
     userAgent: reqHeaders.get('user-agent'),
   });
 
-  // 11. Notification engine — STUB. HVA-48 (multi-channel dispatch) and
-  //     HVA-49 (WhatsApp/email transport) replace this with the real
-  //     fan-out: customer WhatsApp ("Our team is preparing your visit")
-  //     + exec in-app + push.
-  // TODO(HVA-48/HVA-49): dispatchNotification('request.assigned', {
-  //   requestId: requestUuid,
-  //   execUserId: execRow.userId,
-  //   captainUserId: captainOwnerId,
-  // })
-  reqLog.info(
-    {
-      requestUuid,
+  // 11. Notification dispatch (HVA-48). Fire-and-forget — the HTTP
+  //     response below returns BEFORE the engine resolves rules + invokes
+  //     channel adapters. Engine never throws; the .catch is the last-
+  //     resort guard for the in-process Promise wiring itself.
+  //
+  //     Seeded rules for 'request.assigned' (HVA-48 Phase 2):
+  //       in_app → exec_assigned (the assignee sees a drawer row)
+  //       email  → captain_assigning (actor receives an assignment receipt)
+  //     HVA-50 adds the rest of spec §15.2 (customer WA, escalations).
+  //
+  //     captainName: actor is captain → session.user.name. Admin is acting
+  //     on behalf → the email goes to the admin (the actor), so the
+  //     actor's name is still the right value. captainUserId carries the
+  //     actor id, not the city's owning captain — the recipient_role is
+  //     'captain_assigning' (the actor who clicked Assign).
+  const captainName =
+    (session.user as { name?: string }).name ?? 'A captain';
+  setImmediate(() => {
+    dispatchNotification('request.assigned', {
+      requestId: requestUuid,
       execUserId: execRow.userId,
-      captainUserId: captainOwnerId,
-      notificationEngine: 'pending_HVA-48',
-    },
-    'request_assigned_notification_pending',
-  );
+      execName: execRow.fullName,
+      captainUserId: actorUserId,
+      captainName,
+      customerName: reqRow.customerName,
+      cityName: reqRow.cityName,
+      cityCaptainUserId: reqRow.cityCaptainUserId,
+      note: note ?? null,
+    }).catch((err) => {
+      reqLog.error(
+        { requestUuid, err: err instanceof Error ? err.message : String(err) },
+        'notification_dispatch_failed',
+      );
+    });
+  });
 
   return NextResponse.json(
     {

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -7,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -77,5 +79,38 @@ export const inAppNotifications = pgTable(
     // Composite index supports the common "unread for user X" query.
     index('in_app_notifications_user_read_idx').on(table.userId, table.readAt),
     index('in_app_notifications_created_idx').on(table.createdAt),
+  ],
+);
+
+// HVA-48: notification rules. Admin-editable mapping from (event_type,
+// channel, recipient_role) → enabled/disabled. The engine reads only
+// enabled=true rows. UNIQUE constraint on (event_type, channel,
+// recipient_role) lets seed scripts upsert idempotently.
+//
+// `template_key` is a future hook for admin-editable bodies — Phase 2
+// composers live in code (lib/notifications/compose/*). When body
+// composition moves to the DB, the column carries the template id.
+export const notificationRules = pgTable(
+  'notification_rules',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    channel: varchar('channel', { length: 20 }).notNull(),
+    recipientRole: varchar('recipient_role', { length: 50 }).notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    templateKey: varchar('template_key', { length: 100 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [
+    index('idx_notification_rules_event_enabled').on(table.eventType, table.enabled),
+    uniqueIndex('idx_notification_rules_unique').on(
+      table.eventType,
+      table.channel,
+      table.recipientRole,
+    ),
   ],
 );

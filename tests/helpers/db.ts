@@ -72,6 +72,7 @@ const SAFE_TRUNCATE_TABLES = [
   'holidays',
   'in_app_notifications',
   'leads',
+  'notification_rules',
   'notifications_queue',
   'outcome_options',
   'payments',

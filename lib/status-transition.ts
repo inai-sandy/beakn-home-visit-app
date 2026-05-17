@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
@@ -97,6 +97,16 @@ export interface TransitionInput {
    * (the generic "Move to Next Stage" button + HVA-81 assign).
    */
   allowForwardSkip?: boolean;
+  /**
+   * HVA-141: opt-in to a SINGLE backward step (nextSeq === currentSeq - 1).
+   * Used by /api/requests/[id]/rollback. Multi-stage rollback is not
+   * supported — callers wanting more than one step back must invoke the
+   * rollback route N times.
+   *
+   * Default `false` preserves the forward-only invariant for every
+   * other caller.
+   */
+  allowRollback?: boolean;
 }
 
 const transitionLog = log.child({ component: 'status-transition' });
@@ -114,6 +124,7 @@ export async function transitionRequestStatus(
     userAgent,
     preUpdate,
     allowForwardSkip = false,
+    allowRollback = false,
   } = input;
 
   // 1. Load current request + its current stage (join).
@@ -187,25 +198,32 @@ export async function transitionRequestStatus(
     };
   }
 
-  // 4. Forward-only enforcement.
+  // 4. Forward-only enforcement (with HVA-141 rollback exception).
   //    - Default: strict +1 (the immediate next stage only). Used by
   //      the generic "Move to Next Stage" button + HVA-81 assign.
   //    - allowForwardSkip=true: any strictly-forward target accepted
   //      (nextSeq > currentSeq). Backward and same-stage still rejected.
   //      Used by HVA-68 mark-installation-complete (seq 7 → 9 jump).
+  //    - allowRollback=true: accept exactly nextSeq === currentSeq - 1.
+  //      Multi-stage backward not allowed. Used by HVA-141 rollback.
   const isStrictlyForward =
     nextRow.sequenceNumber > currentRow.currentStageSeq;
   const isExactlyNext =
     nextRow.sequenceNumber === currentRow.currentStageSeq + 1;
-  const forwardOk = allowForwardSkip ? isStrictlyForward : isExactlyNext;
+  const isExactlyPrev =
+    allowRollback && nextRow.sequenceNumber === currentRow.currentStageSeq - 1;
+  const forwardOk =
+    isExactlyPrev || (allowForwardSkip ? isStrictlyForward : isExactlyNext);
   if (!forwardOk) {
     return {
       ok: false,
       status: 400,
       error: 'FORWARD_ONLY',
-      message: allowForwardSkip
-        ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Forward-only — target must be strictly after current.`
-        : `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Only the immediate next stage is allowed.`,
+      message: allowRollback
+        ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Rollback supports only a single backward step (currentSeq - 1).`
+        : allowForwardSkip
+          ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Forward-only — target must be strictly after current.`
+          : `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Only the immediate next stage is allowed.`,
       currentSequence: currentRow.currentStageSeq,
       attemptedSequence: nextRow.sequenceNumber,
     };
@@ -226,11 +244,19 @@ export async function transitionRequestStatus(
         .set({ statusStageId: nextRow.id, updatedAt: new Date() })
         .where(eq(visitRequests.id, requestId));
 
+      // HVA-141: transition_order is monotonic per request. The
+      // subquery runs inside the same tx so concurrent writers are
+      // serialised by the UNIQUE (request_id, transition_order) index
+      // — a racing INSERT would fail with a unique violation, which
+      // we catch as TX_FAILED below. sequence_number still tracks the
+      // target stage's seq for backward compatibility + human-readable
+      // queries.
       await tx.insert(requestStatusHistory).values({
         requestId,
         fromStatusStageId: currentRow.currentStageId,
         toStatusStageId: nextRow.id,
         sequenceNumber: nextRow.sequenceNumber,
+        transitionOrder: sql`COALESCE((SELECT MAX(transition_order) FROM request_status_history WHERE request_id = ${requestId}), 0) + 1`,
         changedByUserId: actorUserId,
         reason: reason ?? null,
       });

@@ -208,6 +208,10 @@ export const CONFIG_SCHEMA = {
       'payment_voided',
       'configuration_change',
       'notification_dispatched',
+      // HVA-141 — exec/captain/admin one-stage rollback. Dedicated event
+      // type alongside the generic 'status_change' so dashboards can
+      // count rollbacks on their own without scanning before/after seq.
+      'status_rolled_back',
     ],
     editable: true,
   },

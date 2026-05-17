@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -228,31 +228,29 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
         })
         .where(eq(visitRequests.id, requestUuid));
 
-      // History entry — we keep sequence_number = current stage's seq
-      // (we're not moving stages, we're stamping a terminal flag). The
-      // entry serves to record WHO marked rejected, WHEN, and WHY in the
-      // same timeline view as the rest of the lifecycle. The "REJECTED: "
-      // prefix on `reason` gives the timeline UI a marker to render this
-      // entry distinctly.
+      // History entry — sequence_number stays as the current stage's
+      // seq (we're not moving stages, we're stamping a terminal flag).
+      // The "REJECTED: " prefix on `reason` lets the timeline UI render
+      // this entry distinctly.
       //
-      // The (request_id, sequence_number) unique constraint means we
-      // CAN'T duplicate a history row at the same seq as a prior
-      // transition. ON CONFLICT DO NOTHING handles that — the audit_log
-      // row written below carries the same info either way.
+      // HVA-141: transition_order is the new per-request monotonic
+      // counter that carries the UNIQUE constraint. The old
+      // (request_id, sequence_number) UNIQUE was dropped in 0013, so
+      // the previous ON CONFLICT DO NOTHING guard is no longer needed;
+      // the cancelled_at gate earlier in this route is the actual
+      // idempotency check.
       const reasonText = note
         ? `${REJECTION_REASONS[reason as RejectionReason]} — ${note}`
         : REJECTION_REASONS[reason as RejectionReason];
-      await tx
-        .insert(requestStatusHistory)
-        .values({
-          requestId: requestUuid,
-          fromStatusStageId: reqRow.statusStageId,
-          toStatusStageId: reqRow.statusStageId,
-          sequenceNumber: reqRow.currentStageSeq,
-          changedByUserId: actorUserId,
-          reason: `REJECTED: ${reasonText}`,
-        })
-        .onConflictDoNothing();
+      await tx.insert(requestStatusHistory).values({
+        requestId: requestUuid,
+        fromStatusStageId: reqRow.statusStageId,
+        toStatusStageId: reqRow.statusStageId,
+        sequenceNumber: reqRow.currentStageSeq,
+        transitionOrder: sql`COALESCE((SELECT MAX(transition_order) FROM request_status_history WHERE request_id = ${requestUuid}), 0) + 1`,
+        changedByUserId: actorUserId,
+        reason: `REJECTED: ${reasonText}`,
+      });
     });
   } catch (err) {
     reqLog.error(

@@ -61,6 +61,10 @@ export interface ActionVisibilityInput {
   cancelledAt: Date | null;
   /** Whether a forward "next stage" exists (false at terminal stages). */
   hasNextStage: boolean;
+  /** HVA-141: whether a previous active stage exists (false at SUBMITTED).
+   * Passed from the page so the helper doesn't have to know about the
+   * status_stages query shape. */
+  hasPreviousStage: boolean;
 }
 
 export interface ActionVisibility {
@@ -77,6 +81,11 @@ export interface ActionVisibility {
   /** HVA-139 Assign Sales Executive — captain-of-city / admin at SUBMITTED.
    * Opens the shared AssignRequestModal that posts to /api/requests/[id]/assign. */
   showAssignExec: boolean;
+  /** HVA-141 Rollback to previous stage — assigned exec / captain-of-city /
+   * super_admin at any non-SUBMITTED, non-terminal, non-PENDING_CAPTAIN_APPROVAL
+   * stage. PENDING_CAPTAIN_APPROVAL has its own Reject path; SUBMITTED and
+   * terminal stages have nothing to roll back to. */
+  showRollback: boolean;
 }
 
 /**
@@ -93,6 +102,7 @@ export function computeActionVisibility(
       showMarkComplete: false,
       showAdvance: false,
       showAssignExec: false,
+      showRollback: false,
     };
   }
   // No next stage = at terminal pipeline state (ORDER_EXECUTED_SUCCESSFULLY).
@@ -102,6 +112,7 @@ export function computeActionVisibility(
       showMarkComplete: false,
       showAdvance: false,
       showAssignExec: false,
+      showRollback: false,
     };
   }
 
@@ -150,7 +161,25 @@ export function computeActionVisibility(
     !hideGenericForExecAtPendingApproval &&
     !hideGenericAtSubmittedForCaptainOrAdmin;
 
-  return { showMarkRejected, showMarkComplete, showAdvance, showAssignExec };
+  // HVA-141: rollback is allowed at any non-SUBMITTED, non-PENDING_CAPTAIN_APPROVAL,
+  // non-terminal stage, for the assigned exec, the city captain, or super_admin.
+  // PENDING_CAPTAIN_APPROVAL has its own Reject path. SUBMITTED has nothing
+  // to roll back to (hasPreviousStage gates that case as a defence too).
+  // Terminal cancellation is already short-circuited above.
+  const isAtRollbackHardStop =
+    isSubmitted || input.currentStageCode === 'PENDING_CAPTAIN_APPROVAL';
+  const showRollback =
+    !isAtRollbackHardStop &&
+    input.hasPreviousStage &&
+    (isAdmin || isAssignedExec || isCityCaptain);
+
+  return {
+    showMarkRejected,
+    showMarkComplete,
+    showAdvance,
+    showAssignExec,
+    showRollback,
+  };
 }
 
 // -----------------------------------------------------------------------------

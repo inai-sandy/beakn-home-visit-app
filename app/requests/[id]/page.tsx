@@ -12,6 +12,7 @@ import { db } from "@/db/client";
 import {
   cities,
   requestStatusHistory,
+  salesExecutives,
   statusStages,
   users,
   visitRequests,
@@ -28,6 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
+import { AssignRequestButton } from "./assign-request-button";
 import { CollectionSection } from "./collection-section";
 import { CopyAddressButton } from "./copy-address-button";
 import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
@@ -223,6 +225,33 @@ export default async function RequestDetailPage({ params }: PageProps) {
     cancelledAt: reqRow.cancelledAt,
     hasNextStage: !!nextStage,
   });
+
+  // HVA-139: when the Assign Sales Executive button will render, also
+  // load the captain's exec list so the shared modal can populate its
+  // picker. Scope:
+  //   - captain → their own team (salesExecutives.captainUserId === user.id)
+  //   - super_admin → execs reporting to the request's city captain;
+  //     fall back to all active execs if the city has no captain assigned
+  //     (uncommon — admin should fix the city row).
+  // No query is run when showAssignExec is false.
+  let execsForAssignment: Array<{ id: string; fullName: string }> = [];
+  if (actionVis.showAssignExec) {
+    const captainOwnerId =
+      role === "super_admin"
+        ? reqRow.cityCaptainUserId ?? user.id
+        : user.id;
+    execsForAssignment = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(salesExecutives)
+      .innerJoin(users, eq(users.id, salesExecutives.userId))
+      .where(
+        and(
+          eq(salesExecutives.captainUserId, captainOwnerId),
+          eq(users.isActive, true),
+        ),
+      )
+      .orderBy(asc(users.fullName));
+  }
   const backHref = isRole(role) ? ROLE_HOME[role] : "/";
   const submittedIst = formatIstDateTime(reqRow.createdAt);
   const cancelledIst = formatIstDateTime(reqRow.cancelledAt);
@@ -476,13 +505,20 @@ export default async function RequestDetailPage({ params }: PageProps) {
         {nextStage &&
           (actionVis.showMarkRejected ||
             actionVis.showMarkComplete ||
-            actionVis.showAdvance) && (
+            actionVis.showAdvance ||
+            actionVis.showAssignExec) && (
             <section className="flex justify-end gap-3 flex-wrap">
               {actionVis.showMarkRejected && (
                 <MarkCustomerRejectedButton requestId={reqRow.id} />
               )}
               {actionVis.showMarkComplete && (
                 <MarkInstallationCompleteButton requestId={reqRow.id} />
+              )}
+              {actionVis.showAssignExec && (
+                <AssignRequestButton
+                  requestId={reqRow.id}
+                  execs={execsForAssignment}
+                />
               )}
               {actionVis.showAdvance && (
                 <AdvanceStatusButton

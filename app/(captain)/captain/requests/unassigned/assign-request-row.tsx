@@ -1,44 +1,22 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 
+import { AssignRequestModal } from "@/components/assign-request-modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 // =============================================================================
-// HVA-81: AssignRequestRow — request row + Assign modal
+// HVA-81 + HVA-139: AssignRequestRow — request row + trigger for the
+// shared AssignRequestModal.
 // =============================================================================
 //
-// Renders a single row in /captain/requests/unassigned plus the confirm-
-// to-assign Dialog. Posts to /api/requests/[id]/assign with the chosen
-// exec + optional note; on success removes the row by calling
-// router.refresh() (the server component re-fetches the list without
-// the just-assigned request).
-//
-// The modal uses Radix Dialog via shadcn — same primitive used by HVA-27
-// and HVA-28's modals, with focus trap + escape + scrim-click handled by
-// Radix natively.
+// HVA-139 extracted the Dialog into components/assign-request-modal.tsx
+// so /requests/[id] and /captain/requests can render the same modal
+// without code duplication. This file now owns the row presentation +
+// the trigger button only.
 // =============================================================================
 
 export interface AssignRequestRowProps {
@@ -56,59 +34,11 @@ export interface AssignRequestRowProps {
 }
 
 export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [execId, setExecId] = useState<string>("");
-  const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  // HVA-136: pending-refresh signal — applied here for consistency with
-  // /requests/[id] mutation buttons. The listing already "works" because
-  // the assigned row disappears from the new RSC payload, but mirroring
-  // the pattern hardens against a double-click on the same row before
-  // refresh lands (e.g. captain clicks Confirm Assign twice quickly).
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
   const relative = formatDistanceToNow(new Date(request.createdAt), {
     addSuffix: true,
   });
-
-  async function onConfirm() {
-    if (!execId || busy) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/requests/${request.id}/assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execUserId: execId, note: note || undefined }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        assignedExec?: { fullName: string };
-      };
-      if (!res.ok || !j.ok) {
-        toast.error(j.error ?? `Assignment failed (${res.status}).`);
-        return;
-      }
-      toast.success(`Assigned to ${j.assignedExec?.fullName ?? "exec"}`);
-      setOpen(false);
-      setExecId("");
-      setNote("");
-      // Re-fetches the server component; the row drops out of the list.
-      // Wrapped in startTransition so the Confirm Assign button stays
-      // disabled until the new RSC payload lands.
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? `Network error: ${err.message}` : "Network error",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
 
   return (
     <li className="rounded-3xl border bg-card p-5 shadow-sm">
@@ -159,93 +89,12 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
         </div>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md rounded-3xl">
-          <DialogHeader>
-            <DialogTitle>Assign request</DialogTitle>
-            <DialogDescription>
-              Pick an exec on your team. They&apos;ll be notified
-              automatically.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor={`exec-${request.id}`}>Sales executive</Label>
-              <Select
-                value={execId || undefined}
-                onValueChange={setExecId}
-                disabled={busy || execs.length === 0}
-              >
-                <SelectTrigger
-                  id={`exec-${request.id}`}
-                  className="h-12 w-full rounded-input"
-                >
-                  <SelectValue
-                    placeholder={
-                      execs.length === 0
-                        ? "No execs available"
-                        : "Select an exec"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {execs.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor={`note-${request.id}`}>
-                Note (optional)
-              </Label>
-              <Textarea
-                id={`note-${request.id}`}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                maxLength={1000}
-                placeholder="Anything the exec should know — recent contact, urgency, etc."
-                disabled={busy}
-                className="rounded-input"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setOpen(false)}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={onConfirm}
-              disabled={busy || !execId}
-            >
-              {busy ? (
-                <>
-                  <Icon
-                    name="progress_activity"
-                    size="sm"
-                    className="animate-spin"
-                  />
-                  <span>Assigning…</span>
-                </>
-              ) : (
-                "Confirm Assign"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AssignRequestModal
+        requestId={request.id}
+        execs={execs}
+        open={open}
+        onClose={() => setOpen(false)}
+      />
     </li>
   );
 }

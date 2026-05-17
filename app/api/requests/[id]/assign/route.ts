@@ -1,4 +1,5 @@
 import { and, eq, isNull } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -343,6 +344,11 @@ export async function POST(
       );
     });
   });
+
+  // HVA-143: invalidate the client Router Cache so the captain's
+  // /captain/requests listing reflects the new assignment on the
+  // next navigation without manual refresh.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

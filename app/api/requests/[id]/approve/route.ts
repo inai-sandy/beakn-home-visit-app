@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -237,6 +238,11 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       'approve_skipped_exec_dispatch_no_assigned_exec',
     );
   }
+
+  // HVA-143: invalidate the client Router Cache so /captain/approvals,
+  // /captain/requests, and the exec's /today reflect the terminal
+  // state on the next navigation.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

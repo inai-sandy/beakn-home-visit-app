@@ -1,4 +1,5 @@
 import { and, eq, inArray, ne, or } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -201,6 +202,9 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // HVA-143: client Router Cache invalidation for cross-page nav.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

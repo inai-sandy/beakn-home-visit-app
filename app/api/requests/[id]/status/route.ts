@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -198,6 +199,14 @@ export async function POST(
     const { status, ...body } = result;
     return NextResponse.json(body, { status });
   }
+
+  // HVA-143: invalidate the entire client Router Cache so the next
+  // navigation to any sibling page (e.g. /captain/requests, /today)
+  // serves fresh data. Layout-scope is intentional — server-side
+  // caches aren't in use today (HVA-136 Phase 1 diagnostic), but the
+  // Next streaming protocol still uses this signal to bust the client
+  // cache on next nav.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

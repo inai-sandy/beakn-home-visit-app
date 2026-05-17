@@ -1,6 +1,23 @@
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { truncateAll } from '../helpers/db';
+
+// HVA-143: route handlers call `revalidatePath('/', 'layout')` on
+// their success paths. In production that runs inside Next.js's
+// request context (set up by the framework around the route handler).
+// Our route tests invoke the POST/PATCH/PUT functions directly, so
+// that context is missing — `revalidatePath` throws
+// "Invariant: static generation store missing".
+//
+// Mock it to a no-op globally. Test files that want to ASSERT
+// revalidatePath was called (e.g. tests/api/revalidate-path.test.ts)
+// override this with their own `vi.mock('next/cache', ...)` at the
+// file level — vitest's file-level mock takes precedence over the
+// setup-level one.
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+}));
 
 // proxy.ts captures NO_AUTH_PREFIXES + canAccess at module-load time on
 // the value of NODE_ENV. Vitest defaults each worker to 'test'; force

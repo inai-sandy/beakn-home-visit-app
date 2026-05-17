@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -450,6 +451,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     submittedAt: new Date().toISOString(),
     requestIdHeader: requestId,
   });
+
+  // HVA-143: invalidate the client Router Cache so the captain's
+  // /captain/requests Open bucket shows the new submission on next
+  // navigation.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     { ok: true, trackingToken },

@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -191,6 +192,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // HVA-143: client Router Cache invalidation for sibling pages.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

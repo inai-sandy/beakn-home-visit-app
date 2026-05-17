@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -223,6 +224,11 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       'reject_skipped_exec_dispatch_no_assigned_exec',
     );
   }
+
+  // HVA-143: invalidate the client Router Cache so the captain's
+  // approvals queue empties and the exec's pages refresh with the
+  // backward transition reflected.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

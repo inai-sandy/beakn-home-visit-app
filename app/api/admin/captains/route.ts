@@ -1,5 +1,6 @@
 import { hashPassword } from 'better-auth/crypto';
 import { eq, inArray, or } from 'drizzle-orm';
+import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -204,6 +205,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // HVA-143: invalidate the client Router Cache so admin pages
+  // (e.g. /admin/captains) reflect the new captain on next navigation.
+  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {

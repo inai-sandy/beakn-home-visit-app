@@ -17,12 +17,11 @@ import postgres from 'postgres';
 //      db/client.ts pick them up on first import.
 //   4. Returns a teardown function vitest invokes after the run.
 //
-// Why no drizzle-kit migrate(): drizzle-kit's programmatic migrator wants
-// a meta/_journal.json that lives in db/migrations/meta — but the journal
-// references hashes that depend on the original generation env. We bypass
-// it by applying the .sql files directly. The migrations themselves are
-// idempotent ('IF NOT EXISTS' / 'ON CONFLICT DO NOTHING' patterns) so
-// re-applying in a fresh DB is straightforward.
+// HVA-111: harness now applies migrations via the same SHA256-of-bytes +
+// `drizzle.__drizzle_migrations` flow that `scripts/migrate.ts` uses on
+// prod. (Prior to HVA-111 this file raw-executed .sql files without any
+// tracking table — diverged from prod's drizzle-kit path. Phase 1
+// diagnosed; Phase 2 aligned both paths.)
 //
 // Cold-start budget: ~6-10s on the VPS (image pull is cached; container
 // boot + migrations ~5s).
@@ -34,14 +33,32 @@ declare global {
 
 const MIGRATIONS_DIR = join(process.cwd(), 'db', 'migrations');
 
+import { createHash } from 'node:crypto';
+
 async function applyMigrations(connectionString: string): Promise<void> {
-  const sql = postgres(connectionString, { max: 1 });
+  // `onnotice` silences harmless Postgres NOTICEs from CREATE … IF NOT
+  // EXISTS on the migrations table during reused-container runs.
+  const sql = postgres(connectionString, { max: 1, onnotice: () => {} });
   try {
     // Migrations reference uuid_generate_v7(). The initial schema migration
     // creates it, but only if pgcrypto / the helper is present. Install
     // pgcrypto upfront so every migration file's CREATE TABLE … DEFAULT
     // uuid_generate_v7() resolves.
     await sql.unsafe('CREATE EXTENSION IF NOT EXISTS pgcrypto;');
+
+    // Ensure the same tracking table prod uses.
+    await sql.unsafe(`
+      CREATE SCHEMA IF NOT EXISTS drizzle;
+      CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+        id SERIAL PRIMARY KEY,
+        hash TEXT NOT NULL,
+        created_at BIGINT
+      );
+    `);
+    const recorded = await sql<{ hash: string }[]>`
+      SELECT hash FROM drizzle.__drizzle_migrations
+    `;
+    const recordedSet = new Set(recorded.map((r) => r.hash));
 
     const files = readdirSync(MIGRATIONS_DIR)
       .filter((f) => f.endsWith('.sql'))
@@ -50,8 +67,16 @@ async function applyMigrations(connectionString: string): Promise<void> {
       const path = join(MIGRATIONS_DIR, file);
       const body = readFileSync(path, 'utf8');
       if (body.trim().length === 0) continue;
+      const hash = createHash('sha256').update(body).digest('hex');
+      if (recordedSet.has(hash)) continue;
       try {
-        await sql.unsafe(body);
+        await sql.begin(async (tx) => {
+          await tx.unsafe(body);
+          await tx`
+            INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+            VALUES (${hash}, ${Date.now()})
+          `;
+        });
       } catch (err) {
         const e = err as Error;
         throw new Error(`migration ${file} failed: ${e.message}`);

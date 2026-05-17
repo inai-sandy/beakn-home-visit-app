@@ -3,8 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTransition } from "react";
 
+import { logoutAction } from "@/app/dev/logout-test/actions";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export function CaptainSidebar({ captainName, cities }: SidebarProps) {
   const pathname = usePathname();
+  const [pending, startTransition] = useTransition();
 
   return (
     <aside
@@ -144,6 +148,26 @@ export function CaptainSidebar({ captainName, cities }: SidebarProps) {
           })}
         </ul>
       </nav>
+
+      {/*
+        HVA-116 footer: Sign-out button. Mirrors the HVA-115 exec
+        sidebar footer + HVA-86 admin user-footer pattern — same
+        logoutAction (HVA-28 pipeline: Better-Auth signOut → session
+        row delete → cookie clear → audit row → /login redirect).
+      */}
+      <div className="border-t p-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full justify-start h-9"
+          disabled={pending}
+          onClick={() => startTransition(() => logoutAction())}
+        >
+          <Icon name="logout" size="xs" />
+          <span>{pending ? "Signing out…" : "Sign out"}</span>
+        </Button>
+      </div>
     </aside>
   );
 }

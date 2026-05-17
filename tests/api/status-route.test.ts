@@ -164,3 +164,49 @@ describe('POST /api/requests/[id]/status — HVA-139 Submitted→Assigned guard'
     expect(body.currentStage?.sequenceNumber).toBe(3);
   });
 });
+
+describe('POST /api/requests/[id]/status — HVA-137 PENDING_CAPTAIN_APPROVAL guard', () => {
+  it('rejects any caller trying to transition out of PENDING_CAPTAIN_APPROVAL via this route (409 WRONG_ROUTE)', async () => {
+    const city = await getOrCreateCity('Bangalore');
+    const captain = await seedCaptain();
+    await db
+      .update(cities)
+      .set({ captainUserId: captain.id })
+      .where(eq(cities.id, city.id));
+    const exec = await seedExecutive(captain.id);
+    const req = await seedVisitRequest({
+      cityId: city.id,
+      statusStageCode: 'PENDING_CAPTAIN_APPROVAL',
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
+    });
+    const terminal = await getStatusStage('ORDER_EXECUTED_SUCCESSFULLY');
+
+    // Exec attempt — the previous HVA-68 gate already blocked this; now
+    // the unified HVA-137 guard responds with WRONG_ROUTE instead.
+    {
+      const sess = await loginByPhone(exec.phone, exec.password);
+      currentCookieHeader = sess.cookieHeader;
+      const res = await POST(
+        buildReq({ nextStatusId: terminal.id }),
+        buildCtx(req.id),
+      );
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('WRONG_ROUTE');
+    }
+
+    // Captain attempt — same response: must use /approve or /reject.
+    {
+      const sess = await loginByPhone(captain.phone, captain.password);
+      currentCookieHeader = sess.cookieHeader;
+      const res = await POST(
+        buildReq({ nextStatusId: terminal.id }),
+        buildCtx(req.id),
+      );
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('WRONG_ROUTE');
+    }
+  });
+});

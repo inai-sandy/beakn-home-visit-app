@@ -91,6 +91,15 @@ export interface ActionVisibility {
    * currently assigned. Status stage does NOT change on reassignment;
    * the flow continues from where the previous exec left off. */
   showReassign: boolean;
+  /** HVA-137 Approve & complete — captain-of-city / super_admin at
+   * PENDING_CAPTAIN_APPROVAL. Advances the request forward to
+   * ORDER_EXECUTED_SUCCESSFULLY via /api/requests/[id]/approve. */
+  showApprove: boolean;
+  /** HVA-137 Request changes (reject) — captain-of-city / super_admin
+   * at PENDING_CAPTAIN_APPROVAL. Sends the request back to
+   * INSTALLATION_SCHEDULED via /api/requests/[id]/reject with a
+   * mandatory 50–500 char reason. */
+  showReject: boolean;
 }
 
 /**
@@ -109,6 +118,8 @@ export function computeActionVisibility(
       showAssignExec: false,
       showRollback: false,
       showReassign: false,
+      showApprove: false,
+      showReject: false,
     };
   }
   // No next stage = at terminal pipeline state (ORDER_EXECUTED_SUCCESSFULLY).
@@ -120,6 +131,8 @@ export function computeActionVisibility(
       showAssignExec: false,
       showRollback: false,
       showReassign: false,
+      showApprove: false,
+      showReject: false,
     };
   }
 
@@ -131,9 +144,17 @@ export function computeActionVisibility(
     input.cityCaptainUserId === input.userId;
   const isAdmin = input.role === USER_ROLES.SUPER_ADMIN;
 
-  // HVA-69: rejected button — assigned exec OR captain of city OR admin.
+  const isPendingCaptainApproval =
+    input.currentStageCode === 'PENDING_CAPTAIN_APPROVAL';
+
+  // HVA-69 + HVA-137: rejected button — assigned exec OR captain of city
+  // OR admin. Hidden at ORDER_EXECUTED_SUCCESSFULLY (already terminal)
+  // and HIDDEN AT PENDING_CAPTAIN_APPROVAL for ALL roles — the captain
+  // owns the decision there; exec must not terminate the customer with
+  // the captain's approval pending.
   const showMarkRejected =
     input.currentStageCode !== 'ORDER_EXECUTED_SUCCESSFULLY' &&
+    !isPendingCaptainApproval &&
     (isAdmin || isAssignedExec || isCityCaptain);
 
   // HVA-68: mark complete — only INSTALLATION_* stages; assigned exec OR admin.
@@ -142,10 +163,11 @@ export function computeActionVisibility(
       input.currentStageCode === 'INSTALLATION_CONFIGURATION_DONE') &&
     (isAdmin || isAssignedExec);
 
-  // HVA-68 gate: exec at PENDING_CAPTAIN_APPROVAL must wait for captain.
-  const hideGenericForExecAtPendingApproval =
-    input.currentStageCode === 'PENDING_CAPTAIN_APPROVAL' &&
-    input.role === USER_ROLES.SALES_EXECUTIVE;
+  // HVA-137: nobody uses the generic Advance button at PENDING_CAPTAIN_APPROVAL.
+  // Exec was already blocked here by the previous HVA-68 gate; captain/admin
+  // now use the dedicated Approve / Reject buttons instead. Generic
+  // /status route also returns WRONG_ROUTE for this stage.
+  const hideGenericAtPendingApproval = isPendingCaptainApproval;
 
   // HVA-139: at SUBMITTED, captain + admin must go through the dedicated
   // Assign Sales Executive flow (which atomically sets the exec id +
@@ -160,12 +182,13 @@ export function computeActionVisibility(
   const showAssignExec = isSubmitted && (isAdmin || isCityCaptain);
 
   // Advance button visibility: any of the three eligible roles, EXCEPT:
-  //   - exec at PENDING_CAPTAIN_APPROVAL (HVA-68 gate)
+  //   - PENDING_CAPTAIN_APPROVAL for all roles (HVA-137 — Approve/Reject
+  //     replace it; the previous HVA-68 gate covered exec only)
   //   - captain/admin at SUBMITTED (HVA-139 — Assign Exec takes over)
   const isEligibleForAdvance = isAdmin || isAssignedExec || isCityCaptain;
   const showAdvance =
     isEligibleForAdvance &&
-    !hideGenericForExecAtPendingApproval &&
+    !hideGenericAtPendingApproval &&
     !hideGenericAtSubmittedForCaptainOrAdmin;
 
   // HVA-141: rollback is allowed at any non-SUBMITTED, non-PENDING_CAPTAIN_APPROVAL,
@@ -190,6 +213,15 @@ export function computeActionVisibility(
     input.assignedExecUserId !== null &&
     (isAdmin || isCityCaptain);
 
+  // HVA-137: Approve / Reject — captain-of-city / super_admin at
+  // PENDING_CAPTAIN_APPROVAL. The exec at this stage sees only the
+  // informational "Waiting for {captainName}" section; everything
+  // actionable is hidden (showAdvance / showMarkRejected / showRollback
+  // all false above).
+  const showApprove =
+    isPendingCaptainApproval && (isAdmin || isCityCaptain);
+  const showReject = showApprove;
+
   return {
     showMarkRejected,
     showMarkComplete,
@@ -197,6 +229,8 @@ export function computeActionVisibility(
     showAssignExec,
     showRollback,
     showReassign,
+    showApprove,
+    showReject,
   };
 }
 

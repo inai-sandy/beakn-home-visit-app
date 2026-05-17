@@ -144,6 +144,7 @@ export default async function TrackPage({ params }: PageProps) {
       toStageCode: toStage.code,
       toStageName: toStage.name,
       toStageSeq: toStage.sequenceNumber,
+      fromStageCode: fromStage.code,
       fromStageSeq: fromStage.sequenceNumber,
       sequenceNumber: requestStatusHistory.sequenceNumber,
       changedAt: requestStatusHistory.changedAt,
@@ -186,6 +187,7 @@ export default async function TrackPage({ params }: PageProps) {
         when: Date;
         stageName: string;
         isRollback: boolean;
+        isCaptainReject: boolean;
         isCurrent: boolean;
       }
     | {
@@ -195,6 +197,9 @@ export default async function TrackPage({ params }: PageProps) {
         newExecName: string;
       };
 
+  // HVA-137: detect the captain reject by from_code === PENDING_CAPTAIN_APPROVAL.
+  // Re-uses the rollback variant styling but with customer-safe copy
+  // that doesn't name the captain or surface the internal reason.
   const timelineEntries: TimelineEntry[] = [
     ...cleanHistoryRows.map<TimelineEntry>((h) => ({
       kind: 'history',
@@ -202,6 +207,9 @@ export default async function TrackPage({ params }: PageProps) {
       when: h.changedAt,
       stageName: h.toStageName,
       isRollback: h.fromStageSeq !== null && h.toStageSeq < h.fromStageSeq,
+      isCaptainReject:
+        h.fromStageCode === 'PENDING_CAPTAIN_APPROVAL' &&
+        h.toStageCode === 'INSTALLATION_SCHEDULED',
       isCurrent: h.sequenceNumber === reqRow.currentStageSeq,
     })),
     ...reassignRows.map<TimelineEntry>((r) => ({
@@ -382,14 +390,18 @@ export default async function TrackPage({ params }: PageProps) {
                   />
                 );
               }
+              // HVA-137: the captain reject (PENDING_CAPTAIN_APPROVAL →
+              // INSTALLATION_SCHEDULED) reads as customer-safe copy that
+              // doesn't name the captain or surface the internal reason.
+              const stageLabel = entry.isCaptainReject
+                ? 'Captain requested changes — back to Installation Scheduled'
+                : entry.isRollback
+                  ? `Moved back to ${entry.stageName}`
+                  : entry.stageName;
               return (
                 <TimelineDot
                   key={entry.id}
-                  stageName={
-                    entry.isRollback
-                      ? `Moved back to ${entry.stageName}`
-                      : entry.stageName
-                  }
+                  stageName={stageLabel}
                   when={entry.when}
                   variant={
                     entry.isRollback

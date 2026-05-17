@@ -19,6 +19,12 @@ import {
   type RequestAssignedContext,
 } from './request-assigned';
 import {
+  composeRequestApprovedInApp,
+  composeRequestRejectedInApp,
+  type RequestApprovedContext,
+  type RequestRejectedContext,
+} from './request-approved';
+import {
   composeRequestReassignedEmailCaptain,
   composeRequestReassignedInAppAssigned,
   composeRequestReassignedInAppRemoved,
@@ -68,6 +74,12 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
       ctx as unknown as RequestReassignedContext,
     );
   },
+  // HVA-137: captain approval gate — both events go to the assigned
+  // exec via in-app drawer.
+  'request.approved': (ctx) =>
+    composeRequestApprovedInApp(ctx as unknown as RequestApprovedContext),
+  'request.rejected': (ctx) =>
+    composeRequestRejectedInApp(ctx as unknown as RequestRejectedContext),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

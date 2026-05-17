@@ -107,6 +107,20 @@ export interface TransitionInput {
    * other caller.
    */
   allowRollback?: boolean;
+  /**
+   * HVA-137: narrow opt-in for a SPECIFIC named backward transition pair
+   * (currentStageCode → nextStageCode). The validator accepts the
+   * transition only when BOTH ends match exactly. Used by
+   * /api/requests/[id]/reject to permit the multi-stage backward jump
+   * PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED (seq 9 → 6) that
+   * `allowRollback` (single step only) and `allowForwardSkip` (forward
+   * only) cannot cover. Strictly narrower than a general "allow any
+   * backward" footgun: every other arbitrary pair stays rejected.
+   *
+   * Default `undefined` preserves the forward-only invariant for every
+   * other caller.
+   */
+  allowSpecificBackwardTransition?: { fromCode: string; toCode: string };
 }
 
 const transitionLog = log.child({ component: 'status-transition' });
@@ -125,13 +139,17 @@ export async function transitionRequestStatus(
     preUpdate,
     allowForwardSkip = false,
     allowRollback = false,
+    allowSpecificBackwardTransition,
   } = input;
 
-  // 1. Load current request + its current stage (join).
+  // 1. Load current request + its current stage (join). HVA-137 added
+  //    currentStageCode so the validator can match the new
+  //    `allowSpecificBackwardTransition` option's `fromCode`.
   const [currentRow] = await db
     .select({
       requestId: visitRequests.id,
       currentStageId: visitRequests.statusStageId,
+      currentStageCode: statusStages.code,
       currentStageSeq: statusStages.sequenceNumber,
       currentStageName: statusStages.name,
     })
@@ -206,14 +224,26 @@ export async function transitionRequestStatus(
   //      Used by HVA-68 mark-installation-complete (seq 7 → 9 jump).
   //    - allowRollback=true: accept exactly nextSeq === currentSeq - 1.
   //      Multi-stage backward not allowed. Used by HVA-141 rollback.
+  //    - allowSpecificBackwardTransition: accept exactly the named
+  //      (fromCode, toCode) pair regardless of seq distance. Used by
+  //      HVA-137 captain reject (PENDING_CAPTAIN_APPROVAL →
+  //      INSTALLATION_SCHEDULED, a 3-stage backward jump). Any other
+  //      pair is still rejected.
   const isStrictlyForward =
     nextRow.sequenceNumber > currentRow.currentStageSeq;
   const isExactlyNext =
     nextRow.sequenceNumber === currentRow.currentStageSeq + 1;
   const isExactlyPrev =
     allowRollback && nextRow.sequenceNumber === currentRow.currentStageSeq - 1;
+  const isNamedBackwardPair =
+    allowSpecificBackwardTransition !== undefined &&
+    currentRow.currentStageCode === allowSpecificBackwardTransition.fromCode &&
+    nextRow.code === allowSpecificBackwardTransition.toCode &&
+    nextRow.sequenceNumber < currentRow.currentStageSeq;
   const forwardOk =
-    isExactlyPrev || (allowForwardSkip ? isStrictlyForward : isExactlyNext);
+    isNamedBackwardPair ||
+    isExactlyPrev ||
+    (allowForwardSkip ? isStrictlyForward : isExactlyNext);
   if (!forwardOk) {
     return {
       ok: false,

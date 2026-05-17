@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -91,13 +91,17 @@ function RefundDialog({
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  // HVA-136: refresh-in-flight signal, same pattern as the other
+  // mutation modals on this page.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const paise = rupeesStringToPaise(amount);
   const amountValid = paise !== null;
   const labelTrimmed = label.trim();
   const labelValid = labelTrimmed.length >= LABEL_MIN;
   const canSubmit =
-    !submitting && amountValid && paymentDate !== "" && labelValid;
+    !busy && amountValid && paymentDate !== "" && labelValid;
 
   async function onSubmit() {
     if (!canSubmit || paise === null) return;
@@ -132,7 +136,9 @@ function RefundDialog({
         return;
       }
       toast.success("Refund recorded.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -165,7 +171,7 @@ function RefundDialog({
                 placeholder="e.g. 5000"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                disabled={submitting}
+                disabled={busy}
                 className="h-12 font-mono"
               />
               {fieldErrors.amountPaise && (
@@ -183,7 +189,7 @@ function RefundDialog({
                 type="date"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
-                disabled={submitting}
+                disabled={busy}
                 className="h-12"
               />
               {fieldErrors.paymentDate && (
@@ -201,7 +207,7 @@ function RefundDialog({
             <Select
               value={mode}
               onValueChange={(v) => setMode(v as PaymentMode)}
-              disabled={submitting}
+              disabled={busy}
             >
               <SelectTrigger
                 id="refund-mode"
@@ -230,7 +236,7 @@ function RefundDialog({
               placeholder="e.g. Customer cancelled, partial refund"
               value={label}
               onChange={(e) => setLabel(e.target.value.slice(0, LABEL_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={LABEL_MAX}
               className="h-12"
             />
@@ -261,7 +267,7 @@ function RefundDialog({
               onChange={(e) =>
                 setReferenceNumber(e.target.value.slice(0, REF_MAX))
               }
-              disabled={submitting}
+              disabled={busy}
               maxLength={REF_MAX}
               className="h-12 font-mono"
             />
@@ -276,7 +282,7 @@ function RefundDialog({
               placeholder="Additional context…"
               value={notes}
               onChange={(e) => setNotes(e.target.value.slice(0, NOTES_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={NOTES_MAX}
               rows={2}
               className="resize-none"
@@ -294,7 +300,7 @@ function RefundDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button
@@ -303,7 +309,7 @@ function RefundDialog({
             disabled={!canSubmit}
             className="border-amber-500/60 text-amber-700 hover:bg-amber-50"
           >
-            {submitting ? (
+            {busy ? (
               <>
                 <Icon
                   name="progress_activity"

@@ -2,7 +2,7 @@
 
 import { formatDistanceToNow } from "date-fns";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -61,13 +61,20 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
   const [execId, setExecId] = useState<string>("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // HVA-136: pending-refresh signal — applied here for consistency with
+  // /requests/[id] mutation buttons. The listing already "works" because
+  // the assigned row disappears from the new RSC payload, but mirroring
+  // the pattern hardens against a double-click on the same row before
+  // refresh lands (e.g. captain clicks Confirm Assign twice quickly).
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const relative = formatDistanceToNow(new Date(request.createdAt), {
     addSuffix: true,
   });
 
   async function onConfirm() {
-    if (!execId || submitting) return;
+    if (!execId || busy) return;
     setSubmitting(true);
     try {
       const res = await fetch(`/api/requests/${request.id}/assign`, {
@@ -89,7 +96,11 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
       setExecId("");
       setNote("");
       // Re-fetches the server component; the row drops out of the list.
-      router.refresh();
+      // Wrapped in startTransition so the Confirm Assign button stays
+      // disabled until the new RSC payload lands.
+      startTransition(() => {
+        router.refresh();
+      });
     } catch (err) {
       toast.error(
         err instanceof Error ? `Network error: ${err.message}` : "Network error",
@@ -164,7 +175,7 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
               <Select
                 value={execId || undefined}
                 onValueChange={setExecId}
-                disabled={submitting || execs.length === 0}
+                disabled={busy || execs.length === 0}
               >
                 <SelectTrigger
                   id={`exec-${request.id}`}
@@ -199,7 +210,7 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
                 rows={3}
                 maxLength={1000}
                 placeholder="Anything the exec should know — recent contact, urgency, etc."
-                disabled={submitting}
+                disabled={busy}
                 className="rounded-input"
               />
             </div>
@@ -210,16 +221,16 @@ export function AssignRequestRow({ request, execs }: AssignRequestRowProps) {
               type="button"
               variant="outline"
               onClick={() => setOpen(false)}
-              disabled={submitting}
+              disabled={busy}
             >
               Cancel
             </Button>
             <Button
               type="button"
               onClick={onConfirm}
-              disabled={submitting || !execId}
+              disabled={busy || !execId}
             >
-              {submitting ? (
+              {busy ? (
                 <>
                   <Icon
                     name="progress_activity"

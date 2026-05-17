@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -89,10 +89,14 @@ function PaymentDialog({
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+  // HVA-136: keep inputs + Cancel disabled until the page's RSC payload
+  // is reconciled, so the closing modal never reveals stale state behind.
+  const [isPending, startTransition] = useTransition();
+  const busy = submitting || isPending;
 
   const paise = rupeesStringToPaise(amount);
   const amountValid = paise !== null;
-  const canSubmit = !submitting && amountValid && paymentDate !== "";
+  const canSubmit = !busy && amountValid && paymentDate !== "";
 
   async function onSubmit() {
     if (!canSubmit || paise === null) return;
@@ -128,7 +132,9 @@ function PaymentDialog({
         return;
       }
       toast.success("Payment recorded.");
-      router.refresh();
+      startTransition(() => {
+        router.refresh();
+      });
       onClose();
     } catch (err) {
       setGeneralError(err instanceof Error ? err.message : "Network error");
@@ -161,7 +167,7 @@ function PaymentDialog({
                 placeholder="e.g. 25000"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                disabled={submitting}
+                disabled={busy}
                 className="h-12 font-mono"
               />
               {fieldErrors.amountPaise && (
@@ -179,7 +185,7 @@ function PaymentDialog({
                 type="date"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
-                disabled={submitting}
+                disabled={busy}
                 className="h-12"
               />
               {fieldErrors.paymentDate && (
@@ -197,7 +203,7 @@ function PaymentDialog({
             <Select
               value={mode}
               onValueChange={(v) => setMode(v as PaymentMode)}
-              disabled={submitting}
+              disabled={busy}
             >
               <SelectTrigger
                 id="payment-mode"
@@ -229,7 +235,7 @@ function PaymentDialog({
               onChange={(e) =>
                 setReferenceNumber(e.target.value.slice(0, REF_MAX))
               }
-              disabled={submitting}
+              disabled={busy}
               maxLength={REF_MAX}
               className="h-12 font-mono"
             />
@@ -246,7 +252,7 @@ function PaymentDialog({
               placeholder="e.g. Advance, Final, Token money"
               value={label}
               onChange={(e) => setLabel(e.target.value.slice(0, LABEL_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={LABEL_MAX}
               className="h-12"
             />
@@ -261,7 +267,7 @@ function PaymentDialog({
               placeholder="Additional context…"
               value={notes}
               onChange={(e) => setNotes(e.target.value.slice(0, NOTES_MAX))}
-              disabled={submitting}
+              disabled={busy}
               maxLength={NOTES_MAX}
               rows={2}
               className="resize-none"
@@ -279,11 +285,11 @@ function PaymentDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={submitting}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button onClick={onSubmit} disabled={!canSubmit}>
-            {submitting ? (
+            {busy ? (
               <>
                 <Icon
                   name="progress_activity"

@@ -34,6 +34,7 @@ import { CollectionSection } from "./collection-section";
 import { CopyAddressButton } from "./copy-address-button";
 import { MarkCustomerRejectedButton } from "./mark-customer-rejected-button";
 import { MarkInstallationCompleteButton } from "./mark-installation-complete-button";
+import { ReassignRequestButton } from "./reassign-request-button";
 import { RollbackStatusButton } from "./rollback-status-button";
 
 // =============================================================================
@@ -289,6 +290,38 @@ export default async function RequestDetailPage({ params }: PageProps) {
         ),
       )
       .orderBy(asc(users.fullName));
+  }
+
+  // HVA-140: when the Reassign Exec button will render, fetch the
+  // current exec's display name (for the modal's read-only header) and
+  // the captain's team excluding the current exec (for the picker).
+  // No query is run when showReassign is false.
+  let currentExecForReassign: { id: string; fullName: string } | null = null;
+  let reassignCandidates: Array<{ id: string; fullName: string }> = [];
+  if (actionVis.showReassign && reqRow.assignedExecUserId) {
+    const [u] = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, reqRow.assignedExecUserId))
+      .limit(1);
+    if (u) currentExecForReassign = u;
+
+    const captainOwnerId =
+      role === "super_admin"
+        ? reqRow.cityCaptainUserId ?? user.id
+        : user.id;
+    const team = await db
+      .select({ id: users.id, fullName: users.fullName })
+      .from(salesExecutives)
+      .innerJoin(users, eq(users.id, salesExecutives.userId))
+      .where(
+        and(
+          eq(salesExecutives.captainUserId, captainOwnerId),
+          eq(users.isActive, true),
+        ),
+      )
+      .orderBy(asc(users.fullName));
+    reassignCandidates = team.filter((e) => e.id !== reqRow.assignedExecUserId);
   }
   const backHref = isRole(role) ? ROLE_HOME[role] : "/";
   const submittedIst = formatIstDateTime(reqRow.createdAt);
@@ -555,11 +588,12 @@ export default async function RequestDetailPage({ params }: PageProps) {
             actionVis.showMarkComplete ||
             actionVis.showAdvance ||
             actionVis.showAssignExec ||
-            actionVis.showRollback) && (
+            actionVis.showRollback ||
+            actionVis.showReassign) && (
             <section className="flex justify-end gap-3 flex-wrap">
-              {/* Rollback first — outline / subordinate to the forward
-                  action so the destructive-feeling "Mark Rejected" and
-                  the primary forward button sit on the right. */}
+              {/* Outline / subordinate buttons first (rollback +
+                  reassign), then destructive Mark Rejected, then the
+                  primary forward action on the right. */}
               {actionVis.showRollback && previousStage && (
                 <RollbackStatusButton
                   requestId={reqRow.id}
@@ -568,6 +602,14 @@ export default async function RequestDetailPage({ params }: PageProps) {
                     id: previousStage.id,
                     name: previousStage.name,
                   }}
+                />
+              )}
+              {actionVis.showReassign && currentExecForReassign && (
+                <ReassignRequestButton
+                  requestId={reqRow.id}
+                  customerName={reqRow.customerName}
+                  currentExec={currentExecForReassign}
+                  candidates={reassignCandidates}
                 />
               )}
               {actionVis.showMarkRejected && (

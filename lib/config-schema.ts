@@ -212,6 +212,10 @@ export const CONFIG_SCHEMA = {
       // type alongside the generic 'status_change' so dashboards can
       // count rollbacks on their own without scanning before/after seq.
       'status_rolled_back',
+      // HVA-140 — captain (or super_admin) reassigns the current exec.
+      // Separate event from request_assigned so dashboards can split
+      // initial-assignment from later handoffs cleanly.
+      'request_reassigned',
     ],
     editable: true,
   },

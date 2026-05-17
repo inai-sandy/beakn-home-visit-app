@@ -38,7 +38,9 @@ const engineLog = log.child({ component: 'notifications.engine' });
 export type Channel = 'in_app' | 'email' | 'whatsapp' | 'discord';
 export type RecipientRole =
   | 'exec_assigned'
+  | 'exec_removed'
   | 'captain_assigning'
+  | 'captain_acting'
   | 'captain_owning_city'
   | 'customer'
   | 'super_admin';
@@ -81,7 +83,9 @@ interface RuleRow {
 //
 // `recipientRole` maps onto context fields per the HVA-48 brief:
 //   exec_assigned         → context.execUserId
+//   exec_removed          → context.oldExecUserId  (HVA-140 — the exec being taken off)
 //   captain_assigning     → context.captainUserId  (actor who clicked Assign)
+//   captain_acting        → context.captainUserId  (HVA-140 — actor who clicked Reassign)
 //   captain_owning_city   → context.cityCaptainUserId
 //   customer              → context.customerPhone (WA) | context.customerEmail
 //   super_admin           → all users where role='super_admin' AND is_active
@@ -108,6 +112,29 @@ async function resolveRecipients(
       if (typeof userId !== 'string' || userId.length === 0) {
         return [
           { userId: null, directAddress: null, reason: 'captainUserId missing from context' },
+        ];
+      }
+      return [{ userId, directAddress: null }];
+    }
+    case 'captain_acting': {
+      // HVA-140: confirmation channel for the captain who just clicked
+      // Reassign. Same context field as captain_assigning — distinct
+      // role name keeps the rule's semantics legible.
+      const userId = context.captainUserId;
+      if (typeof userId !== 'string' || userId.length === 0) {
+        return [
+          { userId: null, directAddress: null, reason: 'captainUserId missing from context' },
+        ];
+      }
+      return [{ userId, directAddress: null }];
+    }
+    case 'exec_removed': {
+      // HVA-140: in-app drawer for the previous exec when a captain
+      // reassigns the request to someone else.
+      const userId = context.oldExecUserId;
+      if (typeof userId !== 'string' || userId.length === 0) {
+        return [
+          { userId: null, directAddress: null, reason: 'oldExecUserId missing from context' },
         ];
       }
       return [{ userId, directAddress: null }];
@@ -338,10 +365,15 @@ export async function dispatchNotification(
         target = addr.target;
       }
 
+      // HVA-140: composers for events with multiple recipient_role rules
+      // on the same channel (in_app: exec_removed + exec_assigned) need
+      // to know WHICH role they're rendering for. Inject the current
+      // rule's recipientRole into the context for the composer to read.
+      // No-op for events with a single rule per channel.
       const adapterResult = await invokeChannel(rule.channel, {
         target,
         eventType,
-        context,
+        context: { ...context, recipientRole: rule.recipientRole },
         templateKey: rule.templateKey,
       });
 

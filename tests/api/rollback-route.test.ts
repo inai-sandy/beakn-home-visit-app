@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
 import {
   auditLog,
   cities,
   inAppNotifications,
+  notificationRules,
   requestStatusHistory,
   visitRequests,
 } from '@/db/schema';
@@ -48,6 +49,22 @@ function buildReq(body: unknown): Request {
 function buildCtx(id: string) {
   return { params: Promise.resolve({ id }) };
 }
+
+// HVA-141 / harness: the per-file truncate wipes notification_rules
+// every afterEach (engine.test.ts depends on that), so the rolled-back
+// seed from migration 0014 doesn't survive. Re-insert before each test
+// that exercises dispatch.
+beforeEach(async () => {
+  await db
+    .insert(notificationRules)
+    .values({
+      eventType: 'request.rolled_back',
+      channel: 'in_app',
+      recipientRole: 'captain_owning_city',
+      enabled: true,
+    })
+    .onConflictDoNothing();
+});
 
 async function setupWithExecAtVisitCompleted() {
   const city = await getOrCreateCity('Bangalore');
@@ -149,7 +166,8 @@ describe('HVA-141 POST /api/requests/[id]/rollback — happy paths', () => {
 
     // The dispatch fires via setImmediate after the response, so the
     // in-app row appears asynchronously. Poll with a generous timeout
-    // — full-suite scheduling makes a fixed sleep flaky.
+    // — full-suite scheduling makes a fixed sleep flaky. Bumped to 5s
+    // after HVA-140 saw 2s flake under combined load.
     await vi.waitFor(
       async () => {
         const inApp = await db
@@ -158,7 +176,7 @@ describe('HVA-141 POST /api/requests/[id]/rollback — happy paths', () => {
           .where(eq(inAppNotifications.userId, captain.id));
         expect(inApp.length).toBeGreaterThanOrEqual(1);
       },
-      { timeout: 2000, interval: 50 },
+      { timeout: 5000, interval: 100 },
     );
   });
 

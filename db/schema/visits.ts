@@ -183,3 +183,34 @@ export const requestRescheduleHistory = pgTable(
     index('request_reschedule_history_rescheduled_at_idx').on(table.rescheduledAt),
   ],
 );
+
+// HVA-140: captain-driven exec reassignment trail. Distinct from
+// request_status_history because reassignment does NOT change
+// status_stage_id — the flow continues from where the previous exec
+// left it. Schema in migration 0016.
+export const requestExecAssignments = pgTable(
+  'request_exec_assignments',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    requestId: uuid('request_id')
+      .notNull()
+      .references(() => visitRequests.id, { onDelete: 'cascade' }),
+    fromExecUserId: uuid('from_exec_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    toExecUserId: uuid('to_exec_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    captainUserId: uuid('captain_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    reason: text('reason').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_request_exec_assignments_request_created').on(
+      table.requestId,
+      table.createdAt,
+    ),
+  ],
+);

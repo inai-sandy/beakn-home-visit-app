@@ -80,6 +80,7 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showAdvance: false,
       showAssignExec: false,
       showRollback: false,
+      showReassign: false,
     });
   });
 
@@ -95,6 +96,7 @@ describe('computeActionVisibility — terminal short-circuits', () => {
       showAdvance: false,
       showAssignExec: false,
       showRollback: false,
+      showReassign: false,
     });
   });
 });
@@ -314,6 +316,71 @@ describe('computeActionVisibility — Generic Advance (HVA-104)', () => {
       currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
     });
     expect(out.showAdvance).toBe(true);
+  });
+});
+
+describe('computeActionVisibility — Reassign (HVA-140)', () => {
+  it('captain-of-city at ASSIGNED with exec assigned → showReassign true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'ASSIGNED',
+    });
+    expect(out.showReassign).toBe(true);
+  });
+
+  it('super_admin at VISIT_COMPLETED with exec assigned → showReassign true', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'VISIT_COMPLETED',
+    });
+    expect(out.showReassign).toBe(true);
+  });
+
+  it('captain at SUBMITTED → showReassign false (use Assign instead)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'SUBMITTED',
+      assignedExecUserId: null,
+    });
+    expect(out.showReassign).toBe(false);
+  });
+
+  it('captain at terminal (cancelled) → showReassign false', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'VISIT_COMPLETED',
+      cancelledAt: new Date(),
+    });
+    expect(out.showReassign).toBe(false);
+  });
+
+  it('assigned exec → showReassign false (peers cannot reassign)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'sales_executive',
+      userId: EXEC_ID,
+      currentStageCode: 'VISIT_SCHEDULED',
+    });
+    expect(out.showReassign).toBe(false);
+  });
+
+  it('captain at ASSIGNED with no exec assigned → showReassign false (defensive)', () => {
+    const out = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'ASSIGNED',
+      assignedExecUserId: null,
+    });
+    expect(out.showReassign).toBe(false);
   });
 });
 

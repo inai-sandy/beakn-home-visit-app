@@ -57,9 +57,11 @@ export function getTestDb() {
 // status_stages keeps its seeded rows automatically: nothing the suite
 // truncates references it back, and we never touch it directly.
 
-// Every test-mutable table in the schema EXCEPT cities + status_stages
-// (which are migration seeds and must survive between tests) and config
-// (which is loaded once + cached). This list is enumerated against
+// Every test-mutable table in the schema EXCEPT cities + status_stages +
+// outcome_options + postpone_reasons (all migration-seeded reference
+// tables that must survive between tests — HVA-60 0021 seeds outcome +
+// postpone rows; HVA-33/HVA-67 seeded cities + status_stages) and config
+// (loaded once + cached). This list is enumerated against
 // information_schema in the harness preflight; new tables added by
 // future migrations need to be appended here.
 const SAFE_TRUNCATE_TABLES = [
@@ -74,9 +76,7 @@ const SAFE_TRUNCATE_TABLES = [
   'leads',
   'notification_rules',
   'notifications_queue',
-  'outcome_options',
   'payments',
-  'postpone_reasons',
   'quotations',
   'rate_limit_attempts',
   'rate_limits',

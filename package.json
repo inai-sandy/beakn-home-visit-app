@@ -13,6 +13,7 @@
     "db:migrate:legacy-drizzle-kit": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:psql": "docker exec -it beakn-postgres psql -U beakn_app -d beakn_app",
+    "db:seed": "tsx scripts/seed.ts",
     "db:seed:config": "tsx scripts/seed-config.ts",
     "db:seed:test-admin": "tsx scripts/seed-test-admin.ts",
     "icons:generate": "tsx scripts/generate-icons.ts",

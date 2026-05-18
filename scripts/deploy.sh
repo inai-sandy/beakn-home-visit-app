@@ -106,6 +106,35 @@ fi
 echo "[deploy] confirmed no placeholder strings in /app/.next/static"
 
 # -----------------------------------------------------------------------------
+# Migrations (HVA-126)
+# -----------------------------------------------------------------------------
+# Run BEFORE container restart so the new code boots against a current
+# schema. The deploy script runs on the VPS host (not inside a container),
+# so the DATABASE_URL hostname is rewritten from the docker-network DNS
+# name (`beakn-postgres`) to `127.0.0.1` for direct host access. Same
+# pattern as scripts/seed.ts's runtime wrapper.
+#
+# Failure semantics: scripts/migrate.ts exits non-zero on any migration
+# error or on the tamper-hash check. `set -euo pipefail` (line 31) +
+# `pipefail` here mean a non-zero exit aborts deploy.sh before the
+# container is touched — prod stays on the previous version + schema.
+# -----------------------------------------------------------------------------
+echo "[deploy] running migrations against live prod DB"
+HOST_DATABASE_URL=$(grep '^DATABASE_URL=' "$ENV_FILE" | sed 's|@beakn-postgres:|@127.0.0.1:|' | cut -d= -f2-)
+if [ -z "$HOST_DATABASE_URL" ]; then
+  echo "ERROR: could not derive host-side DATABASE_URL from $ENV_FILE" >&2
+  exit 1
+fi
+MIGRATE_LOG=$(mktemp)
+DATABASE_URL="$HOST_DATABASE_URL" pnpm exec tsx scripts/migrate.ts 2>&1 | tee "$MIGRATE_LOG"
+if grep -qE '\[migrate\] done\. applied=0 ' "$MIGRATE_LOG"; then
+  echo "[deploy] no migrations pending"
+else
+  echo "[deploy] migrations applied successfully"
+fi
+rm -f "$MIGRATE_LOG"
+
+# -----------------------------------------------------------------------------
 # Restart
 # -----------------------------------------------------------------------------
 if [ "$IMAGE_TAG" != "latest" ]; then

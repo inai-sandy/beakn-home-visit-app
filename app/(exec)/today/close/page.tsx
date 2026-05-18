@@ -71,7 +71,11 @@ export default async function CloseTheDayPage() {
     <CloseDayView
       dayPlan={{
         id: plan.id,
-        closedAt: plan.closedAt ? plan.closedAt.toISOString() : null,
+        // Defensive `instanceof Date` pattern matching app/(exec)/today/page.tsx —
+        // compiles cleanly under both `Date | null` and narrowed `null`
+        // type inference, and defends at runtime against a future
+        // Drizzle change that returns string for timestamp columns.
+        closedAt: plan.closedAt instanceof Date ? plan.closedAt.toISOString() : null,
       }}
       metrics={metrics}
     />

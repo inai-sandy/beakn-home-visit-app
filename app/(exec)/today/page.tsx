@@ -147,7 +147,14 @@ export default async function TodayPage() {
       dayPlan={{
         id: plan.id,
         submittedAt: plan.submittedAt.toISOString(),
-        closedAt: plan.closedAt ? plan.closedAt.toISOString() : null,
+        // After the `if (plan.closedAt !== null) redirect(...)` above,
+        // plan.closedAt is provably `null` — TS narrows the type past
+        // `Date | null` to literal `null`. Using a truthy / instanceof
+        // check here produces a `never`-typed truthy branch and fails
+        // the `next build` type pass. Literal `null` is the only form
+        // strict-mode TS accepts, and it's correct: the only way to
+        // reach this line is when closedAt is null.
+        closedAt: null,
       }}
       tasks={taskRows.map((t) => ({
         id: t.id,

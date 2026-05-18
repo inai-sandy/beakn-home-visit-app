@@ -2,11 +2,11 @@
 // HVA-115: exec shell navigation — pure config + active-path helpers
 // =============================================================================
 //
-// Mirror of lib/admin-nav.ts (HVA-86), but simpler: exec has only 3
-// destinations (Today / Requests / Profile), no groups, no placeholder
-// items. The same shape drives:
-//   * mobile bottom nav (full-width 3 slots)
-//   * desktop sidebar (3 stacked items)
+// Mirror of lib/admin-nav.ts (HVA-86), but simpler: exec has a flat list
+// of destinations (Today / Leads / Requests / Profile), no groups, no
+// placeholder items. The same shape drives:
+//   * mobile bottom nav (equal-width slots)
+//   * desktop sidebar (stacked items)
 //   * topbar page-title resolution
 //
 // Lives in lib/ (not under app/(exec)/) so vitest under the HVA-101 harness
@@ -24,6 +24,7 @@ export interface ExecNavItem {
 
 export const EXEC_NAV: ExecNavItem[] = [
   { label: 'Today', icon: 'today', href: '/today' },
+  { label: 'Leads', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
   { label: 'Profile', icon: 'person', href: '/profile' },
 ];

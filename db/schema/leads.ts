@@ -8,6 +8,7 @@ import {
   pgEnum,
   pgTable,
   text,
+  timestamp,
   uniqueIndex,
   uuid,
   varchar,
@@ -64,6 +65,9 @@ export const leads = pgTable(
     convertedToRequestId: uuid('converted_to_request_id').references(() => visitRequests.id, {
       onDelete: 'set null',
     }),
+    // HVA-73: timestamp when the lead was converted into a visit_request.
+    // NULL until conversion fires. Migration 0022 added this column.
+    convertedAt: timestamp('converted_at', { withTimezone: true }),
 
     ...timestamps(),
   },

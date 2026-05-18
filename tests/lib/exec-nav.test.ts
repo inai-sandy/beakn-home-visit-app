@@ -11,10 +11,10 @@ import {
 // =============================================================================
 
 describe('EXEC_NAV', () => {
-  it('exposes exactly 3 items: Today / Requests / Profile', () => {
-    expect(EXEC_NAV).toHaveLength(3);
+  it('exposes the exec destinations in order', () => {
     expect(EXEC_NAV.map((i) => i.label)).toEqual([
       'Today',
+      'Leads',
       'Requests',
       'Profile',
     ]);
@@ -70,8 +70,9 @@ describe('isExecNavItemActive', () => {
 });
 
 describe('resolveExecPageTitle', () => {
-  it('returns the matched item label for the 3 main routes', () => {
+  it('returns the matched item label for each main route', () => {
     expect(resolveExecPageTitle('/today')).toBe('Today');
+    expect(resolveExecPageTitle('/leads')).toBe('Leads');
     expect(resolveExecPageTitle('/requests')).toBe('Requests');
     expect(resolveExecPageTitle('/profile')).toBe('Profile');
   });

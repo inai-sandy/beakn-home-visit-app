@@ -12,8 +12,9 @@ import { cn } from "@/lib/utils";
 // =============================================================================
 //
 // Sticky at the bottom of the viewport on screens < 1024px. 80dp tall —
-// M3 Navigation Bar spec — with the 3 exec destinations stacked
-// icon-over-label.
+// M3 Navigation Bar spec — with the exec destinations stacked
+// icon-over-label. Column count tracks EXEC_NAV.length so adding/removing
+// a destination doesn't break the equal-width layout.
 //
 // Active state: filled-variant icon + primary text color. Inactive:
 // outlined icon + muted color.
@@ -34,7 +35,12 @@ export function ExecBottomNav() {
         "pb-[env(safe-area-inset-bottom)]",
       )}
     >
-      <ul className="grid grid-cols-3">
+      <ul
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${EXEC_NAV.length}, minmax(0, 1fr))`,
+        }}
+      >
         {EXEC_NAV.map((item) => {
           const active = isExecNavItemActive(item, pathname);
           return (

@@ -221,6 +221,10 @@ export const CONFIG_SCHEMA = {
       // fires on the 3-stage backward jump to INSTALLATION_SCHEDULED.
       'request_approved',
       'request_rejected_by_captain',
+      // HVA-74 — exec converts a captured lead into a visit_request.
+      // Records leadId in targetEntityId and the resulting requestId
+      // in afterState.requestId.
+      'lead_converted_to_request',
     ],
     editable: true,
   },

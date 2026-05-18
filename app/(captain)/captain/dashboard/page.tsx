@@ -7,8 +7,11 @@ import {
   loadPendingCollections,
   loadTeamExecStatuses,
   loadTeamPerformance,
+  type DateFilter,
 } from '@/lib/captain/dashboard-queries';
+import { getIstDateString } from '@/lib/today/time';
 
+import { DashboardHeader } from './_components/DashboardHeader';
 import { ExecStatusList } from './_components/ExecStatusList';
 import { PendingApprovalsCard } from './_components/PendingApprovalsCard';
 import { PendingCollectionsCard } from './_components/PendingCollectionsCard';
@@ -18,22 +21,19 @@ import { PerformanceCard } from './_components/PerformanceCard';
 // HVA-80: Captain Dashboard — two-column desktop / stacked mobile
 // =============================================================================
 //
-// Server component. Parallel-fetches the four data groups
-// (performance / pending approvals / pending collections / team status)
-// via Promise.all. No loading state needed at this scope — each query
-// is a single DB round-trip and they run concurrently.
+// Extended (PR after #83) with date filtering via search params:
+//   /captain/dashboard                       → today (single-date)
+//   /captain/dashboard?date=YYYY-MM-DD       → that single past date
+//   /captain/dashboard?from=YYYY-MM-DD
+//                     &to=YYYY-MM-DD         → date range, both inclusive
 //
-// Layout:
-//   md+ → left column 40% (3 aggregate cards stacked), right 60% (exec list)
-//   <md → single column, aggregate cards first, exec list second
+// Constraints applied at the parser level (also enforced by the UI's
+// calendar modal min/max attrs):
+//   - dates must be ≤ today
+//   - dates must be ≥ 30 days before today
+//   - bad/malformed params silently fall back to today
 //
 // TODO: HVA-55 SSE will replace manual refresh with live status updates.
-// Currently the dashboard reflects DB state at request time; cross-actor
-// updates require the captain to refresh the page.
-//
-// proxy.ts gates /captain/* to role=captain + super_admin escape hatch;
-// the layout in (captain) also runs the gate. The page-level role check
-// below is belt-and-braces.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,49 @@ export const metadata: Metadata = {
   title: 'Dashboard — Beakn',
 };
 
-export default async function CaptainDashboardPage() {
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isValidIstDateString(s: unknown): s is string {
+  if (typeof s !== 'string') return false;
+  if (!DATE_PATTERN.test(s)) return false;
+  const istToday = getIstDateString();
+  // Reject future dates (max = today IST) and dates older than 30 days.
+  if (s > istToday) return false;
+  // Use string lex compare since YYYY-MM-DD sorts lexically.
+  const [ty, tm, td] = istToday.split('-').map(Number);
+  const minDate = new Date(Date.UTC(ty, tm - 1, td - 30));
+  const minStr = `${minDate.getUTCFullYear()}-${String(minDate.getUTCMonth() + 1).padStart(2, '0')}-${String(minDate.getUTCDate()).padStart(2, '0')}`;
+  if (s < minStr) return false;
+  return true;
+}
+
+function parseDateFilter(params: {
+  date?: string;
+  from?: string;
+  to?: string;
+}): DateFilter {
+  // Range mode wins if BOTH `from` and `to` are present and valid AND
+  // from <= to. Otherwise we try single-date `date`. Otherwise today.
+  if (params.from && params.to) {
+    if (
+      isValidIstDateString(params.from) &&
+      isValidIstDateString(params.to) &&
+      params.from <= params.to
+    ) {
+      return { mode: 'range', from: params.from, to: params.to };
+    }
+  }
+  if (params.date && isValidIstDateString(params.date)) {
+    return { mode: 'single', date: params.date };
+  }
+  return { mode: 'single', date: getIstDateString() };
+}
+
+interface PageProps {
+  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+}
+
+export default async function CaptainDashboardPage({ searchParams }: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/captain/dashboard');
 
@@ -51,21 +93,19 @@ export default async function CaptainDashboardPage() {
     redirect('/login');
   }
 
+  const raw = await searchParams;
+  const filter = parseDateFilter(raw);
+
   const [performance, approvals, collections, execs] = await Promise.all([
-    loadTeamPerformance(user.id),
-    loadPendingApprovals(user.id),
-    loadPendingCollections(user.id),
-    loadTeamExecStatuses(user.id),
+    loadTeamPerformance(user.id, filter),
+    loadPendingApprovals(user.id, filter),
+    loadPendingCollections(user.id, filter),
+    loadTeamExecStatuses(user.id, filter),
   ]);
 
   return (
     <div className="p-6 sm:p-8 max-w-7xl mx-auto space-y-5">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Today&apos;s team performance and what needs your attention.
-        </p>
-      </header>
+      <DashboardHeader filter={filter} />
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Left column — 2/5 of desktop width (= 40%) */}
@@ -74,13 +114,14 @@ export default async function CaptainDashboardPage() {
           <PendingApprovalsCard
             totalCount={approvals.totalCount}
             topFive={approvals.topFive}
+            filter={filter}
           />
-          <PendingCollectionsCard summary={collections} />
+          <PendingCollectionsCard summary={collections} filter={filter} />
         </div>
 
         {/* Right column — 3/5 of desktop width (= 60%) */}
         <div className="md:col-span-3">
-          <ExecStatusList execs={execs} />
+          <ExecStatusList execs={execs} filter={filter} />
         </div>
       </div>
     </div>

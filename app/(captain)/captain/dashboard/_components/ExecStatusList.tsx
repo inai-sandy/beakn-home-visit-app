@@ -1,6 +1,9 @@
 import { Icon } from '@/components/ui/icon';
 
-import type { TeamExecStatus } from '@/lib/captain/dashboard-queries';
+import type {
+  DateFilter,
+  TeamExecStatus,
+} from '@/lib/captain/dashboard-queries';
 
 import { ExecStatusRow } from './ExecStatusRow';
 
@@ -10,9 +13,11 @@ import { ExecStatusRow } from './ExecStatusRow';
 
 interface Props {
   execs: TeamExecStatus[];
+  filter: DateFilter;
 }
 
-export function ExecStatusList({ execs }: Props) {
+export function ExecStatusList({ execs, filter }: Props) {
+  const isRangeMode = filter.mode === 'range';
   return (
     <section
       aria-label="Team status"
@@ -37,7 +42,7 @@ export function ExecStatusList({ execs }: Props) {
       ) : (
         <ul className="divide-y" aria-label="Sales executives">
           {execs.map((exec) => (
-            <ExecStatusRow key={exec.userId} exec={exec} />
+            <ExecStatusRow key={exec.userId} exec={exec} isRangeMode={isRangeMode} />
           ))}
         </ul>
       )}

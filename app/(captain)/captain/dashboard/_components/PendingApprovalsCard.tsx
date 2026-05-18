@@ -3,8 +3,9 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
-import type { PendingApprovalRow } from '@/lib/captain/dashboard-queries';
+import type { DateFilter, PendingApprovalRow } from '@/lib/captain/dashboard-queries';
 
 // =============================================================================
 // HVA-80: Pending Approvals card — count badge + top-5 list
@@ -18,17 +19,31 @@ import type { PendingApprovalRow } from '@/lib/captain/dashboard-queries';
 interface Props {
   totalCount: number;
   topFive: PendingApprovalRow[];
+  filter: DateFilter;
 }
 
-export function PendingApprovalsCard({ totalCount, topFive }: Props) {
+export function PendingApprovalsCard({ totalCount, topFive, filter }: Props) {
+  // `filter` is currently unused at the render layer — the server-side
+  // query already chose the right semantic (today-snapshot vs history/
+  // range). Accepting the prop keeps the interface aligned with the
+  // other cards and lets future copy tweak based on mode without a
+  // signature change.
+  void filter;
+
   return (
     <section
       aria-label="Pending approvals"
       className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
     >
       <header className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold tracking-tight">
+        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1">
           Pending Approvals
+          <InfoTooltip iconOnly>
+            Requests your team marked Installation Complete that need your
+            approval. In single-date view: still pending now (today) or received
+            on that date (past). In range view: received during the range. Tap
+            any row to approve or reject.
+          </InfoTooltip>
         </h2>
         <Badge variant={totalCount > 0 ? 'default' : 'secondary'} className="text-xs">
           {totalCount}

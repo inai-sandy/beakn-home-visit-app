@@ -18,7 +18,10 @@ import {
   loadPendingCollections,
   loadTeamExecStatuses,
   loadTeamPerformance,
+  offsetIstDate,
+  resolveDateFilter,
 } from '@/lib/captain/dashboard-queries';
+import type { DateFilter } from '@/lib/captain/dashboard-queries';
 import { getIstDateString } from '@/lib/today/time';
 
 import {
@@ -38,10 +41,12 @@ import {
 // =============================================================================
 
 const istToday = getIstDateString();
+const todayFilter: DateFilter = { mode: 'single', date: istToday };
+// MUST use IST math (offsetIstDate) — the query layer is IST-anchored.
+// Earlier this helper used local-TZ math which gave wrong dates after
+// UTC crossed IST midnight (~18:30 UTC), making the test flaky.
 function istYesterday(): string {
-  const t = new Date();
-  t.setDate(t.getDate() - 1);
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  return offsetIstDate(istToday, -1);
 }
 
 async function seedExecAndPlan(args: {
@@ -116,6 +121,53 @@ describe('deltaSign', () => {
   });
 });
 
+describe('offsetIstDate', () => {
+  it('rolls forward/back by N days and handles month/year boundaries', () => {
+    expect(offsetIstDate('2026-05-18', -1)).toBe('2026-05-17');
+    expect(offsetIstDate('2026-05-18', 1)).toBe('2026-05-19');
+    // Month boundary
+    expect(offsetIstDate('2026-05-01', -1)).toBe('2026-04-30');
+    // Year boundary
+    expect(offsetIstDate('2026-01-01', -1)).toBe('2025-12-31');
+    // Leap-day check
+    expect(offsetIstDate('2028-02-29', 1)).toBe('2028-03-01');
+  });
+});
+
+describe('resolveDateFilter (HVA-80 extension)', () => {
+  it('single-date mode → 1-day target, previous-day compare, traffic lights on', () => {
+    const r = resolveDateFilter({ mode: 'single', date: '2026-05-18' });
+    expect(r.target).toEqual({ from: '2026-05-18', to: '2026-05-18' });
+    expect(r.compare).toEqual({ from: '2026-05-17', to: '2026-05-17' });
+    expect(r.daysInTarget).toBe(1);
+    expect(r.showTrafficLights).toBe(true);
+    expect(r.comparisonLabel).toBe('vs previous day');
+  });
+
+  it('7-day range → previous 7-day window as comparison, no traffic lights', () => {
+    const r = resolveDateFilter({
+      mode: 'range',
+      from: '2026-05-12',
+      to: '2026-05-18',
+    });
+    expect(r.daysInTarget).toBe(7);
+    expect(r.compare).toEqual({ from: '2026-05-05', to: '2026-05-11' });
+    expect(r.showTrafficLights).toBe(false);
+    expect(r.comparisonLabel).toBe('vs previous 7 days');
+  });
+
+  it('1-day range (from === to) is still range mode (no traffic lights)', () => {
+    const r = resolveDateFilter({
+      mode: 'range',
+      from: '2026-05-18',
+      to: '2026-05-18',
+    });
+    expect(r.daysInTarget).toBe(1);
+    expect(r.showTrafficLights).toBe(false);
+    expect(r.comparisonLabel).toBe('vs previous 1 days');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Test #1 — performance aggregates across the team
 // ---------------------------------------------------------------------------
@@ -155,7 +207,7 @@ describe('Test #1 — loadTeamPerformance aggregates across team', () => {
     await insertInboundPayment({ visitRequestId: req.id, execId: execA.id, amountPaise: 50_000_00 });
     await insertInboundPayment({ visitRequestId: req.id, execId: execB.id, amountPaise: 25_000_00 });
 
-    const perf = await loadTeamPerformance(captain.id);
+    const perf = await loadTeamPerformance(captain.id, todayFilter);
 
     // Visits = customer_home_visit (2) + sales_pitch (1) + outlet_visit (1) = 4
     expect(perf.visits.actual).toBe(4);
@@ -216,7 +268,7 @@ describe('Test #2 — performance.previous returns yesterday value', () => {
       taskDate: istYesterday(),
     });
 
-    const perf = await loadTeamPerformance(captain.id);
+    const perf = await loadTeamPerformance(captain.id, todayFilter);
     expect(perf.visits.actual).toBe(1);
     expect(perf.visits.previous).toBe(3);
     expect(deltaSign(perf.visits.actual, perf.visits.previous)).toBe('down');
@@ -271,7 +323,7 @@ describe('Test #3 — loadPendingApprovals returns top 5 by completedAt DESC', (
       });
     }
 
-    const { totalCount, topFive } = await loadPendingApprovals(captain.id);
+    const { totalCount, topFive } = await loadPendingApprovals(captain.id, todayFilter);
     expect(totalCount).toBe(3);
     expect(topFive).toHaveLength(3);
     // Newest first
@@ -336,7 +388,7 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
       else expectedBuckets.thirtyPlus += dueRupees;
     }
 
-    const summary = await loadPendingCollections(captain.id);
+    const summary = await loadPendingCollections(captain.id, todayFilter);
     expect(summary.outstandingRequestCount).toBe(3);
     expect(summary.totalDueRupees).toBe(18_000);
     expect(summary.buckets.zeroToSeven).toBe(expectedBuckets.zeroToSeven);
@@ -375,7 +427,7 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
       recordedByUserId: exec.id,
     });
 
-    const summary = await loadPendingCollections(captain.id);
+    const summary = await loadPendingCollections(captain.id, todayFilter);
     expect(summary.outstandingRequestCount).toBe(0);
     expect(summary.totalDueRupees).toBe(0);
   });
@@ -408,7 +460,7 @@ describe('Test #5 — exec status indicator', () => {
       .set({ closedAt: new Date() })
       .where(eq(dayPlans.id, closedPlan.id));
 
-    const statuses = await loadTeamExecStatuses(captain.id);
+    const statuses = await loadTeamExecStatuses(captain.id, todayFilter);
     const map = new Map(statuses.map((s) => [s.userId, s.status]));
     expect(map.get(noPlanExec.id)).toBe('no_plan');
     expect(map.get(openExec.id)).toBe('in_progress');
@@ -427,7 +479,7 @@ describe('Test #5 — exec status indicator', () => {
       .set({ isUnavailable: true })
       .where(eq(salesExecutives.userId, exec.id));
 
-    const statuses = await loadTeamExecStatuses(captain.id);
+    const statuses = await loadTeamExecStatuses(captain.id, todayFilter);
     expect(statuses.find((s) => s.userId === exec.id)?.status).toBe(
       'unavailable',
     );
@@ -473,7 +525,7 @@ describe('Test #6 — exec list sort order (most-active first)', () => {
       status: 'completed',
     });
 
-    const statuses = await loadTeamExecStatuses(captain.id);
+    const statuses = await loadTeamExecStatuses(captain.id, todayFilter);
     expect(statuses.map((s) => s.fullName)).toEqual(['B Busy', 'C Mid', 'A Lazy']);
   });
 });
@@ -485,13 +537,13 @@ describe('Test #6 — exec list sort order (most-active first)', () => {
 describe('Test #8 — empty state when captain has no execs', () => {
   it('returns an empty array (not throw) for the exec list', async () => {
     const captain = await seedCaptain();
-    const statuses = await loadTeamExecStatuses(captain.id);
+    const statuses = await loadTeamExecStatuses(captain.id, todayFilter);
     expect(statuses).toEqual([]);
   });
 
   it('performance returns zero-valued metrics when team is empty', async () => {
     const captain = await seedCaptain();
-    const perf = await loadTeamPerformance(captain.id);
+    const perf = await loadTeamPerformance(captain.id, todayFilter);
     expect(perf.revenue.actual).toBe(0);
     expect(perf.visits.actual).toBe(0);
     expect(perf.quotations.actual).toBe(0);
@@ -500,8 +552,120 @@ describe('Test #8 — empty state when captain has no execs', () => {
 
   it('pending collections returns zero summary when team is empty', async () => {
     const captain = await seedCaptain();
-    const summary = await loadPendingCollections(captain.id);
+    const summary = await loadPendingCollections(captain.id, todayFilter);
     expect(summary.outstandingRequestCount).toBe(0);
     expect(summary.totalDueRupees).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test #2b (HVA-80 extension) — range mode aggregates sum across the window
+// ---------------------------------------------------------------------------
+
+describe('Test #2b (HVA-80 ext) — range mode performance', () => {
+  it('sums visits and conversion% weights across the range, hides traffic lights', async () => {
+    const captain = await seedCaptain();
+    const city = await getOrCreateCity('Bangalore');
+    await db
+      .update(cities)
+      .set({ captainUserId: captain.id })
+      .where(eq(cities.id, city.id));
+    const { exec, plan } = await seedExecAndPlan({
+      captainId: captain.id,
+      phone: '+919100021000',
+      fullName: 'Range Exec',
+    });
+
+    // Today: 2 customer visits done.
+    await insertTask({
+      execId: exec.id,
+      dayPlanId: plan.id,
+      taskType: 'Customer home visit',
+      status: 'completed',
+    });
+    await insertTask({
+      execId: exec.id,
+      dayPlanId: plan.id,
+      taskType: 'Customer home visit',
+      status: 'completed',
+    });
+    // Yesterday: 3 customer visits done, 1 outlet visit done.
+    for (let i = 0; i < 3; i += 1) {
+      await insertTask({
+        execId: exec.id,
+        dayPlanId: plan.id,
+        taskType: 'Customer home visit',
+        status: 'completed',
+        taskDate: istYesterday(),
+      });
+    }
+    await insertTask({
+      execId: exec.id,
+      dayPlanId: plan.id,
+      taskType: 'Outlet visit',
+      status: 'completed',
+      taskDate: istYesterday(),
+    });
+
+    // 2-day range (yesterday..today) → visits should sum to 6.
+    const perf = await loadTeamPerformance(captain.id, {
+      mode: 'range',
+      from: istYesterday(),
+      to: istToday,
+    });
+    expect(perf.visits.actual).toBe(6);
+    expect(perf.showTrafficLights).toBe(false);
+    expect(perf.comparisonLabel).toBe('vs previous 2 days');
+    // Traffic-light status for every metric is 'no_target' in range mode.
+    expect(perf.visits.status).toBe('no_target');
+    expect(perf.revenue.status).toBe('no_target');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Test #4b (HVA-80 ext) — Pending Collections respects the filter window
+// ---------------------------------------------------------------------------
+
+describe('Test #4b (HVA-80 ext) — pending collections range scope', () => {
+  it('range mode counts only quotations whose submittedAt falls in the window', async () => {
+    const captain = await seedCaptain();
+    const city = await getOrCreateCity('Bangalore');
+    await db
+      .update(cities)
+      .set({ captainUserId: captain.id })
+      .where(eq(cities.id, city.id));
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919100021001',
+      password: 'TestExec#X',
+      fullName: 'Range Coll Exec',
+    });
+
+    // Two pending requests with quotations 3 days apart.
+    const now = Date.now();
+    for (const ageDays of [2, 10]) {
+      const r = await seedVisitRequest({
+        cityId: city.id,
+        statusStageCode: 'QUOTATION_GIVEN',
+      });
+      await db
+        .update(visitRequests)
+        .set({ assignedExecUserId: exec.id })
+        .where(eq(visitRequests.id, r.id));
+      await db.insert(quotations).values({
+        visitRequestId: r.id,
+        totalOrderValuePaise: 10_000_00,
+        submittedByUserId: exec.id,
+        submittedAt: new Date(now - ageDays * 24 * 60 * 60 * 1000),
+      });
+    }
+
+    // Range narrowed to 0-7 days ago → only the 2-day-old quotation matches.
+    const narrow = await loadPendingCollections(captain.id, {
+      mode: 'range',
+      from: offsetIstDate(istToday, -7),
+      to: istToday,
+    });
+    expect(narrow.outstandingRequestCount).toBe(1);
+    expect(narrow.totalDueRupees).toBe(10_000);
   });
 });

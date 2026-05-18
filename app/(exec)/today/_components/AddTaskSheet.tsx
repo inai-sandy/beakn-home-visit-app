@@ -65,40 +65,16 @@ interface Props {
   }>;
   /** When true, FAB renders disabled (read-only state — day closed). */
   disabled?: boolean;
-  /**
-   * When true, the Close-the-Day strip is rendered on the page. The FAB
-   * shifts higher to clear that strip on mobile. Bug 5/6 (HVA-60 walk)
-   * relocated the strip to `bottom-16`; the FAB needs to sit above it.
-   */
-  closeButtonVisible?: boolean;
 }
 
-export function AddTaskFab({
-  linkableRequests,
-  disabled = false,
-  closeButtonVisible = false,
-}: Props) {
+// HVA-60 design polish (Change A): AddTaskFab no longer owns its own
+// positioning. The parent <BottomActions> wrapper in PostSubmissionView
+// renders this FAB alongside the optional Close-the-Day button in the
+// bottom-right corner. The previous `closeButtonVisible` prop /
+// `bottom-XX md:bottom-XX` shifting logic is gone — the wrapper
+// positions both buttons together as one logical action cluster.
+export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
   const [open, setOpen] = useState(false);
-  // Bug 10 walk fix: the FAB was covered by the Close strip on desktop
-  // (and on mobile when closeButtonVisible). The strip is z-40 at
-  // md:bottom-4 right-4 max-w-sm; the FAB was z-30 at md:bottom-6
-  // right-4 — same corner, lower z, covered.
-  //
-  // Two correct fixes available: (1) raise FAB z-index above the strip,
-  // (2) move FAB above the strip vertically. (2) is the right call —
-  // a stacking z-order on the same corner makes the strip uninteractable.
-  // The strip is fixed-height: mobile ~5rem (bottom-16 → top edge at
-  // bottom-21), desktop ~4rem (bottom-4 → top edge at bottom-8).
-  //
-  // closeButtonVisible OFF → FAB at default offsets:
-  //   mobile bottom-20 (above the bottom-nav h-16)
-  //   desktop md:bottom-6 (corner)
-  // closeButtonVisible ON → FAB shifts above the strip:
-  //   mobile bottom-40
-  //   desktop md:bottom-24 (clear of the strip top edge at bottom-8)
-  const bottomClasses = closeButtonVisible
-    ? 'bottom-40 md:bottom-24'
-    : 'bottom-20 md:bottom-6';
   return (
     <>
       <Button
@@ -106,7 +82,7 @@ export function AddTaskFab({
         onClick={() => setOpen(true)}
         disabled={disabled}
         size="lg"
-        className={`fixed ${bottomClasses} right-4 z-30 h-14 w-14 rounded-full shadow-lg`}
+        className="h-14 w-14 rounded-full shadow-lg"
         aria-label="Add task"
       >
         <Icon name="add" size="md" />

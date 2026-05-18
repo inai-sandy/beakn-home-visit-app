@@ -300,6 +300,47 @@ export async function undoMarkDoneAction(taskId: string): Promise<ActionResult> 
 }
 
 // -----------------------------------------------------------------------------
+// undoPostponeAction — revert a postponed task back to pending
+// -----------------------------------------------------------------------------
+//
+// HVA-60 design polish (walk-3): pairs with the icon-only Undo button now
+// rendered on every postponed task card. Clears every postpone field
+// (postponeReasonId / postponedToDate / customerInformed) and flips the
+// status back to 'pending'. Same closed-day guard as the mark-done undo —
+// once the day is sealed, no mutations allowed.
+//
+// Symmetric to undoMarkDoneAction above. Tests #5 + #6 in
+// tests/today/today-loop.test.ts cover the happy path and the 403.
+
+export async function undoPostponeAction(taskId: string): Promise<ActionResult> {
+  const auth = await authorize();
+  if (!auth.ok) return auth;
+
+  const plan = await loadOpenDayPlan(auth.actor.id);
+  if (plan === null) return { ok: false, error: 'Start your day first' };
+  if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
+
+  await db
+    .update(tasks)
+    .set({
+      status: 'pending',
+      postponeReasonId: null,
+      postponedToDate: null,
+      customerInformed: null,
+    })
+    .where(
+      and(
+        eq(tasks.id, taskId),
+        eq(tasks.execUserId, auth.actor.id),
+        eq(tasks.dayPlanId, plan.id),
+      ),
+    );
+
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
 // postponeTaskAction — UPDATE tasks SET status='postponed' + reason/date/informed
 // -----------------------------------------------------------------------------
 

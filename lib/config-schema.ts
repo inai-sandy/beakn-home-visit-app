@@ -255,6 +255,70 @@ export const CONFIG_SCHEMA = {
     editable: true,
     validation: { min: 0, max: 1 },
   },
+
+  // -------------------------------------------------------------------------
+  // Daily targets — spec §10.7 (Close the Day metrics, HVA-64)
+  // -------------------------------------------------------------------------
+  // Single global per-metric target. Per-city targets were considered for
+  // HVA-60 and deferred to Phase 2 (no consumer ready yet, and the single-
+  // exec-friendly daily-loop semantics are clearer with a flat number).
+  // Traffic-light thresholds in code: actual >= target → green;
+  // >= target × 0.7 → yellow; below → red; target missing/zero → gray
+  // "no target set" badge (do NOT default to a number).
+  target_daily_revenue: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily revenue target per exec (₹). Drives the green/yellow/red badge on the Close the Day screen.',
+    defaultValue: 50000,
+    editable: true,
+    validation: { min: 0 },
+  },
+  target_daily_visits: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily completed-visit target per exec. Counts customer_home_visit + sales_pitch + outlet_visit tasks marked done today.',
+    defaultValue: 5,
+    editable: true,
+    validation: { min: 0 },
+  },
+  target_daily_quotations: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily quotations-submitted target per exec. Counts quotations whose submitted_at falls on the current day.',
+    defaultValue: 3,
+    editable: true,
+    validation: { min: 0 },
+  },
+  target_daily_orders: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily orders-closed target per exec. Counts visit_requests transitioned to ORDER_CONFIRMED or ORDER_EXECUTED_SUCCESSFULLY by the exec today.',
+    defaultValue: 1,
+    editable: true,
+    validation: { min: 0 },
+  },
+  target_daily_conversion_pct: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily conversion percent target per exec (orders / visits × 100). Null if visits=0; that hides the badge entirely.',
+    defaultValue: 30,
+    editable: true,
+    validation: { min: 0, max: 100 },
+  },
+  target_daily_task_completion_pct: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Daily task-completion percent target per exec (done / (done + postponed + pending) × 100).',
+    defaultValue: 80,
+    editable: true,
+    validation: { min: 0, max: 100 },
+  },
 } as const satisfies Record<string, ConfigKeyDef>;
 
 export type ConfigKey = keyof typeof CONFIG_SCHEMA;

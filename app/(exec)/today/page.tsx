@@ -1,29 +1,46 @@
+import { and, asc, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { Icon } from '@/components/ui/icon';
+import { db } from '@/db/client';
+import {
+  dayPlans,
+  outcomeOptions,
+  postponeReasons,
+  tasks,
+  visitRequests,
+} from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { getConfig } from '@/lib/config';
+import { getIstDateString, isAtOrAfterIstTime } from '@/lib/today/time';
+
+import { PreSubmissionView } from './_components/PreSubmissionView';
+import { PostSubmissionView } from './_components/PostSubmissionView';
 
 // =============================================================================
-// HVA-65: /today placeholder
+// HVA-60: /today — daily exec loop entry point
 // =============================================================================
 //
-// Locked decision #6 of the HVA-65 bundle: strip the HVA-103 assigned-
-// requests list out of /today. That list moved to /requests (the new
-// exec list page with bucket tabs + search). /today now shows a short
-// placeholder pointing the exec at the new surface; HVA-60 will replace
-// this with the real Today daily-plan view.
+// One route, three rendered states decided by the day_plans row for the
+// (current exec, today IST date) pair:
 //
-// The route is kept (not deleted) so the bottom-nav and sidebar links
-// don't 404. proxy.ts already gates /today to sales_executive + the
-// super_admin escape hatch — preserved here as defence-in-depth.
+//   row missing  → pre-submission: placeholder + "Start My Day" button
+//   row present  → post-submission: NextTask + tasks list + Add Task FAB
+//                   + optional Close-the-Day sticky button
+//   row.closed_at set → read-only closed state (re-renders the post-submission
+//                   view with mutation buttons hidden; the linked /today/close
+//                   page becomes the canonical surface)
+//
+// proxy.ts already gates this route to sales_executive + super_admin
+// (escape hatch). Defence-in-depth role check below covers any future
+// proxy regression.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Today — Beakn',
-  description: 'Your daily plan view is coming soon.',
+  description: 'Your daily plan.',
 };
 
 export default async function TodayPage() {
@@ -37,22 +54,136 @@ export default async function TodayPage() {
     redirect('/login');
   }
 
+  const istDate = getIstDateString();
+
+  const [plan] = await db
+    .select({
+      id: dayPlans.id,
+      submittedAt: dayPlans.submittedAt,
+      closedAt: dayPlans.closedAt,
+    })
+    .from(dayPlans)
+    .where(and(eq(dayPlans.execUserId, user.id), eq(dayPlans.planDate, istDate)))
+    .limit(1);
+
+  if (!plan) {
+    return <PreSubmissionView />;
+  }
+
+  // Day already closed → redirect to the close-screen so /today is never
+  // a live editing surface for a sealed day. Per HVA-60 bundle:
+  // "Re-rendering /today after close shows the Close screen in read-only mode."
+  if (plan.closedAt !== null) {
+    redirect('/today/close');
+  }
+
+  // Day plan exists. Load tasks for today + the lookup tables the inline
+  // Mark Done / Postpone flows need. Five queries here; they all hit
+  // covered indexes (day_plan_idx on tasks, task_type_idx on outcome_options,
+  // primary key on postpone_reasons) so the cost is trivial.
+  const [taskRows, allOutcomeOptions, allPostponeReasons, dayCloseTargetTime] =
+    await Promise.all([
+      db
+        .select({
+          id: tasks.id,
+          taskType: tasks.taskType,
+          description: tasks.description,
+          estimatedTime: tasks.estimatedTime,
+          status: tasks.status,
+          linkRequestId: tasks.linkRequestId,
+          outcomeOptionId: tasks.outcomeOptionId,
+          outcomeOptionName: outcomeOptions.name,
+          outcomeNotes: tasks.outcomeNotes,
+          postponedToDate: tasks.postponedToDate,
+          customerInformed: tasks.customerInformed,
+          createdAt: tasks.createdAt,
+        })
+        .from(tasks)
+        .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+        .where(eq(tasks.dayPlanId, plan.id))
+        .orderBy(asc(tasks.createdAt)),
+      db
+        .select({
+          id: outcomeOptions.id,
+          taskType: outcomeOptions.taskType,
+          code: outcomeOptions.code,
+          name: outcomeOptions.name,
+          sequenceNumber: outcomeOptions.sequenceNumber,
+        })
+        .from(outcomeOptions)
+        .where(eq(outcomeOptions.isActive, true))
+        .orderBy(asc(outcomeOptions.taskType), asc(outcomeOptions.sequenceNumber)),
+      db
+        .select({
+          id: postponeReasons.id,
+          code: postponeReasons.code,
+          name: postponeReasons.name,
+          sequenceNumber: postponeReasons.sequenceNumber,
+        })
+        .from(postponeReasons)
+        .where(eq(postponeReasons.isActive, true))
+        .orderBy(asc(postponeReasons.sequenceNumber)),
+      getConfig('day_close_target_time'),
+    ]);
+
+  // Suggest top-5 linkable requests for the AddTaskSheet — exec's own
+  // assignments, most recent first. Search is client-side over this list.
+  const linkableRequests = await db
+    .select({
+      id: visitRequests.id,
+      customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+    })
+    .from(visitRequests)
+    .where(eq(visitRequests.assignedExecUserId, user.id))
+    .orderBy(asc(visitRequests.createdAt))
+    .limit(50);
+
+  const isCloseButtonVisible =
+    plan.closedAt === null && isAtOrAfterIstTime(new Date(), dayCloseTargetTime);
+
   return (
-    <main className="min-h-[60svh] flex items-center justify-center p-6">
-      <div className="text-center space-y-3 max-w-sm">
-        <Icon
-          name="today"
-          size="lg"
-          className="text-muted-foreground/70 mx-auto"
-        />
-        <h2 className="text-lg font-semibold tracking-tight">
-          Your daily plan view is coming soon
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Manage your assigned requests under{' '}
-          <span className="text-foreground/80">Requests</span> in the sidebar.
-        </p>
-      </div>
-    </main>
+    <PostSubmissionView
+      dayPlan={{
+        id: plan.id,
+        submittedAt: plan.submittedAt.toISOString(),
+        closedAt: plan.closedAt ? plan.closedAt.toISOString() : null,
+      }}
+      tasks={taskRows.map((t) => ({
+        id: t.id,
+        taskType: t.taskType,
+        description: t.description,
+        estimatedTime: t.estimatedTime,
+        status: t.status,
+        linkRequestId: t.linkRequestId,
+        outcomeOptionId: t.outcomeOptionId,
+        outcomeOptionName: t.outcomeOptionName,
+        outcomeNotes: t.outcomeNotes,
+        postponedToDate: t.postponedToDate,
+        customerInformed: t.customerInformed,
+        createdAt: t.createdAt.toISOString(),
+      }))}
+      outcomeOptionsByType={groupOutcomeOptions(allOutcomeOptions)}
+      postponeReasons={allPostponeReasons}
+      linkableRequests={linkableRequests}
+      isCloseButtonVisible={isCloseButtonVisible}
+    />
   );
+}
+
+function groupOutcomeOptions(
+  rows: Array<{
+    id: string;
+    taskType: string;
+    code: string;
+    name: string;
+    sequenceNumber: number;
+  }>,
+): Record<string, Array<{ id: string; code: string; name: string }>> {
+  const out: Record<string, Array<{ id: string; code: string; name: string }>> = {};
+  for (const r of rows) {
+    if (!out[r.taskType]) out[r.taskType] = [];
+    out[r.taskType].push({ id: r.id, code: r.code, name: r.name });
+  }
+  return out;
 }

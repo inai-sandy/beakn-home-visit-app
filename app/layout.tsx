@@ -5,6 +5,7 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import "./globals.css";
 
@@ -80,9 +81,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
-          <InstallPrompt />
-          <Toaster richColors closeButton />
+          <TooltipProvider>
+            {children}
+            <InstallPrompt />
+            <Toaster richColors closeButton />
+          </TooltipProvider>
         </ThemeProvider>
         <ServiceWorkerRegister />
       </body>

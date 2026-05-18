@@ -16,7 +16,7 @@ import type { ExecDayStatus, TeamExecStatus } from '@/lib/captain/dashboard-quer
 // was cancelled; inline is the canonical interaction for v1.
 // =============================================================================
 
-function statusMeta(status: ExecDayStatus): {
+function statusMeta(status: ExecDayStatus | undefined): {
   dotClass: string;
   label: string;
 } {
@@ -29,6 +29,9 @@ function statusMeta(status: ExecDayStatus): {
       return { dotClass: 'bg-red-500', label: 'Not started' };
     case 'unavailable':
       return { dotClass: 'bg-muted-foreground/40', label: 'Unavailable' };
+    default:
+      // Range mode — status is undefined; rangeClosedSummary takes over.
+      return { dotClass: 'bg-muted-foreground/40', label: 'Range view' };
   }
 }
 
@@ -52,9 +55,18 @@ function formatRupees(n: number): string {
   }).format(n);
 }
 
-export function ExecStatusRow({ exec }: { exec: TeamExecStatus }) {
+export function ExecStatusRow({
+  exec,
+  isRangeMode = false,
+}: {
+  exec: TeamExecStatus;
+  isRangeMode?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const meta = statusMeta(exec.status);
+  const rangeLabel = exec.rangeClosedSummary
+    ? `${exec.rangeClosedSummary.closed}/${exec.rangeClosedSummary.total} days closed`
+    : null;
 
   return (
     <li className="border-t first:border-t-0">
@@ -78,7 +90,7 @@ export function ExecStatusRow({ exec }: { exec: TeamExecStatus }) {
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <span aria-hidden className={cn('inline-block h-2 w-2 rounded-full', meta.dotClass)} />
-              {meta.label}
+              {isRangeMode && rangeLabel ? rangeLabel : meta.label}
             </span>
             <span>·</span>
             <span>{exec.visitsToday} visits</span>

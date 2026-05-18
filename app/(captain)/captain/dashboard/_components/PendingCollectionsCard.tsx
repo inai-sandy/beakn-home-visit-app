@@ -2,9 +2,13 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { cn } from '@/lib/utils';
 
-import type { PendingCollectionsSummary } from '@/lib/captain/dashboard-queries';
+import type {
+  DateFilter,
+  PendingCollectionsSummary,
+} from '@/lib/captain/dashboard-queries';
 
 // =============================================================================
 // HVA-80: Pending Collections card — total ₹ + 3 aging buckets
@@ -33,10 +37,12 @@ function BucketRow({
   label,
   amount,
   tone,
+  tooltip,
 }: {
   label: string;
   amount: number;
   tone: 'green' | 'amber' | 'red';
+  tooltip: string;
 }) {
   const dotCls =
     tone === 'green' ? 'bg-green-500' : tone === 'amber' ? 'bg-amber-500' : 'bg-red-500';
@@ -44,7 +50,10 @@ function BucketRow({
     <div className="flex items-center justify-between gap-3 py-1.5">
       <div className="flex items-center gap-2 text-xs">
         <span aria-hidden className={cn('inline-block h-2 w-2 rounded-full', dotCls)} />
-        <span className="text-muted-foreground">{label}</span>
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          {label}
+          <InfoTooltip iconOnly>{tooltip}</InfoTooltip>
+        </span>
       </div>
       <span className="text-sm font-mono">{formatRupees(amount)}</span>
     </div>
@@ -53,17 +62,26 @@ function BucketRow({
 
 export function PendingCollectionsCard({
   summary,
+  filter,
 }: {
   summary: PendingCollectionsSummary;
+  filter: DateFilter;
 }) {
+  void filter; // accepted for signature alignment; query layer handles mode
   return (
     <section
       aria-label="Pending collections"
       className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
     >
       <header className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold tracking-tight">
+        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1">
           Pending Collections
+          <InfoTooltip iconOnly>
+            Total amount owed by customers where a quotation has been submitted
+            and inbound payments don&apos;t cover the full quoted value. Aging
+            buckets are always relative to today and show how long the
+            quotation has been outstanding.
+          </InfoTooltip>
         </h2>
         <Badge
           variant={summary.outstandingRequestCount > 0 ? 'default' : 'secondary'}
@@ -81,9 +99,24 @@ export function PendingCollectionsCard({
       </p>
 
       <div className="divide-y rounded-2xl border bg-muted/20 px-3">
-        <BucketRow label="0–7 days" amount={summary.buckets.zeroToSeven} tone="green" />
-        <BucketRow label="8–30 days" amount={summary.buckets.eightToThirty} tone="amber" />
-        <BucketRow label="30+ days" amount={summary.buckets.thirtyPlus} tone="red" />
+        <BucketRow
+          label="0–7 days"
+          amount={summary.buckets.zeroToSeven}
+          tone="green"
+          tooltip="Customers who received a quotation in the past 7 days with payment still outstanding."
+        />
+        <BucketRow
+          label="8–30 days"
+          amount={summary.buckets.eightToThirty}
+          tone="amber"
+          tooltip="Customers who received a quotation 8–30 days ago with payment still outstanding. Follow-up recommended."
+        />
+        <BucketRow
+          label="30+ days"
+          amount={summary.buckets.thirtyPlus}
+          tone="red"
+          tooltip="Customers with quotations 31+ days old still unpaid. Escalation may be needed."
+        />
       </div>
 
       <div className="flex justify-end">

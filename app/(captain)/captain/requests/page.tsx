@@ -1,31 +1,32 @@
-import { alias } from "drizzle-orm/pg-core";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
-import { formatDistanceToNow } from "date-fns";
-import Link from "next/link";
-import { redirect } from "next/navigation";
+import { alias } from 'drizzle-orm/pg-core';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
-import { Badge } from "@/components/ui/badge";
-import { db } from "@/db/client";
+import { Badge } from '@/components/ui/badge';
+import { RequestBucketTabs } from '@/components/requests/RequestBucketTabs';
+import { RequestCardMobile } from '@/components/requests/RequestCardMobile';
+import { RequestsTable } from '@/components/requests/RequestsTable';
+import type { RequestRow } from '@/components/requests/types';
+import { db } from '@/db/client';
 import {
   cities,
   salesExecutives,
   statusStages,
   users,
   visitRequests,
-} from "@/db/schema";
-import { getServerSession } from "@/lib/auth-server";
-import { loadCaptainCities } from "@/lib/captain/cities";
+} from '@/db/schema';
+import { getServerSession } from '@/lib/auth-server';
+import { loadCaptainCities } from '@/lib/captain/cities';
 import {
   BUCKET_LABELS,
   CAPTAIN_REQUEST_BUCKETS,
   categorizeRequest,
   isCaptainRequestBucket,
   type CaptainRequestBucket,
-} from "@/lib/captain/request-buckets";
-import { maskCustomerPhone } from "@/lib/format/phone";
-import { cn } from "@/lib/utils";
+} from '@/lib/captain/request-buckets';
 
-import { InlineAssignButton } from "./inline-assign-button";
+import { InlineAssignButton } from './inline-assign-button';
 
 // =============================================================================
 // HVA-127: /captain/requests — all requests in the captain's cities
@@ -47,9 +48,15 @@ import { InlineAssignButton } from "./inline-assign-button";
 //
 // /captain/requests/unassigned remains as the narrower "pending-assign"
 // queue (HVA-81). Same ownership rule, different status filter.
+//
+// HVA-65: rendering primitives extracted to components/requests/*
+// (RequestBucketTabs / RequestsTable / RequestCardMobile). Bucket
+// selection stays URL-driven (searchParams.bucket) so shareable URLs
+// continue to land on the right tab — the exec page uses the same
+// primitives in click-handler mode for its in-memory filter.
 // =============================================================================
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
 interface PageProps {
   searchParams: Promise<{ bucket?: string }>;
@@ -59,15 +66,15 @@ export default async function CaptainRequestsListPage({
   searchParams,
 }: PageProps) {
   const session = await getServerSession();
-  if (!session) redirect("/login?next=/captain/requests");
+  if (!session) redirect('/login?next=/captain/requests');
 
   const actor = session.user as { id: string; role?: string };
-  const isAdmin = actor.role === "super_admin";
+  const isAdmin = actor.role === 'super_admin';
 
   const { bucket: bucketRaw } = await searchParams;
   const activeBucket: CaptainRequestBucket = isCaptainRequestBucket(bucketRaw)
     ? bucketRaw
-    : "all";
+    : 'all';
 
   const myCities = isAdmin ? [] : await loadCaptainCities(actor.id);
   const myCityIds = myCities.map((c) => c.id);
@@ -91,11 +98,11 @@ export default async function CaptainRequestsListPage({
     );
   }
 
-  const execUser = alias(users, "exec_user");
+  const execUser = alias(users, 'exec_user');
 
   // Single query — JOIN cities for name, status_stages for human-readable
   // status, LEFT JOIN exec user for the assigned-to display.
-  const rows = await db
+  const rows: RequestRow[] = await db
     .select({
       id: visitRequests.id,
       customerName: visitRequests.customerName,
@@ -112,11 +119,7 @@ export default async function CaptainRequestsListPage({
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .leftJoin(execUser, eq(execUser.id, visitRequests.assignedExecUserId))
-    .where(
-      isAdmin
-        ? undefined
-        : and(inArray(visitRequests.cityId, myCityIds)),
-    )
+    .where(isAdmin ? undefined : and(inArray(visitRequests.cityId, myCityIds)))
     .orderBy(desc(visitRequests.createdAt));
 
   // Bucket the rows in-memory. Counts feed the tab strip; filtering
@@ -139,7 +142,7 @@ export default async function CaptainRequestsListPage({
   }
 
   const visible =
-    activeBucket === "all"
+    activeBucket === 'all'
       ? rows
       : rows.filter(
           (r) =>
@@ -154,12 +157,15 @@ export default async function CaptainRequestsListPage({
   // for an inline Assign trigger can pass it down. Super_admin gets the
   // full active-exec list (they may assign across teams for support).
   // Captain gets only execs reporting to them.
-  const hasAssignableRow = visible.some(
-    (r) =>
+  function rowQualifiesForInlineAssign(r: RequestRow): boolean {
+    return (
       r.cancelledAt === null &&
-      r.statusCode === "SUBMITTED" &&
-      r.assignedExecUserId === null,
-  );
+      r.statusCode === 'SUBMITTED' &&
+      r.assignedExecUserId === null
+    );
+  }
+
+  const hasAssignableRow = visible.some(rowQualifiesForInlineAssign);
   const execsForAssignment: Array<{ id: string; fullName: string }> =
     hasAssignableRow
       ? isAdmin
@@ -182,13 +188,18 @@ export default async function CaptainRequestsListPage({
             .orderBy(asc(users.fullName))
       : [];
 
-  function rowQualifiesForInlineAssign(r: (typeof visible)[number]): boolean {
+  function renderActions(row: RequestRow) {
+    if (!rowQualifiesForInlineAssign(row)) return null;
     return (
-      r.cancelledAt === null &&
-      r.statusCode === "SUBMITTED" &&
-      r.assignedExecUserId === null
+      <InlineAssignButton requestId={row.id} execs={execsForAssignment} />
     );
   }
+
+  const bucketTabSpecs = CAPTAIN_REQUEST_BUCKETS.map((k) => ({
+    key: k,
+    label: BUCKET_LABELS[k],
+    count: bucketCounts[k],
+  }));
 
   return (
     <div className="p-6 sm:p-8 max-w-6xl space-y-5">
@@ -197,8 +208,8 @@ export default async function CaptainRequestsListPage({
           <h1 className="text-2xl font-semibold tracking-tight">Requests</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isAdmin
-              ? "All requests across every city."
-              : `${rows.length} request${rows.length === 1 ? "" : "s"} across ${myCities.length} ${myCities.length === 1 ? "city" : "cities"}.`}
+              ? 'All requests across every city.'
+              : `${rows.length} request${rows.length === 1 ? '' : 's'} across ${myCities.length} ${myCities.length === 1 ? 'city' : 'cities'}.`}
           </p>
         </div>
         {!isAdmin && myCities.length > 0 && (
@@ -212,197 +223,48 @@ export default async function CaptainRequestsListPage({
         )}
       </header>
 
-      {/* Bucket pills. URL-driven so the active tab survives reload. */}
-      <nav
-        aria-label="Filter by status"
-        className="flex flex-wrap gap-1.5 border-b pb-3"
-      >
-        {CAPTAIN_REQUEST_BUCKETS.map((b) => {
-          const active = b === activeBucket;
-          const href = b === "all" ? "/captain/requests" : `/captain/requests?bucket=${b}`;
-          return (
-            <Link
-              key={b}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                active
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-muted-foreground/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-              )}
-            >
-              <span>{BUCKET_LABELS[b]}</span>
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px]",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted-foreground/15 text-muted-foreground",
-                )}
-              >
-                {bucketCounts[b]}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
+      <RequestBucketTabs
+        buckets={bucketTabSpecs}
+        active={activeBucket}
+        LinkComponent={Link}
+        hrefFor={(k) =>
+          k === 'all' ? '/captain/requests' : `/captain/requests?bucket=${k}`
+        }
+      />
 
       {visible.length === 0 ? (
         <div className="rounded-3xl border bg-muted/40 p-10 text-center">
           <p className="text-sm text-muted-foreground">
-            {activeBucket === "all"
-              ? "No requests in your cities yet."
+            {activeBucket === 'all'
+              ? 'No requests in your cities yet.'
               : `No ${BUCKET_LABELS[activeBucket].toLowerCase()} requests.`}
           </p>
         </div>
       ) : (
         <>
-          {/* Mobile: card list.
-              HVA-139: uses the stretched-link pattern so the inline
-              Assign button can sit ABOVE the Link without React's "<a>
-              inside <a>" warning and without the button click bubbling
-              to the row navigation. */}
+          {/* Mobile cards (< lg). Captain breakpoint stays at lg per HVA-127. */}
           <ul className="lg:hidden space-y-3" aria-label="Requests (mobile)">
-            {visible.map((r) => {
-              const qualifies = rowQualifiesForInlineAssign(r);
-              return (
-                <li key={r.id}>
-                  <div className="relative rounded-2xl border bg-card p-4 shadow-sm transition-colors hover:bg-muted/40 focus-within:ring-2 focus-within:ring-ring">
-                    <Link
-                      href={`/requests/${r.id}`}
-                      className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-none"
-                      aria-label={`Open request from ${r.customerName}`}
-                    />
-                    <div className="relative z-20 pointer-events-none">
-                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                        <h3 className="text-sm font-semibold tracking-tight">
-                          {r.customerName}
-                        </h3>
-                        {/* HVA-142: destructive badge for cancelled
-                            (cancellation is orthogonal to
-                            status_stage_id per HVA-69). */}
-                        {r.cancelledAt !== null ? (
-                          <Badge variant="destructive" className="text-[10px]">
-                            Cancelled
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px]">
-                            {r.statusName}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs font-mono text-muted-foreground mt-1">
-                        {maskCustomerPhone(r.customerPhone)}
-                      </p>
-                      <div className="flex items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
-                        <span>{r.cityName}</span>
-                        <span>{r.assignedExecName ?? "—"}</span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        {formatDistanceToNow(r.createdAt, { addSuffix: true })}
-                      </p>
-                      {qualifies && (
-                        <div className="mt-3 flex justify-end pointer-events-auto">
-                          <InlineAssignButton
-                            requestId={r.id}
-                            execs={execsForAssignment}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+            {visible.map((r) => (
+              <li key={r.id}>
+                <RequestCardMobile
+                  row={r}
+                  mode="captain"
+                  renderActions={renderActions}
+                />
+              </li>
+            ))}
           </ul>
 
-          {/* Desktop: table */}
-          <div
-            className="hidden lg:block rounded-2xl border bg-card overflow-hidden"
-            aria-label="Requests (desktop)"
-          >
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium">Customer</th>
-                  <th className="text-left px-4 py-3 font-medium">Phone</th>
-                  <th className="text-left px-4 py-3 font-medium">City</th>
-                  <th className="text-left px-4 py-3 font-medium">Status</th>
-                  <th className="text-left px-4 py-3 font-medium">Assigned exec</th>
-                  <th className="text-left px-4 py-3 font-medium">Submitted</th>
-                  {/* HVA-139: per-row action column for inline Assign
-                      on Submitted+unassigned rows. Empty for other
-                      rows to keep alignment. */}
-                  <th className="text-left px-4 py-3 font-medium">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((r) => {
-                  const qualifies = rowQualifiesForInlineAssign(r);
-                  return (
-                    <tr
-                      key={r.id}
-                      className="border-t hover:bg-muted/30 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/requests/${r.id}`}
-                          className="font-medium hover:underline"
-                        >
-                          {r.customerName}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                        {maskCustomerPhone(r.customerPhone)}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {r.cityName}
-                      </td>
-                      <td className="px-4 py-3">
-                        {/* HVA-142: see mobile-card variant above. */}
-                        {r.cancelledAt !== null ? (
-                          <Badge variant="destructive" className="text-[10px]">
-                            Cancelled
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px]">
-                            {r.statusName}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {r.assignedExecName ?? (
-                          <span className="text-muted-foreground/60">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <span title={r.createdAt.toISOString()}>
-                          {formatDistanceToNow(r.createdAt, { addSuffix: true })}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {qualifies && (
-                          <InlineAssignButton
-                            requestId={r.id}
-                            execs={execsForAssignment}
-                          />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          {/* Desktop table (≥ lg) */}
+          <div className="hidden lg:block">
+            <RequestsTable
+              rows={visible}
+              mode="captain"
+              renderActions={renderActions}
+            />
           </div>
         </>
       )}
-
-      {/* HVA-139: the "Open the unassigned queue" hint used to live here.
-          Inline Assign buttons on Submitted+unassigned rows make that
-          deep link redundant — the queue page itself is still functional
-          and is the documented HVA-81 surface, but is no longer the
-          dominant assignment path. */}
     </div>
   );
 }

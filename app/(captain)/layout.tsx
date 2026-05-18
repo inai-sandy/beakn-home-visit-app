@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { cities } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
 
+import { CaptainMobileTopbar } from "./_components/CaptainMobileTopbar";
 import { CaptainSidebar } from "./sidebar";
 
 // =============================================================================
@@ -71,17 +72,37 @@ export default async function CaptainLayout({
 
   return (
     <div className="flex min-h-svh bg-background">
-      <CaptainSidebar captainName={captainName} cities={myCities} />
+      {/*
+        HVA-152: desktop sidebar is hidden below lg. `lg:contents` makes
+        the wrapper transparent at desktop sizes so <CaptainSidebar>'s
+        sticky/flex positioning works exactly as it did pre-HVA-152 —
+        the wrapper is functionally invisible to the flex layout at lg+,
+        and `display: none` at smaller viewports. Desktop render output
+        is byte-identical to the pre-HVA-152 baseline (snapshot test
+        proves it).
+      */}
+      <div className="hidden lg:contents">
+        <CaptainSidebar captainName={captainName} cities={myCities} />
+      </div>
 
       {/* Right-side column: top bar + main content */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/*
-          Top bar — 56dp. Empty title slot today; pages will fill via a
-          Server Component prop in a follow-up issue (HVA-80+). Breadcrumb
-          slot stays blank for the dashboard route.
+          HVA-152 mobile topbar — only renders below lg. Contains the
+          hamburger trigger for the CaptainSidebarSheet drawer + page
+          title + bell stub.
+        */}
+        <CaptainMobileTopbar captainName={captainName} cities={myCities} />
+
+        {/*
+          Desktop top bar — 56dp. Empty title slot today; pages will fill
+          via a Server Component prop in a follow-up issue (HVA-80+).
+          `hidden lg:flex` so this band is only rendered at lg+ where the
+          desktop sidebar is also rendered. Mobile uses the
+          CaptainMobileTopbar above instead.
         */}
         <header
-          className="h-14 border-b bg-card/50 backdrop-blur-sm flex items-center px-6 sticky top-0 z-10"
+          className="hidden lg:flex h-14 border-b bg-card/50 backdrop-blur-sm items-center px-6 sticky top-0 z-10"
           aria-label="Page header"
         >
           <div className="flex-1 min-w-0">

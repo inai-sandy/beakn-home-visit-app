@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // where /dev/logout-test's LogoutTrigger lifts in next.
 export default function CaptainProfilePage() {
   return (
-    <div className="p-8 space-y-3 max-w-3xl">
+    <div className="p-4 sm:p-8 space-y-3 max-w-3xl">
       <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
       <p className="text-sm text-muted-foreground">
         Coming soon. Will host Change Password (HVA-29 lifts here from

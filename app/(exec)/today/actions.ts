@@ -228,8 +228,11 @@ export async function markTaskDoneAction(
 
   if (isFreeText) {
     const notes = (input.outcomeNotes ?? '').trim();
-    if (notes.length < 5 || notes.length > 500) {
-      return { ok: false, error: 'Notes must be 5–500 characters' };
+    // Bug 2 fix: client-side gate relaxed from 5 to non-empty; server
+    // mirrors that as the belt-and-braces validator. Upper bound stays
+    // at 500 chars (matches the textarea maxLength).
+    if (notes.length === 0 || notes.length > 500) {
+      return { ok: false, error: 'Notes must be 1–500 characters' };
     }
     input.outcomeNotes = notes;
     input.outcomeOptionId = null;

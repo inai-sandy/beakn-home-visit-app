@@ -156,11 +156,28 @@ export function PostSubmissionView({
       </div>
 
       {!closed && (
-        <AddTaskFab linkableRequests={linkableRequests} disabled={closed} />
+        <AddTaskFab
+          linkableRequests={linkableRequests}
+          disabled={closed}
+          closeButtonVisible={isCloseButtonVisible}
+        />
       )}
 
       {isCloseButtonVisible && !closed && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur p-3 md:bottom-auto md:top-auto md:right-4 md:left-auto md:max-w-sm md:rounded-2xl md:m-4 md:border md:shadow-lg">
+        // Bug 5 (mobile): the previous mobile branch (`bottom-0 z-20`) sat
+        // BEHIND the exec bottom-nav (h-16, z-30). Pushing the button up by
+        // the tab-bar height (`bottom-16`) and over the tab-bar's z-index
+        // (`z-40`) restores visibility. `pb-[env(safe-area-inset-bottom)]`
+        // adds the iOS notch buffer so the button doesn't sit under the
+        // home indicator on devices that have one.
+        //
+        // Bug 6 (desktop): the previous desktop branch used `md:bottom-auto
+        // md:top-auto` — for a position:fixed element, both auto means the
+        // element falls back to the natural document-flow position, which
+        // scrolled off as the task list grew. Switching to `md:bottom-4
+        // md:top-auto` anchors the floating card to the viewport's
+        // bottom-right corner regardless of scroll position.
+        <div className="fixed inset-x-0 bottom-16 z-40 border-t bg-background/95 backdrop-blur p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:inset-x-auto md:bottom-4 md:right-4 md:left-auto md:max-w-sm md:rounded-2xl md:m-0 md:border md:shadow-lg md:pb-3">
           <Button asChild size="lg" className="w-full h-14 rounded-full">
             <Link href="/today/close">
               <Icon name="flag" size="sm" />

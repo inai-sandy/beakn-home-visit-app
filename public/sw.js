@@ -1,11 +1,16 @@
-// Beakn Home Visit — service worker (HVA-19).
+// Beakn Service Worker
+// Cache version: beakn-v2-hva146 (HVA-146, 2026-05-17)
 //
-// Strategies:
-//   - precache: app shell + manifest + icons on install
-//   - /api/*           : network-first (no stale API data; fall back to cache only if offline)
-//   - /_next/static/*  : cache-first (immutable build assets, content-hashed by Next)
-//   - same-origin GETs : stale-while-revalidate (serve fast, refresh in background)
-//   - everything else  : passthrough to network
+// Strategy:
+//   /api/*                          → bypass SW entirely
+//   RSC fetches (RSC: 1 / _rsc=)    → bypass SW entirely  [HVA-146]
+//   /_next/static/                  → cacheFirst (content-hashed, immutable)
+//   everything else same-origin     → networkFirst (fresh, cache as offline fallback)
+//
+// HVA-146 history: previous version used staleWhileRevalidate for
+// "everything else" which poisoned dynamic pages after the first
+// mutation. router.refresh()-triggered RSC re-fetches were served
+// from cache, masking HVA-136 + HVA-143 fixes. See HVA-146 ticket.
 //
 // Bump CACHE_VERSION when the precached shell needs a fresh fetch. Old caches
 // are pruned in the activate event.
@@ -13,7 +18,7 @@
 // NOT included (deferred):
 //   - push handlers — HVA-54 owns Web Push subscription + onpush/onnotificationclick.
 
-const CACHE_VERSION = 'beakn-v1';
+const CACHE_VERSION = 'beakn-v2-hva146';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -81,14 +86,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // HVA-146 belt-and-braces: never intercept RSC fetches.
+  // RSC fetches are identifiable by the 'RSC: 1' request header or the
+  // '_rsc' query parameter. Letting them passthrough to the network
+  // ensures router.refresh()-triggered re-fetches always get fresh data,
+  // regardless of any other SW caching strategy.
+  if (req.headers.get('RSC') === '1' || req.url.includes('_rsc=')) {
+    return; // passthrough — browser handles fetch normally, no SW involvement
+  }
+
   // /_next/static/* — content-hashed immutables, cache-first.
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(cacheFirst(req));
     return;
   }
 
-  // Everything else same-origin — stale-while-revalidate.
-  event.respondWith(staleWhileRevalidate(req));
+  // Everything else same-origin — network-first (cache as offline fallback only).
+  event.respondWith(networkFirst(req));
 });
 
 async function networkFirst(req) {
@@ -117,6 +131,11 @@ async function cacheFirst(req) {
   return fresh;
 }
 
+// NOTE: staleWhileRevalidate is currently unused as of HVA-146.
+// It was the default strategy for "everything else" but was
+// poisoning every dynamic page after the first mutation.
+// If a specific path genuinely needs SWR semantics in the future,
+// call it explicitly for THAT path only — never as the fallback.
 async function staleWhileRevalidate(req) {
   const cache = await caches.open(RUNTIME_CACHE);
   const cached = await cache.match(req);

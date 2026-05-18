@@ -65,10 +65,27 @@ interface Props {
   }>;
   /** When true, FAB renders disabled (read-only state — day closed). */
   disabled?: boolean;
+  /**
+   * When true, the Close-the-Day strip is rendered on the page. The FAB
+   * shifts higher to clear that strip on mobile. Bug 5/6 (HVA-60 walk)
+   * relocated the strip to `bottom-16`; the FAB needs to sit above it.
+   */
+  closeButtonVisible?: boolean;
 }
 
-export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
+export function AddTaskFab({
+  linkableRequests,
+  disabled = false,
+  closeButtonVisible = false,
+}: Props) {
   const [open, setOpen] = useState(false);
+  // Default mobile bottom: bottom-20 = 5rem (above the exec bottom-nav
+  // h-16). When the Close strip is showing on mobile (bottom-16 with
+  // ~5rem visible height), shift the FAB to bottom-40 so it clears the
+  // strip. Desktop is unaffected (FAB at md:bottom-6, Close at
+  // md:bottom-4 right-4 — both pinned to the same corner; FAB sits in
+  // its own corner overlap-free since the Close card has its own width).
+  const mobileBottomClass = closeButtonVisible ? 'bottom-40' : 'bottom-20';
   return (
     <>
       <Button
@@ -76,7 +93,7 @@ export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
         onClick={() => setOpen(true)}
         disabled={disabled}
         size="lg"
-        className="fixed bottom-20 right-4 z-30 h-14 w-14 rounded-full shadow-lg md:bottom-6"
+        className={`fixed ${mobileBottomClass} right-4 z-30 h-14 w-14 rounded-full shadow-lg md:bottom-6`}
         aria-label="Add task"
       >
         <Icon name="add" size="md" />

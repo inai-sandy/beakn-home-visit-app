@@ -134,9 +134,23 @@ export function TaskItem({
       // state so a second auto-render shows the optimistic "done" badge
       // until the RSC payload lands.
       setRecentlyMarkedDone(true);
+      // Bug 4 fix: per-call override pulls this toast away from the
+      // sonner default (bottom-right) where it sat behind the bottom
+      // nav + Close-the-Day button on mobile. top-center keeps it
+      // immediately visible regardless of which UI element occupies the
+      // bottom. actionButtonStyle makes Undo a high-contrast filled
+      // button so it reads as a tap target, not a label.
       const undoToastId = toast('Marked done', {
         description: 'Tap Undo within 5 seconds to revert.',
         duration: 5000,
+        position: 'top-center',
+        actionButtonStyle: {
+          background: 'var(--primary)',
+          color: 'var(--primary-foreground)',
+          padding: '0.5rem 1rem',
+          borderRadius: '9999px',
+          fontWeight: 600,
+        },
         action: {
           label: 'Undo',
           onClick: () => {
@@ -191,8 +205,13 @@ export function TaskItem({
 
   function onFreeTextConfirm() {
     const trimmed = freeText.trim();
-    if (trimmed.length < 5) {
-      toast.error('Outcome must be at least 5 characters');
+    // Bug 2 fix: relaxed client gate from "5 chars" to "non-empty" so the
+    // user-facing rule is just "type something". The server-side action
+    // still validates 5–500 chars as belt-and-braces; if the server rejects,
+    // the toast surfaces that error to the user. See the server action's
+    // outcomeNotes branch for the authoritative gate.
+    if (trimmed.length === 0) {
+      toast.error('Type the outcome before confirming');
       return;
     }
     void performMarkDone({ outcomeOptionId: null, outcomeNotes: trimmed });
@@ -371,6 +390,13 @@ export function TaskItem({
             maxLength={500}
             aria-label="Outcome description"
           />
+          {/* Bug 2 fix: hint text under the textarea so the exec knows
+              the Confirm button is just waiting on some input. The
+              hint stays on-screen at all times — disabled-button greyness
+              previously left it unclear whether anything was actionable. */}
+          <p className="text-xs text-muted-foreground">
+            Enter the outcome details
+          </p>
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -388,7 +414,12 @@ export function TaskItem({
               type="button"
               size="sm"
               onClick={onFreeTextConfirm}
-              disabled={busy || freeText.trim().length < 5}
+              // Bug 2 fix: enabled as soon as the textarea has ANY
+              // non-whitespace content. Server-side still validates
+              // (5–500 chars) and surfaces a toast on rejection — the
+              // client-side rule used to be 5 chars too, which made the
+              // button look broken when the exec was mid-typing.
+              disabled={busy || freeText.trim().length === 0}
             >
               {busy ? (
                 <>

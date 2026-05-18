@@ -318,7 +318,7 @@ describe('Test #3 — markTaskDoneAction (chip mode) + undo', () => {
 });
 
 describe('Test #4 — markTaskDoneAction (free-text) requires non-empty notes', () => {
-  it('empty notes on free-text task is rejected', async () => {
+  it('empty notes is rejected; ANY non-empty content is accepted (Bug 2 fix)', async () => {
     const { exec } = await setupExecSession();
     const plan = await seedTodayDayPlan(exec.id);
     const task = await seedTask({
@@ -333,19 +333,21 @@ describe('Test #4 — markTaskDoneAction (free-text) requires non-empty notes', 
     });
     expect(empty.ok).toBe(false);
 
-    const tooShort = await markTaskDoneAction({
+    const whitespace = await markTaskDoneAction({
+      taskId: task.id,
+      outcomeOptionId: null,
+      outcomeNotes: '   ',
+    });
+    expect(whitespace.ok).toBe(false);
+
+    // Bug 2 fix: 'no' (2 chars) used to be rejected by the old 5-char
+    // floor. Now accepted — any non-empty content goes through.
+    const short = await markTaskDoneAction({
       taskId: task.id,
       outcomeOptionId: null,
       outcomeNotes: 'no',
     });
-    expect(tooShort.ok).toBe(false);
-
-    const okay = await markTaskDoneAction({
-      taskId: task.id,
-      outcomeOptionId: null,
-      outcomeNotes: 'Visited, no decision today',
-    });
-    expect(okay.ok).toBe(true);
+    expect(short.ok).toBe(true);
   });
 });
 

@@ -1,6 +1,5 @@
 import { alias } from 'drizzle-orm/pg-core';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
@@ -201,6 +200,20 @@ export default async function CaptainRequestsListPage({
     count: bucketCounts[k],
   }));
 
+  // RSC serialization-safe href map for RequestBucketTabs (link mode).
+  // Built as a plain object literal so it crosses the server→client
+  // boundary as JSON. The earlier `hrefFor: (k) => …` form was a
+  // function and Next.js rejected it at render time with digest
+  // 1605197399 / 111855479 on 2026-05-18. See RequestBucketTabs.tsx
+  // module comment for the full root-cause writeup.
+  const bucketHrefByKey: Record<CaptainRequestBucket, string> = {
+    all: '/captain/requests',
+    open: '/captain/requests?bucket=open',
+    assigned: '/captain/requests?bucket=assigned',
+    completed: '/captain/requests?bucket=completed',
+    cancelled: '/captain/requests?bucket=cancelled',
+  };
+
   return (
     <div className="p-6 sm:p-8 max-w-6xl space-y-5">
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
@@ -226,10 +239,7 @@ export default async function CaptainRequestsListPage({
       <RequestBucketTabs
         buckets={bucketTabSpecs}
         active={activeBucket}
-        LinkComponent={Link}
-        hrefFor={(k) =>
-          k === 'all' ? '/captain/requests' : `/captain/requests?bucket=${k}`
-        }
+        hrefByKey={bucketHrefByKey}
       />
 
       {visible.length === 0 ? (

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import Link from 'next/link';
 
 import { cn } from '@/lib/utils';
 
@@ -14,12 +14,27 @@ import { cn } from '@/lib/utils';
 //     renders <button> elements that call back into the parent's
 //     useState. Bucket selection stays in-memory; URL is unchanged.
 //
-//   * Link mode (captain page): pass `hrefFor` instead of `onSelect`.
-//     The component renders <a>/<Link>-style anchors so the captain's
-//     URL-driven bucket UX (HVA-127) is preserved verbatim.
+//   * Link mode (captain page): pass `hrefByKey` — a plain map from
+//     bucket key to URL string. The component renders <Link> anchors
+//     so the captain's URL-driven bucket UX (HVA-127) is preserved.
 //
-// One or the other — never both. The component is rendered as either a
-// `<nav>` of buttons or anchors depending on which prop is provided.
+//     Why a string map (not a `hrefFor: (key) => string` function):
+//     this component is `'use client'`, but the captain page
+//     (app/(captain)/captain/requests/page.tsx) is a Server Component
+//     that mounts it. Function-typed props can't cross the RSC
+//     server→client serialization boundary — Next.js rejects them with
+//     "Functions cannot be passed directly to Client Components"
+//     (production digests 1605197399 / 111855479 surfaced this on
+//     2026-05-18 during Sandeep's walk of /captain/requests). A
+//     `Record<K, string>` is plain JSON so it serializes cleanly.
+//
+//     Pre-2026-05-18, this prop was `hrefFor: (key) => string` and the
+//     component also took a `LinkComponent` prop. Both function-typed,
+//     both broken at the RSC boundary. `LinkComponent` is gone (Link is
+//     imported directly above), `hrefFor` is now `hrefByKey`.
+//
+// One mode or the other — never both. The component is rendered as
+// either a <nav> of buttons or Links depending on which prop is given.
 // =============================================================================
 
 export interface BucketSpec<K extends string> {
@@ -35,23 +50,17 @@ interface CommonProps<K extends string> {
 
 interface ClickProps<K extends string> extends CommonProps<K> {
   onSelect: (key: K) => void;
-  hrefFor?: never;
-  LinkComponent?: never;
+  hrefByKey?: never;
 }
 
-interface LinkProps<K extends string> extends CommonProps<K> {
-  hrefFor: (key: K) => string;
-  /** Pass next/link's Link (or any component accepting href + children). */
-  LinkComponent: React.ComponentType<{
-    href: string;
-    'aria-current'?: 'page' | undefined;
-    className?: string;
-    children: ReactNode;
-  }>;
+interface LinkModeProps<K extends string> extends CommonProps<K> {
+  /** Plain-string href per bucket key. Must be serializable JSON — no
+   *  functions, no React components. See module comment for why. */
+  hrefByKey: Record<K, string>;
   onSelect?: never;
 }
 
-type Props<K extends string> = ClickProps<K> | LinkProps<K>;
+type Props<K extends string> = ClickProps<K> | LinkModeProps<K>;
 
 export function RequestBucketTabs<K extends string>(props: Props<K>) {
   const { buckets, active } = props;
@@ -96,16 +105,16 @@ export function RequestBucketTabs<K extends string>(props: Props<K>) {
           );
         }
 
-        const { LinkComponent, hrefFor } = props as LinkProps<K>;
+        const hrefByKey = (props as LinkModeProps<K>).hrefByKey;
         return (
-          <LinkComponent
+          <Link
             key={b.key}
-            href={hrefFor(b.key)}
+            href={hrefByKey[b.key]}
             aria-current={isActive ? 'page' : undefined}
             className={baseCls}
           >
             {inner}
-          </LinkComponent>
+          </Link>
         );
       })}
     </nav>

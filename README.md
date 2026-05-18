@@ -70,7 +70,8 @@ The script:
 1. Sources required `NEXT_PUBLIC_*` values from `.env.local`, refusing to proceed if any are missing or still hold the Dockerfile placeholder.
 2. Runs `docker build` with the corresponding `--build-arg` flags so the values are baked into the client bundle at build time (Next.js inlines `process.env.NEXT_PUBLIC_*` references statically — runtime `--env-file` is too late for client code).
 3. Verifies the built image actually carries the real values and no placeholder strings.
-4. Stops + removes the old `beakn-app` container, runs a fresh one on `mcp-network` with `--env-file=.env.local`, and waits up to 30s for the healthcheck.
+4. Runs `scripts/migrate.ts` against the live prod DB (using a host-side `DATABASE_URL` rewrite — `@beakn-postgres:` → `@127.0.0.1:`). Migrations run *before* the new container starts so the new code boots against a current schema. **If migration fails, the container is NOT restarted, so prod remains on the previous version.**
+5. Stops + removes the old `beakn-app` container, runs a fresh one on `mcp-network` with `--env-file=.env.local`, and waits up to 30s for the healthcheck.
 
 Adding a new `NEXT_PUBLIC_*` env var:
 

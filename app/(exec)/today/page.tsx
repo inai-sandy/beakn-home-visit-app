@@ -147,7 +147,17 @@ export default async function TodayPage() {
       dayPlan={{
         id: plan.id,
         submittedAt: plan.submittedAt.toISOString(),
-        closedAt: plan.closedAt ? plan.closedAt.toISOString() : null,
+        // After the `if (plan.closedAt !== null) redirect('/today/close')`
+        // above, plan.closedAt is provably `null` — TS narrows the type
+        // past `Date | null` to literal `null`. The previous
+        // `plan.closedAt ? .toISOString() : null` truthy check infers
+        // the truthy branch as `never` and fails `next build` (which is
+        // stricter than the local `tsc --noEmit` output I was reading).
+        // `instanceof Date` also fails because strict TS rejects
+        // `instanceof` on a value typed as `null`. Literal `null` is
+        // the only form strict-mode TS accepts here, and it's correct:
+        // the only path to this line has closedAt === null.
+        closedAt: null,
       }}
       tasks={taskRows.map((t) => ({
         id: t.id,

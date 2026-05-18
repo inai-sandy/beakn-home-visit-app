@@ -83,7 +83,7 @@ export default async function CaptainRequestsListPage({
   // inArray filter on an empty list.
   if (!isAdmin && myCityIds.length === 0) {
     return (
-      <div className="p-8 max-w-5xl space-y-3">
+      <div className="p-4 sm:p-8 max-w-5xl space-y-3">
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Requests</h1>
         </header>
@@ -215,7 +215,7 @@ export default async function CaptainRequestsListPage({
   };
 
   return (
-    <div className="p-6 sm:p-8 max-w-6xl space-y-5">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl space-y-5">
       <header className="flex items-baseline justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Requests</h1>

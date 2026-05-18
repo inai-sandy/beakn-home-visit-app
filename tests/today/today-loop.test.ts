@@ -55,6 +55,7 @@ import {
   postponeTaskAction,
   startDayAction,
   undoMarkDoneAction,
+  undoPostponeAction,
 } from '@/app/(exec)/today/actions';
 
 async function setupExecSession() {
@@ -391,6 +392,69 @@ describe('Test #5 — postponeTaskAction commits all 3 fields', () => {
   });
 });
 
+describe('HVA-60 polish Change C — undoPostponeAction reverts the postpone', () => {
+  it('clears reason / date / customerInformed and flips status back to pending', async () => {
+    const { exec } = await setupExecSession();
+    const plan = await seedTodayDayPlan(exec.id);
+    const task = await seedTask({
+      execUserId: exec.id,
+      dayPlanId: plan.id,
+      taskType: 'Sales pitch',
+    });
+    const reason = await getFirstPostponeReason();
+    const t = new Date();
+    t.setDate(t.getDate() + 1);
+    const tomorrow = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+
+    // First: postpone the task.
+    const postpone = await postponeTaskAction({
+      taskId: task.id,
+      reasonId: reason.id,
+      postponedToDate: tomorrow,
+      customerInformed: false,
+    });
+    expect(postpone.ok).toBe(true);
+
+    // Then: undo it.
+    const undo = await undoPostponeAction(task.id);
+    expect(undo.ok).toBe(true);
+
+    const [after] = await db
+      .select({
+        status: tasks.status,
+        postponeReasonId: tasks.postponeReasonId,
+        postponedToDate: tasks.postponedToDate,
+        customerInformed: tasks.customerInformed,
+      })
+      .from(tasks)
+      .where(eq(tasks.id, task.id))
+      .limit(1);
+    expect(after.status).toBe('pending');
+    expect(after.postponeReasonId).toBeNull();
+    expect(after.postponedToDate).toBeNull();
+    expect(after.customerInformed).toBeNull();
+  });
+
+  it('refuses to revert a postponed task on a closed day plan', async () => {
+    const { exec } = await setupExecSession();
+    const plan = await seedTodayDayPlan(exec.id);
+    const task = await seedTask({
+      execUserId: exec.id,
+      dayPlanId: plan.id,
+      taskType: 'Sales pitch',
+      status: 'postponed',
+    });
+    // Seal the day after seeding the postponed task.
+    await db
+      .update(dayPlans)
+      .set({ closedAt: new Date() })
+      .where(eq(dayPlans.id, plan.id));
+
+    const undo = await undoPostponeAction(task.id);
+    expect(undo.ok).toBe(false);
+  });
+});
+
 describe('Test #8 — closed day plan rejects task mutations', () => {
   it('addTask / markDone / postpone all return "Day is closed"', async () => {
     const { exec } = await setupExecSession();
@@ -436,6 +500,13 @@ describe('Test #8 — closed day plan rejects task mutations', () => {
       customerInformed: true,
     });
     expect(post.ok).toBe(false);
+
+    // HVA-60 polish: undo from both completed AND postponed tasks must
+    // also refuse mutations on a closed day plan.
+    const undoDone = await undoMarkDoneAction(task.id);
+    expect(undoDone.ok).toBe(false);
+    const undoPost = await undoPostponeAction(task.id);
+    expect(undoPost.ok).toBe(false);
   });
 });
 

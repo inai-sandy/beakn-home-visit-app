@@ -16,7 +16,11 @@ import {
   resolveTaskDisplayMode,
 } from '@/lib/today/task-rendering';
 
-import { markTaskDoneAction, undoMarkDoneAction } from '../actions';
+import {
+  markTaskDoneAction,
+  undoMarkDoneAction,
+  undoPostponeAction,
+} from '../actions';
 
 import { PostponeSheet } from './PostponeSheet';
 
@@ -134,11 +138,14 @@ export function TaskItem({
     }
   }
 
-  async function performUndo() {
+  async function performUndo(kind: 'done' | 'postpone') {
     if (busy) return;
     setSubmitting(true);
     try {
-      const result = await undoMarkDoneAction(task.id);
+      const result =
+        kind === 'done'
+          ? await undoMarkDoneAction(task.id)
+          : await undoPostponeAction(task.id);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -215,9 +222,15 @@ export function TaskItem({
         </a>
       )}
 
+      {/* Change B + C (HVA-60 design polish): icon-only Undo button on
+          BOTH completed and postponed tasks. 36dp square (h-9 w-9 ≈ 44dp
+          tap target via padding), ghost variant, focus-visible ring for
+          keyboard nav. aria-label differentiates "Undo mark as done"
+          vs "Undo postpone" so screen readers get the right phrasing
+          for each case. */}
       {isDone && (
-        <div className="space-y-2">
-          <div className="text-xs text-muted-foreground space-y-0.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-xs text-muted-foreground space-y-0.5 flex-1">
             {task.outcomeOptionName && (
               <p>
                 <span className="font-medium text-foreground/80">Outcome:</span>{' '}
@@ -231,44 +244,56 @@ export function TaskItem({
               </p>
             )}
           </div>
-          {/* Bug 7 walk fix: persistent inline Undo replaces the
-              unreliable 5-second sonner toast. Visible on every
-              completed task card; disabled only while a mutation is
-              in flight on this same task. Tap reverts to pending and
-              clears outcome / notes / completedAt / actualTime
-              server-side (server action enforces, see actions.ts
-              undoMarkDoneAction). No setTimeout. */}
           {!readOnly && (
             <Button
               type="button"
-              size="sm"
               variant="ghost"
+              size="icon"
               onClick={() => {
-                void performUndo();
+                void performUndo('done');
               }}
               disabled={busy}
-              className="text-muted-foreground hover:text-foreground"
+              aria-label="Undo mark as done"
+              title="Undo"
+              className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Icon name="undo" size="xs" />
-              Undo
+              <Icon name="undo" size="sm" />
             </Button>
           )}
         </div>
       )}
 
       {isPostponed && (
-        <div className="text-xs text-muted-foreground space-y-0.5">
-          {task.postponedToDate && (
-            <p>
-              <span className="font-medium text-foreground/80">Postponed to:</span>{' '}
-              {task.postponedToDate}
-            </p>
-          )}
-          {task.customerInformed !== null && (
-            <p>
-              <span className="font-medium text-foreground/80">Customer informed:</span>{' '}
-              {task.customerInformed ? 'Yes' : 'No'}
-            </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-xs text-muted-foreground space-y-0.5 flex-1">
+            {task.postponedToDate && (
+              <p>
+                <span className="font-medium text-foreground/80">Postponed to:</span>{' '}
+                {task.postponedToDate}
+              </p>
+            )}
+            {task.customerInformed !== null && (
+              <p>
+                <span className="font-medium text-foreground/80">Customer informed:</span>{' '}
+                {task.customerInformed ? 'Yes' : 'No'}
+              </p>
+            )}
+          </div>
+          {!readOnly && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                void performUndo('postpone');
+              }}
+              disabled={busy}
+              aria-label="Undo postpone"
+              title="Undo"
+              className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Icon name="undo" size="sm" />
+            </Button>
           )}
         </div>
       )}

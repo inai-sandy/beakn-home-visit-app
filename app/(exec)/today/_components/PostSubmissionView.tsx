@@ -155,35 +155,40 @@ export function PostSubmissionView({
         </section>
       </div>
 
-      {!closed && (
-        <AddTaskFab
-          linkableRequests={linkableRequests}
-          disabled={closed}
-          closeButtonVisible={isCloseButtonVisible}
-        />
-      )}
+      {/* HVA-60 design polish (Change A): the full-width Close strip is
+          gone. AddTaskFab and the new Close-the-Day button render as a
+          compact action pair in the bottom-right corner of the viewport,
+          on both mobile and desktop. The Close button stays gated on
+          time-of-day + not-yet-closed; the FAB is always visible (when
+          the day isn't closed).
 
-      {isCloseButtonVisible && !closed && (
-        // Bug 5 (mobile): the previous mobile branch (`bottom-0 z-20`) sat
-        // BEHIND the exec bottom-nav (h-16, z-30). Pushing the button up by
-        // the tab-bar height (`bottom-16`) and over the tab-bar's z-index
-        // (`z-40`) restores visibility. `pb-[env(safe-area-inset-bottom)]`
-        // adds the iOS notch buffer so the button doesn't sit under the
-        // home indicator on devices that have one.
-        //
-        // Bug 6 (desktop): the previous desktop branch used `md:bottom-auto
-        // md:top-auto` — for a position:fixed element, both auto means the
-        // element falls back to the natural document-flow position, which
-        // scrolled off as the task list grew. Switching to `md:bottom-4
-        // md:top-auto` anchors the floating card to the viewport's
-        // bottom-right corner regardless of scroll position.
-        <div className="fixed inset-x-0 bottom-16 z-40 border-t bg-background/95 backdrop-blur p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:inset-x-auto md:bottom-4 md:right-4 md:left-auto md:max-w-sm md:rounded-2xl md:m-0 md:border md:shadow-lg md:pb-3">
-          <Button asChild size="lg" className="w-full h-14 rounded-full">
-            <Link href="/today/close">
-              <Icon name="flag" size="sm" />
-              Close the Day
-            </Link>
-          </Button>
+          Mobile: `bottom-20` lifts the cluster above the exec bottom-nav
+          (h-16). `pb-[env(safe-area-inset-bottom)]` adds the iOS notch
+          buffer so the buttons don't hide under the home indicator.
+          Desktop: `md:bottom-4` anchors to the viewport corner.
+
+          z-30 sits above page content but below sonner toasts (which
+          self-set very-high z). Both buttons share the same z so neither
+          covers the other. */}
+      {!closed && (
+        <div
+          className="fixed bottom-20 right-4 z-30 flex items-center gap-2 pb-[env(safe-area-inset-bottom)] md:bottom-4 md:pb-0"
+          aria-label="Day actions"
+        >
+          {isCloseButtonVisible && (
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="h-14 px-5 rounded-full shadow-lg bg-background"
+            >
+              <Link href="/today/close">
+                <Icon name="flag" size="sm" />
+                Close Day
+              </Link>
+            </Button>
+          )}
+          <AddTaskFab linkableRequests={linkableRequests} disabled={closed} />
         </div>
       )}
     </main>

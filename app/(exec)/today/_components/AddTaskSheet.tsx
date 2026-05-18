@@ -79,13 +79,26 @@ export function AddTaskFab({
   closeButtonVisible = false,
 }: Props) {
   const [open, setOpen] = useState(false);
-  // Default mobile bottom: bottom-20 = 5rem (above the exec bottom-nav
-  // h-16). When the Close strip is showing on mobile (bottom-16 with
-  // ~5rem visible height), shift the FAB to bottom-40 so it clears the
-  // strip. Desktop is unaffected (FAB at md:bottom-6, Close at
-  // md:bottom-4 right-4 — both pinned to the same corner; FAB sits in
-  // its own corner overlap-free since the Close card has its own width).
-  const mobileBottomClass = closeButtonVisible ? 'bottom-40' : 'bottom-20';
+  // Bug 10 walk fix: the FAB was covered by the Close strip on desktop
+  // (and on mobile when closeButtonVisible). The strip is z-40 at
+  // md:bottom-4 right-4 max-w-sm; the FAB was z-30 at md:bottom-6
+  // right-4 — same corner, lower z, covered.
+  //
+  // Two correct fixes available: (1) raise FAB z-index above the strip,
+  // (2) move FAB above the strip vertically. (2) is the right call —
+  // a stacking z-order on the same corner makes the strip uninteractable.
+  // The strip is fixed-height: mobile ~5rem (bottom-16 → top edge at
+  // bottom-21), desktop ~4rem (bottom-4 → top edge at bottom-8).
+  //
+  // closeButtonVisible OFF → FAB at default offsets:
+  //   mobile bottom-20 (above the bottom-nav h-16)
+  //   desktop md:bottom-6 (corner)
+  // closeButtonVisible ON → FAB shifts above the strip:
+  //   mobile bottom-40
+  //   desktop md:bottom-24 (clear of the strip top edge at bottom-8)
+  const bottomClasses = closeButtonVisible
+    ? 'bottom-40 md:bottom-24'
+    : 'bottom-20 md:bottom-6';
   return (
     <>
       <Button
@@ -93,7 +106,7 @@ export function AddTaskFab({
         onClick={() => setOpen(true)}
         disabled={disabled}
         size="lg"
-        className={`fixed ${mobileBottomClass} right-4 z-30 h-14 w-14 rounded-full shadow-lg md:bottom-6`}
+        className={`fixed ${bottomClasses} right-4 z-30 h-14 w-14 rounded-full shadow-lg`}
         aria-label="Add task"
       >
         <Icon name="add" size="md" />

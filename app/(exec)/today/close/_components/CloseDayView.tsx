@@ -263,7 +263,14 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
       </div>
 
       {!closed && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur p-3">
+        // Bug 9 walk fix: identical broken shape to the /today entry
+        // button before PR #79 (Bug 5). Mobile branch sat at
+        // `bottom-0 z-20` behind the exec bottom-nav (h-16, z-30).
+        // Desktop branch had no explicit anchor so it scrolled away.
+        // Same fix shape as PR #79's PostSubmissionView Close strip:
+        // mobile bottom-16 z-40 + iOS safe-area padding; desktop
+        // anchored to bottom-right corner as a compact card.
+        <div className="fixed inset-x-0 bottom-16 z-40 border-t bg-background/95 backdrop-blur p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] md:inset-x-auto md:bottom-4 md:right-4 md:left-auto md:max-w-sm md:rounded-2xl md:m-0 md:border md:shadow-lg md:pb-3">
           <Button
             type="button"
             size="lg"

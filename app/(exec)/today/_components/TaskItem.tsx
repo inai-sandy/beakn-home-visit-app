@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -33,8 +33,12 @@ import { PostponeSheet } from './PostponeSheet';
 //                a new task_type is added to the enum without a chip set
 //                seeded in outcome_options.
 //
-// 5-second undo toast after Mark Done. Tap "Undo" reverts. setTimeout
-// is cleared on unmount.
+// Undo (Bug 7 walk fix, was a 5-second sonner toast):
+//   Persistent inline Undo button on every completed task card. The
+//   toast was unreliable on mobile — easy to miss, position flips,
+//   timer races. The button stays visible until the task gets another
+//   mutation or the page reloads, so the exec can revert at their own
+//   pace. setTimeout / refs are gone.
 //
 // All mutations are wrapped in useTransition (HVA-136) so the buttons
 // stay disabled across the POST + refresh window.
@@ -97,18 +101,6 @@ export function TaskItem({
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 
-  // Undo handling — 5-second window, clearable timeout.
-  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [recentlyMarkedDone, setRecentlyMarkedDone] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-      }
-    };
-  }, []);
-
   async function performMarkDone(args: {
     outcomeOptionId: string | null;
     outcomeNotes: string | null;
@@ -129,42 +121,11 @@ export function TaskItem({
       setShowNotesInput(false);
       setNotes('');
       setFreeText('');
-
-      // 5-second undo: show toast with Undo action, also flip local
-      // state so a second auto-render shows the optimistic "done" badge
-      // until the RSC payload lands.
-      setRecentlyMarkedDone(true);
-      // Bug 4 fix: per-call override pulls this toast away from the
-      // sonner default (bottom-right) where it sat behind the bottom
-      // nav + Close-the-Day button on mobile. top-center keeps it
-      // immediately visible regardless of which UI element occupies the
-      // bottom. actionButtonStyle makes Undo a high-contrast filled
-      // button so it reads as a tap target, not a label.
-      const undoToastId = toast('Marked done', {
-        description: 'Tap Undo within 5 seconds to revert.',
-        duration: 5000,
-        position: 'top-center',
-        actionButtonStyle: {
-          background: 'var(--primary)',
-          color: 'var(--primary-foreground)',
-          padding: '0.5rem 1rem',
-          borderRadius: '9999px',
-          fontWeight: 600,
-        },
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            void performUndo(undoToastId);
-          },
-        },
-      });
-      // Track the timer so unmount can clear it.
-      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-      undoTimerRef.current = setTimeout(() => {
-        setRecentlyMarkedDone(false);
-        undoTimerRef.current = null;
-      }, 5000);
-
+      // Bug 7 fix: persistent inline Undo button replaces the 5s
+      // sonner toast. The button lives on the completed task card
+      // (rendered when status === 'completed'), so the exec can
+      // revert at their own pace — no race against a timer.
+      toast.success('Marked done');
       startTransition(() => {
         router.refresh();
       });
@@ -173,7 +134,7 @@ export function TaskItem({
     }
   }
 
-  async function performUndo(toastId: string | number) {
+  async function performUndo() {
     if (busy) return;
     setSubmitting(true);
     try {
@@ -181,12 +142,6 @@ export function TaskItem({
       if (!result.ok) {
         toast.error(result.error);
         return;
-      }
-      toast.dismiss(toastId);
-      setRecentlyMarkedDone(false);
-      if (undoTimerRef.current) {
-        clearTimeout(undoTimerRef.current);
-        undoTimerRef.current = null;
       }
       startTransition(() => {
         router.refresh();
@@ -261,18 +216,42 @@ export function TaskItem({
       )}
 
       {isDone && (
-        <div className="text-xs text-muted-foreground space-y-0.5">
-          {task.outcomeOptionName && (
-            <p>
-              <span className="font-medium text-foreground/80">Outcome:</span>{' '}
-              {task.outcomeOptionName}
-            </p>
-          )}
-          {task.outcomeNotes && (
-            <p className="whitespace-pre-line">
-              <span className="font-medium text-foreground/80">Notes:</span>{' '}
-              {task.outcomeNotes}
-            </p>
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            {task.outcomeOptionName && (
+              <p>
+                <span className="font-medium text-foreground/80">Outcome:</span>{' '}
+                {task.outcomeOptionName}
+              </p>
+            )}
+            {task.outcomeNotes && (
+              <p className="whitespace-pre-line">
+                <span className="font-medium text-foreground/80">Notes:</span>{' '}
+                {task.outcomeNotes}
+              </p>
+            )}
+          </div>
+          {/* Bug 7 walk fix: persistent inline Undo replaces the
+              unreliable 5-second sonner toast. Visible on every
+              completed task card; disabled only while a mutation is
+              in flight on this same task. Tap reverts to pending and
+              clears outcome / notes / completedAt / actualTime
+              server-side (server action enforces, see actions.ts
+              undoMarkDoneAction). No setTimeout. */}
+          {!readOnly && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                void performUndo();
+              }}
+              disabled={busy}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Icon name="undo" size="xs" />
+              Undo
+            </Button>
           )}
         </div>
       )}
@@ -343,40 +322,84 @@ export function TaskItem({
             )}
           </div>
           {!showNotesInput ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowNotesInput(true)}
-              disabled={busy}
-            >
-              <Icon name="add" size="xs" />
-              Add notes
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowNotesInput(true)}
+                disabled={busy}
+              >
+                <Icon name="add" size="xs" />
+                Add notes
+              </Button>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setExpanded(false);
+                    setShowNotesInput(false);
+                    setNotes('');
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
           ) : (
-            <Textarea
-              placeholder="Optional notes…"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value.slice(0, 500))}
-              rows={2}
-              maxLength={500}
-            />
+            // Bug 8 walk fix: chip mode's "Add notes" expander had only
+            // an outer Cancel that exited the entire Mark Done flow.
+            // The expander itself needs its own Cancel + Save pair —
+            // Save commits the typed value to the `notes` state (which
+            // the next chip click reads + sends to outcomeNotes on the
+            // action), Cancel discards. Matches the visual treatment of
+            // the free-text mode buttons below for consistency.
+            <div className="space-y-2">
+              <Textarea
+                placeholder="Notes (optional)…"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value.slice(0, 500))}
+                rows={2}
+                maxLength={500}
+                aria-label="Outcome notes"
+              />
+              <p className="text-xs text-muted-foreground">
+                Notes attach to whichever outcome you tap below.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowNotesInput(false);
+                    setNotes('');
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    // Save = collapse the textarea, keep the typed
+                    // value in `notes` state so the next chip click
+                    // sends it. Server-side validation lives in
+                    // markTaskDoneAction (1–500 chars when notes is
+                    // present).
+                    setShowNotesInput(false);
+                  }}
+                  disabled={busy || notes.trim().length === 0}
+                >
+                  Save note
+                </Button>
+              </div>
+            </div>
           )}
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setExpanded(false);
-                setShowNotesInput(false);
-                setNotes('');
-              }}
-              disabled={busy}
-            >
-              Cancel
-            </Button>
-          </div>
         </div>
       )}
 
@@ -432,12 +455,6 @@ export function TaskItem({
             </Button>
           </div>
         </div>
-      )}
-
-      {recentlyMarkedDone && !isDone && (
-        // Optimistic visual hint while the RSC payload lands. Stays no
-        // longer than 5 seconds (cleared by the undo timer).
-        <p className="text-xs text-muted-foreground">Saving…</p>
       )}
 
       {postponeOpen && (

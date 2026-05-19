@@ -8,6 +8,7 @@ import { businessTypes, cities, leads, visitRequests } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES, isRole } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { canCaptainEditContact } from '@/lib/captain/edit-auth';
 import { canExecEditContact } from '@/lib/exec/edit-auth';
 import { toStorageFormat } from '@/lib/phone';
 
@@ -32,7 +33,11 @@ import { toStorageFormat } from '@/lib/phone';
 // before/after JSONB carrying only the changed fields.
 // =============================================================================
 
-const ALLOWED_ROLES = ['sales_executive', 'super_admin'] as const;
+// HVA-163: captain joins the role gate. The actual scope check happens
+// in the role switch below — captain goes through canCaptainEditContact
+// (team-scoped), exec through canExecEditContact (visibility set),
+// super_admin always allowed.
+const ALLOWED_ROLES = ['sales_executive', 'captain', 'super_admin'] as const;
 
 const ALLOWED_BHK = ['1BHK', '2BHK', '3BHK', '4BHK', 'Others'] as const;
 type LeadBhk = (typeof ALLOWED_BHK)[number];
@@ -105,12 +110,19 @@ export async function editContactAction(
     return { ok: false, error: 'Forbidden' };
   }
 
-  // super_admin keeps the existing escape hatch — visible-set isn't
-  // defined for them. Sales-exec authorisation goes through canExecEditContact.
-  if (actor.role !== USER_ROLES.SUPER_ADMIN) {
+  // HVA-163 role switch:
+  //   super_admin → always allowed (escape hatch).
+  //   sales_executive → HVA-161 visibility set (captor OR ever-assigned).
+  //   captain → team-scoped (captor sits on this captain's team).
+  if (actor.role === USER_ROLES.SALES_EXECUTIVE) {
     const allowed = await canExecEditContact(actor.id, input.contactId);
     if (!allowed) {
       return { ok: false, error: 'This contact is not visible to you' };
+    }
+  } else if (actor.role === USER_ROLES.CAPTAIN) {
+    const allowed = await canCaptainEditContact(actor.id, input.contactId);
+    if (!allowed) {
+      return { ok: false, error: 'This contact is not in your team' };
     }
   }
 

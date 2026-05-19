@@ -1,4 +1,5 @@
 import { format, formatDistanceToNow } from 'date-fns';
+import { asc, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -7,8 +8,11 @@ import { LeadAvatar } from '@/components/leads/LeadAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { db } from '@/db/client';
+import { businessTypes as businessTypesTable, cities } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { isRole, type Role } from '@/lib/auth/roles';
+import { canCaptainEditContact } from '@/lib/captain/edit-auth';
 import {
   fetchTeamContactById,
   fetchTeamContactRequests,
@@ -22,6 +26,11 @@ import {
 import { cn } from '@/lib/utils';
 
 import { NotesSection } from '@/components/notes/NotesSection';
+
+// HVA-163: reuse the exec-portal EditContactSheet via its launcher button.
+// Next route groups are virtual — cross-group imports work at runtime
+// and the component is purely client-side stateful + server-action plumbing.
+import { EditContactButton } from '@/app/(exec)/leads/[leadId]/_components/EditContactButton';
 
 import { CaptainContactQuickActions } from './_components/CaptainContactQuickActions';
 
@@ -124,15 +133,63 @@ export default async function CaptainContactDetailPage({ params }: PageProps) {
     role: isRole(role) ? role : 'captain',
   };
 
+  // HVA-163: captain edit pencil + dropdown data for EditContactSheet.
+  // super_admin shouldn't normally hit this page (they have no team
+  // scoped), but if they do via the escape hatch they keep edit access.
+  const editable =
+    role === 'super_admin' ||
+    (role === 'captain' && (await canCaptainEditContact(user.id, contact.id)));
+  const [editCityRows, editBusinessTypeRows] = editable
+    ? await Promise.all([
+        db
+          .select({ id: cities.id, name: cities.name })
+          .from(cities)
+          .where(eq(cities.isActive, true))
+          .orderBy(asc(cities.name)),
+        db
+          .select({
+            id: businessTypesTable.id,
+            name: businessTypesTable.name,
+          })
+          .from(businessTypesTable)
+          .where(eq(businessTypesTable.isActive, true))
+          .orderBy(asc(businessTypesTable.sequenceNumber)),
+      ])
+    : [[], []];
+  const editContactPayload = editable
+    ? {
+        id: contact.id,
+        type: contact.type,
+        name: contact.name,
+        firmName: contact.firmName,
+        phone: contact.phone,
+        email: contact.email,
+        cityId: contact.cityId,
+        bhk: contact.bhk,
+        interest: contact.interest,
+        businessTypeId: contact.businessTypeId,
+        notes: contact.notes,
+      }
+    : null;
+
   return (
     <main className="min-h-svh bg-background pb-24">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href="/captain/contacts">
-            <Icon name="arrow_back" size="sm" />
-            Contacts
-          </Link>
-        </Button>
+        <div className="flex items-center justify-between gap-2">
+          <Button asChild variant="ghost" size="sm" className="-ml-2">
+            <Link href="/captain/contacts">
+              <Icon name="arrow_back" size="sm" />
+              Contacts
+            </Link>
+          </Button>
+          {editable && editContactPayload && (
+            <EditContactButton
+              contact={editContactPayload}
+              cities={editCityRows}
+              businessTypes={editBusinessTypeRows}
+            />
+          )}
+        </div>
 
         <header className="space-y-4">
           <div className="flex items-start gap-4">

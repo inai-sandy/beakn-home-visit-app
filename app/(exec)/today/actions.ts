@@ -5,7 +5,10 @@ import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db/client';
 import { dayPlans, leads, postponeReasons, tasks, visitRequests } from '@/db/schema';
+import { logEvent } from '@/lib/audit';
+import { isRole } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { canExecEditTask } from '@/lib/exec/edit-auth';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { log } from '@/lib/logger';
 import {
@@ -298,6 +301,226 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
 
   revalidatePath('/', 'layout');
   return { ok: true, data: { taskId: inserted.id } };
+}
+
+// -----------------------------------------------------------------------------
+// editTaskAction — HVA-159: edit a pending or postponed task
+// -----------------------------------------------------------------------------
+//
+// Editable fields: description, taskDate, estimatedTime, linkRequestId,
+// linkLeadId. status enum is pending|completed|postponed|cancelled —
+// canExecEditTask refuses completed + cancelled, so editTask only ever
+// touches pending or postponed rows.
+//
+// Same picker-side semantics as addTaskAction: XOR on the two link
+// columns, lead-link goes through the visibility set, request-link must
+// be assigned to me. taskDate change reuses the future-day-plan
+// auto-create path so a moved-forward task lands on the right plan.
+
+export interface EditTaskInput {
+  taskId: string;
+  description: string;
+  taskDate: string; // YYYY-MM-DD
+  estimatedTime: string;
+  linkRequestId?: string | null;
+  linkLeadId?: string | null;
+}
+
+export async function editTaskAction(
+  input: EditTaskInput,
+): Promise<ActionResult> {
+  const auth = await authorize();
+  if (!auth.ok) return auth;
+
+  const allowed = await canExecEditTask(auth.actor.id, input.taskId);
+  if (!allowed) return { ok: false, error: 'Task is not editable by you' };
+
+  // Field validation (mirrors addTaskAction's guards).
+  if (!ESTIMATED_TIME_BUCKETS.includes(
+    input.estimatedTime as EstimatedTimeBucket,
+  )) {
+    return { ok: false, error: 'Unknown estimated time bucket' };
+  }
+  const description = input.description.trim();
+  if (description.length < 5 || description.length > 200) {
+    return { ok: false, error: 'Description must be 5–200 characters' };
+  }
+
+  if (!ISO_DATE_RE.test(input.taskDate)) {
+    return { ok: false, error: 'Task date must be YYYY-MM-DD' };
+  }
+  const todayIst = getIstDateString();
+  const maxIst = ymdAddDays(todayIst, FUTURE_TASK_WINDOW_DAYS);
+  if (input.taskDate < todayIst) {
+    return { ok: false, error: 'Task date cannot be in the past' };
+  }
+  if (input.taskDate > maxIst) {
+    return {
+      ok: false,
+      error: `Task date cannot be more than ${FUTURE_TASK_WINDOW_DAYS} days out`,
+    };
+  }
+
+  // XOR rule on link columns.
+  if (input.linkRequestId && input.linkLeadId) {
+    return {
+      ok: false,
+      error: 'A task can link to a request OR a lead, not both',
+    };
+  }
+
+  // Request-link must belong to actor (defence-in-depth).
+  if (input.linkRequestId) {
+    const [req] = await db
+      .select({ id: visitRequests.id })
+      .from(visitRequests)
+      .where(
+        and(
+          eq(visitRequests.id, input.linkRequestId),
+          eq(visitRequests.assignedExecUserId, auth.actor.id),
+        ),
+      )
+      .limit(1);
+    if (!req) return { ok: false, error: 'Request not assigned to you' };
+  }
+
+  // Lead-link visibility (PR 3): captor OR assignment trail. super_admin
+  // keeps the narrow captor-only path.
+  if (input.linkLeadId) {
+    const [lead] = await db
+      .select({ id: leads.id, capturedByUserId: leads.capturedByUserId })
+      .from(leads)
+      .where(eq(leads.id, input.linkLeadId))
+      .limit(1);
+    if (!lead) return { ok: false, error: 'Lead not found' };
+    if (auth.actor.role === 'super_admin') {
+      if (lead.capturedByUserId !== auth.actor.id) {
+        return { ok: false, error: 'Lead not captured by you' };
+      }
+    } else {
+      const visibleIds = await loadExecVisibleContactIds(auth.actor.id);
+      if (!visibleIds.includes(input.linkLeadId)) {
+        return { ok: false, error: 'Lead is not visible to you' };
+      }
+    }
+  }
+
+  // Load the existing task (auth check already validated ownership).
+  const [existing] = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.id, input.taskId))
+    .limit(1);
+  if (!existing) return { ok: false, error: 'Task not found' };
+
+  // taskDate may move forward to a future day with no day_plan yet.
+  // Reuse the find-or-create-plan flow from addTaskAction so the row
+  // lands on the right plan.
+  let targetPlanId: string;
+  if (input.taskDate === todayIst) {
+    const todayPlan = await loadOpenDayPlan(auth.actor.id);
+    if (todayPlan === null) {
+      return { ok: false, error: 'Start your day first' };
+    }
+    if (todayPlan.closedAt !== null) {
+      return { ok: false, error: 'Day is closed' };
+    }
+    targetPlanId = todayPlan.id;
+  } else {
+    const futureExisting = await db
+      .select({ id: dayPlans.id, closedAt: dayPlans.closedAt })
+      .from(dayPlans)
+      .where(
+        and(
+          eq(dayPlans.execUserId, auth.actor.id),
+          eq(dayPlans.planDate, input.taskDate),
+        ),
+      )
+      .limit(1);
+    if (futureExisting[0]) {
+      if (futureExisting[0].closedAt !== null) {
+        return { ok: false, error: 'That day plan is already closed' };
+      }
+      targetPlanId = futureExisting[0].id;
+    } else {
+      await db
+        .insert(dayPlans)
+        .values({
+          execUserId: auth.actor.id,
+          planDate: input.taskDate,
+          scheduledVisitCount: 0,
+          additionalTaskCount: 1,
+          isLate: false,
+        })
+        .onConflictDoNothing();
+      const [reloaded] = await db
+        .select({ id: dayPlans.id })
+        .from(dayPlans)
+        .where(
+          and(
+            eq(dayPlans.execUserId, auth.actor.id),
+            eq(dayPlans.planDate, input.taskDate),
+          ),
+        )
+        .limit(1);
+      if (!reloaded) {
+        return { ok: false, error: 'Could not create day plan' };
+      }
+      targetPlanId = reloaded.id;
+    }
+  }
+
+  const next = {
+    description,
+    estimatedTime: input.estimatedTime,
+    taskDate: input.taskDate,
+    linkRequestId: input.linkRequestId ?? null,
+    linkLeadId: input.linkLeadId ?? null,
+    dayPlanId: targetPlanId,
+  };
+
+  const fieldsToDiff: Array<keyof typeof next> = [
+    'description',
+    'estimatedTime',
+    'taskDate',
+    'linkRequestId',
+    'linkLeadId',
+    'dayPlanId',
+  ];
+  const beforeState: Record<string, unknown> = {};
+  const afterState: Record<string, unknown> = {};
+  for (const f of fieldsToDiff) {
+    const b = (existing as unknown as Record<string, unknown>)[f as string];
+    const a = (next as unknown as Record<string, unknown>)[f as string];
+    const bn = b ?? null;
+    const an = a ?? null;
+    if (bn !== an) {
+      beforeState[f as string] = bn;
+      afterState[f as string] = an;
+    }
+  }
+
+  if (Object.keys(afterState).length === 0) {
+    return { ok: true };
+  }
+
+  await db
+    .update(tasks)
+    .set(next)
+    .where(eq(tasks.id, input.taskId));
+
+  await logEvent({
+    eventType: 'task_edited',
+    actorUserId: auth.actor.id,
+    actorRole: isRole(auth.actor.role) ? auth.actor.role : null,
+    targetEntityType: 'task',
+    targetEntityId: input.taskId,
+    beforeState,
+    afterState,
+  });
+
+  revalidatePath('/', 'layout');
+  return { ok: true };
 }
 
 // -----------------------------------------------------------------------------

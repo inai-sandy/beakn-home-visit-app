@@ -19,6 +19,7 @@ import {
 } from "@/db/schema";
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
+import { canExecEditRequest } from "@/lib/exec/edit-auth";
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
 import {
   computeActionVisibility,
@@ -38,6 +39,7 @@ import { MarkInstallationCompleteButton } from "./mark-installation-complete-but
 import { ReassignRequestButton } from "./reassign-request-button";
 import { RejectRequestButton } from "./reject-request-button";
 import { RollbackStatusButton } from "./rollback-status-button";
+import { EditRequestButton } from "./_components/EditRequestButton";
 
 // =============================================================================
 // HVA-66 (subsumes HVA-104): /requests/[id] — full request detail screen
@@ -151,6 +153,8 @@ export default async function RequestDetailPage({ params }: PageProps) {
       cancellationReasonCode: visitRequests.cancellationReasonCode,
       cancellationReason: visitRequests.cancellationReason,
       cancelledByUserId: visitRequests.cancelledByUserId,
+      // HVA-159: editable scheduling field.
+      visitScheduledAt: visitRequests.visitScheduledAt,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -369,6 +373,36 @@ export default async function RequestDetailPage({ params }: PageProps) {
     ? terminalBadgeMeta(reqRow.cancellationActor as TerminalActor)
     : null;
 
+  // HVA-159: exec-side edit pencil. Captain edit ships in HVA-163 (out
+  // of scope here), so captains see no pencil. super_admin keeps the
+  // existing escape-hatch.
+  const isExec = role === "sales_executive";
+  const editable =
+    role === "super_admin" ||
+    (isExec && (await canExecEditRequest(user.id, reqRow.id)));
+  const editCityRows = editable
+    ? await db
+        .select({ id: cities.id, name: cities.name })
+        .from(cities)
+        .where(eq(cities.isActive, true))
+        .orderBy(asc(cities.name))
+    : [];
+  const editRequestPayload = editable
+    ? {
+        id: reqRow.id,
+        customerName: reqRow.customerName,
+        customerPhone: reqRow.customerPhone,
+        customerEmail: reqRow.customerEmail,
+        address: reqRow.address,
+        cityId: reqRow.cityId,
+        bhk: reqRow.bhk,
+        customerState: reqRow.customerState,
+        visitScheduledAt: reqRow.visitScheduledAt
+          ? reqRow.visitScheduledAt.toISOString()
+          : null,
+      }
+    : null;
+
   return (
     <main className="min-h-svh bg-background">
       {/* HVA-66 sticky header: 44×44 back button + customer name so context
@@ -391,6 +425,12 @@ export default async function RequestDetailPage({ params }: PageProps) {
           <p className="text-base font-semibold tracking-tight truncate flex-1">
             {reqRow.customerName}
           </p>
+          {editable && editRequestPayload && (
+            <EditRequestButton
+              request={editRequestPayload}
+              cities={editCityRows}
+            />
+          )}
         </div>
       </header>
 

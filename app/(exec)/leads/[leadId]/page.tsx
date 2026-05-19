@@ -29,6 +29,7 @@ import {
 } from './_components/ContactRequestsSection';
 import { LeadQuickActions } from './_components/LeadQuickActions';
 import { CreateTaskFromLeadButton } from './_components/CreateTaskFromLeadButton';
+import { EditContactButton } from './_components/EditContactButton';
 
 // =============================================================================
 // HVA-73 follow-up + PR 1: /leads/[leadId] — contact detail
@@ -237,17 +238,63 @@ export default async function LeadDetailPage({ params }: PageProps) {
     interest: row.interest,
   };
 
+  // HVA-159: data for the Edit Contact sheet. Visibility already
+  // resolved above (visibility=null for super_admin, otherwise the
+  // shared set). Edit is allowed for the same set.
+  const editable =
+    user.role === 'super_admin' ||
+    (visibility !== null && visibility.reasons.has(row.id));
+
+  // Cities + business types lookup for the edit sheet dropdowns. Cheap
+  // enough that we fetch eagerly even when !editable; the JSON payload
+  // is bounded.
+  const [editCityRows, editBusinessTypeRows] = await Promise.all([
+    db
+      .select({ id: cities.id, name: cities.name })
+      .from(cities)
+      .where(eq(cities.isActive, true))
+      .orderBy(asc(cities.name)),
+    db
+      .select({ id: businessTypes.id, name: businessTypes.name })
+      .from(businessTypes)
+      .where(eq(businessTypes.isActive, true))
+      .orderBy(asc(businessTypes.sequenceNumber)),
+  ]);
+
+  const editContactPayload = {
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    firmName: row.firmName,
+    phone: row.phone,
+    email: row.email,
+    cityId: row.cityId,
+    bhk: row.bhk,
+    interest: row.interest,
+    businessTypeId: row.businessTypeId,
+    notes: row.notes,
+  };
+
   return (
     <main className="min-h-svh bg-background pb-24">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
-        {/* Header: back + avatar + name */}
+        {/* Header: back + edit pencil + avatar + name */}
         <div className="space-y-4">
-          <Button asChild variant="ghost" size="sm" className="-ml-2">
-            <Link href="/leads">
-              <Icon name="arrow_back" size="sm" />
-              Contacts
-            </Link>
-          </Button>
+          <div className="flex items-center justify-between gap-2">
+            <Button asChild variant="ghost" size="sm" className="-ml-2">
+              <Link href="/leads">
+                <Icon name="arrow_back" size="sm" />
+                Contacts
+              </Link>
+            </Button>
+            {editable && (
+              <EditContactButton
+                contact={editContactPayload}
+                cities={editCityRows}
+                businessTypes={editBusinessTypeRows}
+              />
+            )}
+          </div>
 
           <div className="flex items-start gap-4">
             <LeadAvatar name={row.name} size="lg" aria-hidden />

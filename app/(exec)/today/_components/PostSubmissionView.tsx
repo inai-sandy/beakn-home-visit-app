@@ -34,6 +34,7 @@ export interface PostSubmissionViewProps {
     description: string;
     estimatedTime: string;
     status: string;
+    taskDate: string;
     linkRequestId: string | null;
     linkLeadId: string | null;
     outcomeOptionId: string | null;
@@ -111,6 +112,8 @@ export function PostSubmissionView({
               postponeReasons={postponeReasons}
               readOnly={closed}
               highlighted
+              linkableRequests={linkableRequests}
+              linkableLeads={linkableLeads}
             />
           </section>
         )}
@@ -153,6 +156,8 @@ export function PostSubmissionView({
               outcomeOptionsForType={outcomeOptionsByType[t.taskType] ?? []}
               postponeReasons={postponeReasons}
               readOnly={closed}
+              linkableRequests={linkableRequests}
+              linkableLeads={linkableLeads}
             />
           ))}
         </section>

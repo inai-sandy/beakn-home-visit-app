@@ -20,8 +20,15 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { isRole, type Role } from '@/lib/auth/roles';
 import { loadExecVisibleContactSet } from '@/lib/exec/visible-contacts';
+import {
+  canWriteNoteForEntity,
+  loadNotesForEntity,
+} from '@/lib/notes/queries';
 import { getIstDateString } from '@/lib/today/time';
+
+import { NotesSection } from '@/components/notes/NotesSection';
 
 import {
   ContactRequestsSection,
@@ -275,6 +282,24 @@ export default async function LeadDetailPage({ params }: PageProps) {
     notes: row.notes,
   };
 
+  // HVA-73 PR 3: notes section.
+  const role = user.role;
+  const [notesForContact, canWriteContactNote] = await Promise.all([
+    loadNotesForEntity('contact', row.id),
+    isRole(role)
+      ? canWriteNoteForEntity({ id: user.id, role }, 'contact', row.id)
+      : Promise.resolve(false),
+  ]);
+  const viewerForNotes: {
+    id: string;
+    fullName: string | null;
+    role: Role;
+  } = {
+    id: user.id,
+    fullName: (user as { fullName?: string; name?: string }).fullName ?? null,
+    role: isRole(role) ? role : 'sales_executive',
+  };
+
   return (
     <main className="min-h-svh bg-background pb-24">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
@@ -327,6 +352,15 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
         {/* Requests section (HVA-73 PR 1) */}
         <ContactRequestsSection lead={leadForActions} requests={contactRequests} />
+
+        {/* HVA-73 PR 3: append-only notes timeline for the contact. */}
+        <NotesSection
+          targetType="contact"
+          targetId={row.id}
+          notes={notesForContact}
+          canWrite={canWriteContactNote}
+          viewer={viewerForNotes}
+        />
 
         {/* Details */}
         <section

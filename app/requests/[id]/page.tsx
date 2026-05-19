@@ -20,6 +20,12 @@ import {
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
 import { canExecEditRequest } from "@/lib/exec/edit-auth";
+import {
+  canWriteNoteForEntity,
+  loadNotesForEntity,
+} from "@/lib/notes/queries";
+
+import { NotesSection } from "@/components/notes/NotesSection";
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
 import {
   computeActionVisibility,
@@ -403,6 +409,20 @@ export default async function RequestDetailPage({ params }: PageProps) {
       }
     : null;
 
+  // HVA-73 PR 2: notes section data. Read auth is implicit — the page
+  // already auth-gated above. Write auth lives in canWriteNoteForEntity.
+  const [notesForRequest, canWriteNote] = await Promise.all([
+    loadNotesForEntity("request", reqRow.id),
+    isRole(role)
+      ? canWriteNoteForEntity({ id: user.id, role }, "request", reqRow.id)
+      : Promise.resolve(false),
+  ]);
+  const viewerForNotes = {
+    id: user.id,
+    fullName: (user as { fullName?: string; name?: string }).fullName ?? null,
+    role: isRole(role) ? role : ("sales_executive" as const),
+  };
+
   return (
     <main className="min-h-svh bg-background">
       {/* HVA-66 sticky header: 44×44 back button + customer name so context
@@ -555,6 +575,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
             )}
           </div>
         </section>
+
+        {/* HVA-73 PR 2: append-only notes timeline for the request. */}
+        <NotesSection
+          targetType="request"
+          targetId={reqRow.id}
+          notes={notesForRequest}
+          canWrite={canWriteNote}
+          viewer={viewerForNotes}
+        />
 
         <section
           aria-label="Status timeline"

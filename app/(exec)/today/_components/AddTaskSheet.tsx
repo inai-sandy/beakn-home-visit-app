@@ -58,6 +58,26 @@ const TASK_TYPES = [
 
 const ESTIMATED_TIMES = ['15min', '30min', '1hr', '2hr', '3hr+'] as const;
 
+const TASK_DATE_WINDOW_DAYS = 30;
+
+// Local YYYY-MM-DD helpers. We deliberately use the browser's local
+// calendar here — the device shipping the form is the source of truth
+// for what "today" feels like to the user. Server re-clamps against IST.
+function ymdFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+function todayLocalIso(): string {
+  return ymdFromDate(new Date());
+}
+function maxDateLocalIso(): string {
+  const t = new Date();
+  t.setDate(t.getDate() + TASK_DATE_WINDOW_DAYS);
+  return ymdFromDate(t);
+}
+
 export interface LinkableRequest {
   id: string;
   customerName: string;
@@ -135,11 +155,18 @@ export function AddTaskSheet({
 }) {
   const router = useRouter();
   const [taskType, setTaskType] = useState<string | null>(null);
+  const [taskDate, setTaskDate] = useState<string>(() => todayLocalIso());
   const [description, setDescription] = useState('');
   const [estimatedTime, setEstimatedTime] = useState<string>('30min');
   const [linkSearch, setLinkSearch] = useState('');
   const [linkRequestId, setLinkRequestId] = useState<string | null>(null);
   const [linkLeadId, setLinkLeadId] = useState<string | null>(null);
+
+  // Memoised so the min/max stay stable for the lifetime of an open sheet.
+  // Long enough to be irrelevant in practice; right thing to do anyway.
+  const minDate = useMemo(() => todayLocalIso(), []);
+  const maxDate = useMemo(() => maxDateLocalIso(), []);
+  const isFutureDate = taskDate > minDate;
 
   useEffect(() => {
     if (preselectedLink?.type === 'lead') setLinkLeadId(preselectedLink.id);
@@ -177,7 +204,9 @@ export function AddTaskSheet({
     taskType !== null &&
     description.trim().length >= 5 &&
     description.trim().length <= 200 &&
-    ESTIMATED_TIMES.includes(estimatedTime as (typeof ESTIMATED_TIMES)[number]);
+    ESTIMATED_TIMES.includes(estimatedTime as (typeof ESTIMATED_TIMES)[number]) &&
+    taskDate >= minDate &&
+    taskDate <= maxDate;
 
   async function onSubmit() {
     if (!canSubmit || taskType === null) return;
@@ -187,6 +216,7 @@ export function AddTaskSheet({
         taskType,
         description: description.trim(),
         estimatedTime,
+        taskDate,
         linkRequestId: linkRequestId ?? null,
         linkLeadId: linkLeadId ?? null,
       });
@@ -240,6 +270,28 @@ export function AddTaskSheet({
                 </Button>
               ))}
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="add-task-date" className="text-sm">
+              Task date <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="add-task-date"
+              type="date"
+              value={taskDate}
+              min={minDate}
+              max={maxDate}
+              onChange={(e) => setTaskDate(e.target.value)}
+              disabled={busy}
+              className="h-11"
+            />
+            {isFutureDate && (
+              <p className="text-[11px] text-muted-foreground">
+                Scheduled for a future day — it won&apos;t appear on Today
+                until then.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">

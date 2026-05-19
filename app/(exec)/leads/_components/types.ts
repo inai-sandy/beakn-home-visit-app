@@ -22,6 +22,11 @@ export interface LeadRow {
   convertedAt: string | null; // ISO timestamp when converted
   /** Total visit_requests linked to this contact via contact_id (HVA-73 PR 1). */
   requestCount: number;
+  /** HVA-73 PR 3: captor identity for the "captured by other exec" hint. */
+  capturedByUserId: string;
+  capturedByName: string | null;
+  /** Why this row is visible to the viewing exec. */
+  visibilityReason: 'captor' | 'assignment';
 }
 
 export interface CityOption {

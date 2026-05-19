@@ -15,6 +15,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES, isRole } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { log } from '@/lib/logger';
 import {
   convertLeadExtraFieldsSchema,
@@ -105,12 +106,15 @@ export async function convertLeadToRequestAction(
 
   if (!lead) return { ok: false, error: 'Lead not found' };
 
-  // Ownership: only the exec who captured it (or admin) can convert it.
-  if (
-    actor.role !== USER_ROLES.SUPER_ADMIN &&
-    lead.capturedByUserId !== actor.id
-  ) {
-    return { ok: false, error: 'You can only convert your own leads' };
+  // HVA-73 PR 3: visibility broadens beyond captor. Any exec who has
+  // worked a request linked to this contact (currently or historically
+  // via reassignment) can Plan Another Visit. super_admin keeps its
+  // existing escape-hatch.
+  if (actor.role !== USER_ROLES.SUPER_ADMIN) {
+    const visibleIds = await loadExecVisibleContactIds(actor.id);
+    if (!visibleIds.includes(lead.id)) {
+      return { ok: false, error: 'This contact is not visible to you' };
+    }
   }
 
   // HVA-73 PR 1 D4: re-conversion is allowed. A contact (lead) can have

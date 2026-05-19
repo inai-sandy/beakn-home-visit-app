@@ -7,9 +7,11 @@ import {
   businessTypes,
   cities,
   leads,
+  users,
   visitRequests,
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecVisibleContactSet } from '@/lib/exec/visible-contacts';
 
 import { LeadsFilterClient } from './_components/LeadsFilterClient';
 import type { LeadRow } from './_components/types';
@@ -53,39 +55,72 @@ export default async function LeadsPage() {
     redirect('/login');
   }
 
-  // Fetch the exec's leads + dropdown options in parallel.
+  // HVA-73 PR 3: visibility set = captor OR ever-assigned (current or
+  // historical). Read the set once, then drive the list query off the
+  // resolved ids.
+  const visibility = await loadExecVisibleContactSet(user.id);
+
+  // Fetch the contacts + dropdown options in parallel. Empty visibility
+  // → skip the leads query (Drizzle's `inArray(col, [])` short-circuits
+  // anyway, but the round-trip is wasted).
   const [rows, cityRows, businessTypeRows] = await Promise.all([
-    db
-      .select({
-        id: leads.id,
-        type: leads.type,
-        name: leads.name,
-        phone: leads.phone,
-        email: leads.email,
-        cityId: leads.cityId,
-        cityName: cities.name,
-        bhk: leads.bhk,
-        firmName: leads.firmName,
-        businessTypeId: leads.businessTypeId,
-        businessTypeName: businessTypes.name,
-        interest: leads.interest,
-        notes: leads.notes,
-        capturedDate: leads.capturedDate,
-        createdAt: leads.createdAt,
-        convertedToRequestId: leads.convertedToRequestId,
-        convertedAt: leads.convertedAt,
-      })
-      .from(leads)
-      .innerJoin(cities, eq(cities.id, leads.cityId))
-      .leftJoin(businessTypes, eq(businessTypes.id, leads.businessTypeId))
-      .where(eq(leads.capturedByUserId, user.id))
-      .orderBy(
-        // Drizzle's `asc(x IS NOT NULL)` translates to ORDER BY (x IS NOT
-        // NULL) ASC — FALSE sorts first so unconverted rows (NULL) come
-        // before converted ones. Within each group, newest first.
-        asc(leads.convertedToRequestId),
-        desc(leads.createdAt),
-      ),
+    visibility.ids.length === 0
+      ? Promise.resolve([] as Array<{
+          id: string;
+          type: string;
+          name: string;
+          phone: string;
+          email: string | null;
+          cityId: string;
+          cityName: string;
+          bhk: string | null;
+          firmName: string | null;
+          businessTypeId: string | null;
+          businessTypeName: string | null;
+          interest: string[];
+          notes: string | null;
+          capturedByUserId: string;
+          capturedByName: string | null;
+          capturedDate: string;
+          createdAt: Date;
+          convertedToRequestId: string | null;
+          convertedAt: Date | null;
+        }>)
+      : db
+          .select({
+            id: leads.id,
+            type: leads.type,
+            name: leads.name,
+            phone: leads.phone,
+            email: leads.email,
+            cityId: leads.cityId,
+            cityName: cities.name,
+            bhk: leads.bhk,
+            firmName: leads.firmName,
+            businessTypeId: leads.businessTypeId,
+            businessTypeName: businessTypes.name,
+            interest: leads.interest,
+            notes: leads.notes,
+            capturedByUserId: leads.capturedByUserId,
+            capturedByName: users.fullName,
+            capturedDate: leads.capturedDate,
+            createdAt: leads.createdAt,
+            convertedToRequestId: leads.convertedToRequestId,
+            convertedAt: leads.convertedAt,
+          })
+          .from(leads)
+          .innerJoin(cities, eq(cities.id, leads.cityId))
+          .leftJoin(businessTypes, eq(businessTypes.id, leads.businessTypeId))
+          .innerJoin(users, eq(users.id, leads.capturedByUserId))
+          .where(inArray(leads.id, visibility.ids))
+          .orderBy(
+            // Drizzle's `asc(x IS NOT NULL)` translates to ORDER BY (x IS
+            // NOT NULL) ASC — FALSE sorts first so unconverted rows
+            // (NULL) come before converted ones. Within each group,
+            // newest first.
+            asc(leads.convertedToRequestId),
+            desc(leads.createdAt),
+          ),
     db
       .select({ id: cities.id, name: cities.name })
       .from(cities)
@@ -139,6 +174,11 @@ export default async function LeadsPage() {
     convertedToRequestId: r.convertedToRequestId,
     convertedAt: r.convertedAt ? r.convertedAt.toISOString() : null,
     requestCount: countMap.get(r.id) ?? 0,
+    // HVA-73 PR 3: surface captor identity so the row can render
+    // "Captured by <other exec>" when the viewer isn't the captor.
+    capturedByUserId: r.capturedByUserId,
+    capturedByName: r.capturedByName ?? null,
+    visibilityReason: visibility.reasons.get(r.id) ?? 'assignment',
   }));
 
   return (
@@ -148,8 +188,8 @@ export default async function LeadsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {rows.length === 0
-              ? 'No contacts captured yet.'
-              : `${rows.length} ${rows.length === 1 ? 'contact' : 'contacts'} captured.`}
+              ? 'No contacts visible to you yet.'
+              : `${rows.length} ${rows.length === 1 ? 'contact' : 'contacts'} (captured by you or assigned).`}
           </p>
         </header>
 

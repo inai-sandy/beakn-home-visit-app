@@ -20,6 +20,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecVisibleContactSet } from '@/lib/exec/visible-contacts';
 import { getIstDateString } from '@/lib/today/time';
 
 import {
@@ -105,9 +106,23 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
   if (!row) notFound();
 
-  if (user.role !== 'super_admin' && row.capturedByUserId !== user.id) {
+  // HVA-73 PR 3: visibility broadens beyond captor — exec sees the
+  // contact if they are currently or have ever been assigned to a
+  // contact-linked request. Compute the set once and reuse for the
+  // auth gate + the AddTaskSheet's lead picker below.
+  const visibility =
+    user.role === 'super_admin'
+      ? null
+      : await loadExecVisibleContactSet(user.id);
+  if (visibility && !visibility.reasons.has(row.id)) {
     notFound();
   }
+  const visibilityReason: 'captor' | 'assignment' =
+    user.role === 'super_admin'
+      ? row.capturedByUserId === user.id
+        ? 'captor'
+        : 'assignment'
+      : (visibility!.reasons.get(row.id) ?? 'captor');
 
   const isBusiness = row.type === 'Business';
   const converted = row.convertedToRequestId !== null;
@@ -164,6 +179,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
     createdAt: r.createdAt.toISOString(),
   }));
 
+  // HVA-73 PR 3: linkableLeads broadens to the visible-set. For
+  // super_admin the visibility variable is null; fall back to "all
+  // unconverted captor-of-record" which preserves the previous behaviour
+  // (an admin's lead-link picker doesn't surface anybody else's pool).
+  const visibleIdsForPicker = visibility?.ids ?? [];
   const [linkableRequestsRows, linkableLeadsRows] = await Promise.all([
     db
       .select({
@@ -175,21 +195,34 @@ export default async function LeadDetailPage({ params }: PageProps) {
       .where(eq(visitRequests.assignedExecUserId, user.id))
       .orderBy(asc(visitRequests.createdAt))
       .limit(20),
-    db
-      .select({ id: leads.id, name: leads.name, phone: leads.phone })
-      .from(leads)
-      .where(
-        and(
-          eq(leads.capturedByUserId, user.id),
-          isNull(leads.convertedToRequestId),
-        ),
-      )
-      .orderBy(asc(leads.createdAt))
-      .limit(20),
+    visibility === null
+      ? db
+          .select({ id: leads.id, name: leads.name, phone: leads.phone })
+          .from(leads)
+          .where(
+            and(
+              eq(leads.capturedByUserId, user.id),
+              isNull(leads.convertedToRequestId),
+            ),
+          )
+          .orderBy(asc(leads.createdAt))
+          .limit(20)
+      : visibleIdsForPicker.length === 0
+        ? Promise.resolve(
+            [] as Array<{ id: string; name: string; phone: string }>,
+          )
+        : db
+            .select({ id: leads.id, name: leads.name, phone: leads.phone })
+            .from(leads)
+            .where(
+              and(
+                inArray(leads.id, visibleIdsForPicker),
+                isNull(leads.convertedToRequestId),
+              ),
+            )
+            .orderBy(asc(leads.createdAt))
+            .limit(20),
   ]);
-  // `inArray` is imported for downstream callers; suppress the noUnused
-  // lint here without changing the import surface.
-  void inArray;
 
   const leadForActions = {
     id: row.id,

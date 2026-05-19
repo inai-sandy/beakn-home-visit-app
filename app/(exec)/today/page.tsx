@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
@@ -13,6 +13,7 @@ import {
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { getIstDateString, isAtOrAfterIstTime } from '@/lib/today/time';
 
 import { PreSubmissionView } from './_components/PreSubmissionView';
@@ -129,8 +130,9 @@ export default async function TodayPage() {
     ]);
 
   // Suggest linkables for the AddTaskSheet — exec's own assignments
-  // (requests) + unconverted leads (HVA-73 follow-up). Fetched in
-  // parallel; search is client-side over both lists.
+  // (requests) + visible unconverted leads (HVA-73 PR 3: visibility
+  // broadens beyond captor to any reassignment chain participant).
+  const visibleContactIds = await loadExecVisibleContactIds(user.id);
   const [linkableRequests, linkableLeads] = await Promise.all([
     db
       .select({
@@ -142,21 +144,23 @@ export default async function TodayPage() {
       .where(eq(visitRequests.assignedExecUserId, user.id))
       .orderBy(asc(visitRequests.createdAt))
       .limit(50),
-    db
-      .select({
-        id: leads.id,
-        name: leads.name,
-        phone: leads.phone,
-      })
-      .from(leads)
-      .where(
-        and(
-          eq(leads.capturedByUserId, user.id),
-          isNull(leads.convertedToRequestId),
-        ),
-      )
-      .orderBy(asc(leads.createdAt))
-      .limit(50),
+    visibleContactIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string; phone: string }>)
+      : db
+          .select({
+            id: leads.id,
+            name: leads.name,
+            phone: leads.phone,
+          })
+          .from(leads)
+          .where(
+            and(
+              inArray(leads.id, visibleContactIds),
+              isNull(leads.convertedToRequestId),
+            ),
+          )
+          .orderBy(asc(leads.createdAt))
+          .limit(50),
   ]);
 
   const isCloseButtonVisible =

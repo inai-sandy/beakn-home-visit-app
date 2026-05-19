@@ -8,6 +8,7 @@ import { cities, visitRequests } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES, isRole } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { canCaptainEditRequest } from '@/lib/captain/edit-auth';
 import { canExecEditRequest } from '@/lib/exec/edit-auth';
 import { toStorageFormat } from '@/lib/phone';
 
@@ -30,7 +31,9 @@ import { toStorageFormat } from '@/lib/phone';
 // contact. Editing here does NOT propagate to leads.phone (D5).
 // =============================================================================
 
-const ALLOWED_ROLES = ['sales_executive', 'super_admin'] as const;
+// HVA-163: captain joins the role gate. Role switch below routes to the
+// right scope helper (canCaptainEditRequest / canExecEditRequest).
+const ALLOWED_ROLES = ['sales_executive', 'captain', 'super_admin'] as const;
 const ALLOWED_BHK = ['1BHK', '2BHK', '3BHK', '4BHK', 'Others'] as const;
 type Bhk = (typeof ALLOWED_BHK)[number];
 
@@ -91,10 +94,18 @@ export async function editRequestAction(
     return { ok: false, error: 'Forbidden' };
   }
 
-  if (actor.role !== USER_ROLES.SUPER_ADMIN) {
+  // HVA-163 role switch — super_admin always; exec via strict-D2; captain
+  // via team-scoped helper (current assignee on team OR me as the
+  // assigned captain).
+  if (actor.role === USER_ROLES.SALES_EXECUTIVE) {
     const allowed = await canExecEditRequest(actor.id, input.requestId);
     if (!allowed) {
       return { ok: false, error: 'This request is not editable by you' };
+    }
+  } else if (actor.role === USER_ROLES.CAPTAIN) {
+    const allowed = await canCaptainEditRequest(actor.id, input.requestId);
+    if (!allowed) {
+      return { ok: false, error: 'This request is not in your team' };
     }
   }
 

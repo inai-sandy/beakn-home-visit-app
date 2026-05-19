@@ -19,6 +19,7 @@ import {
 } from "@/db/schema";
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
+import { canCaptainEditRequest } from "@/lib/captain/edit-auth";
 import { canExecEditRequest } from "@/lib/exec/edit-auth";
 import {
   canWriteNoteForEntity,
@@ -379,13 +380,16 @@ export default async function RequestDetailPage({ params }: PageProps) {
     ? terminalBadgeMeta(reqRow.cancellationActor as TerminalActor)
     : null;
 
-  // HVA-159: exec-side edit pencil. Captain edit ships in HVA-163 (out
-  // of scope here), so captains see no pencil. super_admin keeps the
-  // existing escape-hatch.
-  const isExec = role === "sales_executive";
-  const editable =
-    role === "super_admin" ||
-    (isExec && (await canExecEditRequest(user.id, reqRow.id)));
+  // HVA-159 + HVA-163: edit pencil now surfaces for exec (strict-D2),
+  // captain (team-scoped), and super_admin. The role switch mirrors the
+  // server action's three-way gate.
+  let editable = role === "super_admin";
+  if (!editable && role === "sales_executive") {
+    editable = await canExecEditRequest(user.id, reqRow.id);
+  }
+  if (!editable && role === "captain") {
+    editable = await canCaptainEditRequest(user.id, reqRow.id);
+  }
   const editCityRows = editable
     ? await db
         .select({ id: cities.id, name: cities.name })

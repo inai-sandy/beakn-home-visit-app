@@ -8,13 +8,20 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { getServerSession } from '@/lib/auth-server';
+import { isRole, type Role } from '@/lib/auth/roles';
 import {
   fetchTeamContactById,
   fetchTeamContactRequests,
   loadCaptainTeamUserIds,
   type TeamContactRequest,
 } from '@/lib/captain/contacts-queries';
+import {
+  canWriteNoteForEntity,
+  loadNotesForEntity,
+} from '@/lib/notes/queries';
 import { cn } from '@/lib/utils';
+
+import { NotesSection } from '@/components/notes/NotesSection';
 
 import { CaptainContactQuickActions } from './_components/CaptainContactQuickActions';
 
@@ -99,6 +106,24 @@ export default async function CaptainContactDetailPage({ params }: PageProps) {
   const isBusiness = contact.type === 'Business';
   const converted = contact.convertedToRequestId !== null;
 
+  // HVA-73 PR 3: notes section.
+  const role = user.role;
+  const [notesForContact, canWriteContactNote] = await Promise.all([
+    loadNotesForEntity('contact', contact.id),
+    isRole(role)
+      ? canWriteNoteForEntity({ id: user.id, role }, 'contact', contact.id)
+      : Promise.resolve(false),
+  ]);
+  const viewerForNotes: {
+    id: string;
+    fullName: string | null;
+    role: Role;
+  } = {
+    id: user.id,
+    fullName: (user as { fullName?: string; name?: string }).fullName ?? null,
+    role: isRole(role) ? role : 'captain',
+  };
+
   return (
     <main className="min-h-svh bg-background pb-24">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
@@ -154,6 +179,15 @@ export default async function CaptainContactDetailPage({ params }: PageProps) {
         </header>
 
         <RequestsSection requests={requests} />
+
+        {/* HVA-73 PR 3: append-only notes timeline for the contact. */}
+        <NotesSection
+          targetType="contact"
+          targetId={contact.id}
+          notes={notesForContact}
+          canWrite={canWriteContactNote}
+          viewer={viewerForNotes}
+        />
 
         <section
           aria-label="Details"

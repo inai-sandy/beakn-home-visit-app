@@ -234,6 +234,9 @@ export const CONFIG_SCHEMA = {
       'contact_edited',
       'request_edited',
       'task_edited',
+      // HVA-73 PR 2 + PR 3 — append-only note added on a request or contact.
+      // afterState: { targetType, targetId, bodyPreview, actorRole }.
+      'note_created',
     ],
     editable: true,
   },

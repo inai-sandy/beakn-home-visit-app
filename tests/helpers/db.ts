@@ -74,6 +74,11 @@ const SAFE_TRUNCATE_TABLES = [
   'holidays',
   'in_app_notifications',
   'leads',
+  // HVA-73 PR 2 + PR 3: notes.created_by_user_id → users with ON DELETE
+  // RESTRICT. Without truncating it between tests, the DELETE FROM users
+  // at the end of truncateAll blows up with an FK violation, and every
+  // subsequent test's seedCaptain collides on the unique phone.
+  'notes',
   'notification_rules',
   'notifications_queue',
   'payments',

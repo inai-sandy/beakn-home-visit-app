@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -24,24 +24,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
 import { addTaskAction } from '../actions';
 
 // =============================================================================
-// HVA-58 / HVA-60 D: AddTaskSheet — fixed FAB + bottom sheet
+// HVA-58 / HVA-60 / HVA-73 followup: AddTaskSheet
 // =============================================================================
 //
-// Field shape per spec §10.3 (with Δ4 deviation noted):
-//   1. Task Type — chips, single-select, 7 options (the pgEnum values
-//      verbatim per Δ2).
-//   2. Description — text input, required, 5–200 chars.
-//   3. Link to Request — optional, client-side search over the exec's
-//      assignments (rows passed from server).
-//   4. Estimated time — REQUIRED dropdown (Δ4 — schema is NOT NULL, bundle
-//      said "optional"; using path (a): require with default '30min').
+// Two modes:
 //
-// After Add: revalidatePath fires server-side, router.refresh updates
-// the page-level RSC, sheet closes, toast shows.
+//   1. Open  — link search shows two grouped sections (Leads / Requests);
+//              exec picks one or leaves unlinked. Used by /today FAB.
+//
+//   2. Preselected — caller passes `preselectedLink`; the link section is
+//              a non-editable chip showing what's already chosen. Used by
+//              the lead-detail "Create Task in Day Sheet" button.
+//
+// XOR rule (HVA-73 followup): linkRequestId and linkLeadId are mutually
+// exclusive. Server enforces this in addTaskAction; this component
+// guarantees it by only ever holding one of the two IDs in state.
 // =============================================================================
 
 const TASK_TYPES = [
@@ -56,13 +58,28 @@ const TASK_TYPES = [
 
 const ESTIMATED_TIMES = ['15min', '30min', '1hr', '2hr', '3hr+'] as const;
 
+export interface LinkableRequest {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+}
+
+export interface LinkableLead {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+export interface PreselectedLink {
+  type: 'lead' | 'request';
+  id: string;
+  displayLabel: string;
+}
+
 interface Props {
   trigger?: React.ReactNode;
-  linkableRequests: Array<{
-    id: string;
-    customerName: string;
-    customerPhone: string;
-  }>;
+  linkableRequests: LinkableRequest[];
+  linkableLeads?: LinkableLead[];
   /** When true, FAB renders disabled (read-only state — day closed). */
   disabled?: boolean;
 }
@@ -70,10 +87,12 @@ interface Props {
 // HVA-60 design polish (Change A): AddTaskFab no longer owns its own
 // positioning. The parent <BottomActions> wrapper in PostSubmissionView
 // renders this FAB alongside the optional Close-the-Day button in the
-// bottom-right corner. The previous `closeButtonVisible` prop /
-// `bottom-XX md:bottom-XX` shifting logic is gone — the wrapper
-// positions both buttons together as one logical action cluster.
-export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
+// bottom-right corner.
+export function AddTaskFab({
+  linkableRequests,
+  linkableLeads = [],
+  disabled = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -90,6 +109,7 @@ export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
       {open && (
         <AddTaskSheet
           linkableRequests={linkableRequests}
+          linkableLeads={linkableLeads}
           onClose={() => setOpen(false)}
         />
       )}
@@ -97,11 +117,20 @@ export function AddTaskFab({ linkableRequests, disabled = false }: Props) {
   );
 }
 
-function AddTaskSheet({
+// =============================================================================
+// AddTaskSheet — exported so the lead-detail page can open it directly
+// with a preselectedLink.
+// =============================================================================
+
+export function AddTaskSheet({
   linkableRequests,
+  linkableLeads = [],
+  preselectedLink,
   onClose,
 }: {
-  linkableRequests: Props['linkableRequests'];
+  linkableRequests: LinkableRequest[];
+  linkableLeads?: LinkableLead[];
+  preselectedLink?: PreselectedLink;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -110,30 +139,38 @@ function AddTaskSheet({
   const [estimatedTime, setEstimatedTime] = useState<string>('30min');
   const [linkSearch, setLinkSearch] = useState('');
   const [linkRequestId, setLinkRequestId] = useState<string | null>(null);
+  const [linkLeadId, setLinkLeadId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (preselectedLink?.type === 'lead') setLinkLeadId(preselectedLink.id);
+    if (preselectedLink?.type === 'request') setLinkRequestId(preselectedLink.id);
+  }, [preselectedLink]);
 
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 
-  // Client-side filter over the exec's own assignments. Top 5 by recency
-  // are passed in already-ordered; this just narrows by free-text match.
-  const matchingRequests = useMemo(() => {
+  const grouped = useMemo(() => {
     const q = linkSearch.trim().toLowerCase();
-    if (q === '') return linkableRequests.slice(0, 5);
+    if (q === '') {
+      return {
+        leads: linkableLeads.slice(0, 5),
+        requests: linkableRequests.slice(0, 5),
+      };
+    }
     const needleDigits = q.replace(/\D/g, '');
-    return linkableRequests
-      .filter((r) => {
-        if (r.customerName.toLowerCase().includes(q)) return true;
-        if (
-          needleDigits.length > 0 &&
-          r.customerPhone.replace(/\D/g, '').includes(needleDigits)
-        ) {
-          return true;
-        }
-        return false;
-      })
+    const matchPhone = (phone: string) =>
+      needleDigits.length > 0 && phone.replace(/\D/g, '').includes(needleDigits);
+    const leads = linkableLeads
+      .filter((l) => l.name.toLowerCase().includes(q) || matchPhone(l.phone))
       .slice(0, 5);
-  }, [linkSearch, linkableRequests]);
+    const requests = linkableRequests
+      .filter(
+        (r) => r.customerName.toLowerCase().includes(q) || matchPhone(r.customerPhone),
+      )
+      .slice(0, 5);
+    return { leads, requests };
+  }, [linkSearch, linkableLeads, linkableRequests]);
 
   const canSubmit =
     !busy &&
@@ -151,6 +188,7 @@ function AddTaskSheet({
         description: description.trim(),
         estimatedTime,
         linkRequestId: linkRequestId ?? null,
+        linkLeadId: linkLeadId ?? null,
       });
       if (!result.ok) {
         toast.error(result.error);
@@ -164,6 +202,12 @@ function AddTaskSheet({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function clearLink() {
+    setLinkRequestId(null);
+    setLinkLeadId(null);
+    setLinkSearch('');
   }
 
   return (
@@ -238,55 +282,132 @@ function AddTaskSheet({
             </Select>
           </div>
 
+          {/* Link to request OR lead */}
           <div className="space-y-2">
             <Label htmlFor="add-task-link" className="text-sm">
-              Link to a request{' '}
-              <span className="text-muted-foreground">(optional)</span>
+              Link to a customer{' '}
+              {preselectedLink ? null : (
+                <span className="text-muted-foreground">(optional)</span>
+              )}
             </Label>
-            <Input
-              id="add-task-link"
-              type="search"
-              placeholder="Search your assigned requests…"
-              value={linkSearch}
-              onChange={(e) => {
-                setLinkSearch(e.target.value);
-                setLinkRequestId(null);
-              }}
-              disabled={busy}
-              className="h-11"
-            />
-            {linkSearch.trim() !== '' && (
-              <ul className="rounded-md border bg-background divide-y">
-                {matchingRequests.length === 0 ? (
-                  <li className="px-3 py-2 text-xs text-muted-foreground">
-                    No matches.
-                  </li>
-                ) : (
-                  matchingRequests.map((r) => (
-                    <li key={r.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLinkRequestId(r.id);
-                          setLinkSearch(r.customerName);
-                        }}
-                        disabled={busy}
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center justify-between gap-2"
-                      >
-                        <span>{r.customerName}</span>
-                        <span className="text-xs text-muted-foreground font-mono">
-                          {r.customerPhone}
-                        </span>
-                      </button>
-                    </li>
-                  ))
+
+            {preselectedLink ? (
+              <div
+                data-testid="preselected-link-chip"
+                className="inline-flex items-center gap-2 rounded-full border bg-muted/60 px-3 py-1.5 text-sm"
+              >
+                <Icon
+                  name={preselectedLink.type === 'lead' ? 'person_add' : 'list_alt'}
+                  size="xs"
+                />
+                <span className="font-medium truncate max-w-[16rem]">
+                  {preselectedLink.displayLabel}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {preselectedLink.type}
+                </span>
+              </div>
+            ) : (
+              <>
+                <Input
+                  id="add-task-link"
+                  type="search"
+                  placeholder="Search your assigned customers…"
+                  value={linkSearch}
+                  onChange={(e) => {
+                    setLinkSearch(e.target.value);
+                    setLinkRequestId(null);
+                    setLinkLeadId(null);
+                  }}
+                  disabled={busy}
+                  className="h-11"
+                />
+                {linkSearch.trim() !== '' && (
+                  <ul
+                    aria-label="Link suggestions"
+                    className="rounded-md border bg-background"
+                  >
+                    {grouped.leads.length === 0 && grouped.requests.length === 0 ? (
+                      <li className="px-3 py-2 text-xs text-muted-foreground">
+                        No matches.
+                      </li>
+                    ) : (
+                      <>
+                        {grouped.leads.length > 0 && (
+                          <li className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground bg-muted/40">
+                            Leads
+                          </li>
+                        )}
+                        {grouped.leads.map((l) => (
+                          <li
+                            key={`lead-${l.id}`}
+                            className="border-t first:border-t-0"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLinkLeadId(l.id);
+                                setLinkRequestId(null);
+                                setLinkSearch(l.name);
+                              }}
+                              disabled={busy}
+                              className={cn(
+                                'w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center justify-between gap-2',
+                                linkLeadId === l.id && 'bg-muted',
+                              )}
+                            >
+                              <span className="truncate">{l.name}</span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {l.phone}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                        {grouped.requests.length > 0 && (
+                          <li className="px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground bg-muted/40 border-t">
+                            Requests
+                          </li>
+                        )}
+                        {grouped.requests.map((r) => (
+                          <li key={`req-${r.id}`} className="border-t">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLinkRequestId(r.id);
+                                setLinkLeadId(null);
+                                setLinkSearch(r.customerName);
+                              }}
+                              disabled={busy}
+                              className={cn(
+                                'w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center justify-between gap-2',
+                                linkRequestId === r.id && 'bg-muted',
+                              )}
+                            >
+                              <span className="truncate">{r.customerName}</span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {r.customerPhone}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </>
+                    )}
+                  </ul>
                 )}
-              </ul>
-            )}
-            {linkRequestId && (
-              <p className="text-[11px] text-primary">
-                Linked to selected request.
-              </p>
+                {(linkRequestId || linkLeadId) && (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span className="text-primary">Linked.</span>
+                    <button
+                      type="button"
+                      className="underline text-muted-foreground"
+                      onClick={clearLink}
+                      disabled={busy}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

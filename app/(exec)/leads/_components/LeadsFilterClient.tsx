@@ -158,14 +158,10 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
           </p>
         </div>
       ) : (
-        <ul className="space-y-3" aria-label="Leads">
+        <ul className="space-y-2" aria-label="Leads">
           {visible.map((lead) => (
             <li key={lead.id}>
-              <LeadCard
-                lead={lead}
-                cities={cities}
-                businessTypes={businessTypes}
-              />
+              <LeadCard lead={lead} />
             </li>
           ))}
         </ul>

@@ -35,6 +35,7 @@ export interface PostSubmissionViewProps {
     estimatedTime: string;
     status: string;
     linkRequestId: string | null;
+    linkLeadId: string | null;
     outcomeOptionId: string | null;
     outcomeOptionName: string | null;
     outcomeNotes: string | null;
@@ -45,6 +46,7 @@ export interface PostSubmissionViewProps {
   outcomeOptionsByType: Record<string, Array<{ id: string; code: string; name: string }>>;
   postponeReasons: Array<{ id: string; code: string; name: string }>;
   linkableRequests: Array<{ id: string; customerName: string; customerPhone: string }>;
+  linkableLeads?: Array<{ id: string; name: string; phone: string }>;
   isCloseButtonVisible: boolean;
 }
 
@@ -54,6 +56,7 @@ export function PostSubmissionView({
   outcomeOptionsByType,
   postponeReasons,
   linkableRequests,
+  linkableLeads = [],
   isCloseButtonVisible,
 }: PostSubmissionViewProps) {
   const closed = dayPlan.closedAt !== null;
@@ -188,7 +191,11 @@ export function PostSubmissionView({
               </Link>
             </Button>
           )}
-          <AddTaskFab linkableRequests={linkableRequests} disabled={closed} />
+          <AddTaskFab
+            linkableRequests={linkableRequests}
+            linkableLeads={linkableLeads}
+            disabled={closed}
+          />
         </div>
       )}
     </main>

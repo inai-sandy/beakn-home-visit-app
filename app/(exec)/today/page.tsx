@@ -1,10 +1,11 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { db } from '@/db/client';
 import {
   dayPlans,
+  leads,
   outcomeOptions,
   postponeReasons,
   tasks,
@@ -91,6 +92,7 @@ export default async function TodayPage() {
           estimatedTime: tasks.estimatedTime,
           status: tasks.status,
           linkRequestId: tasks.linkRequestId,
+          linkLeadId: tasks.linkLeadId,
           outcomeOptionId: tasks.outcomeOptionId,
           outcomeOptionName: outcomeOptions.name,
           outcomeNotes: tasks.outcomeNotes,
@@ -126,18 +128,36 @@ export default async function TodayPage() {
       getConfig('day_close_target_time'),
     ]);
 
-  // Suggest top-5 linkable requests for the AddTaskSheet — exec's own
-  // assignments, most recent first. Search is client-side over this list.
-  const linkableRequests = await db
-    .select({
-      id: visitRequests.id,
-      customerName: visitRequests.customerName,
-      customerPhone: visitRequests.customerPhone,
-    })
-    .from(visitRequests)
-    .where(eq(visitRequests.assignedExecUserId, user.id))
-    .orderBy(asc(visitRequests.createdAt))
-    .limit(50);
+  // Suggest linkables for the AddTaskSheet — exec's own assignments
+  // (requests) + unconverted leads (HVA-73 follow-up). Fetched in
+  // parallel; search is client-side over both lists.
+  const [linkableRequests, linkableLeads] = await Promise.all([
+    db
+      .select({
+        id: visitRequests.id,
+        customerName: visitRequests.customerName,
+        customerPhone: visitRequests.customerPhone,
+      })
+      .from(visitRequests)
+      .where(eq(visitRequests.assignedExecUserId, user.id))
+      .orderBy(asc(visitRequests.createdAt))
+      .limit(50),
+    db
+      .select({
+        id: leads.id,
+        name: leads.name,
+        phone: leads.phone,
+      })
+      .from(leads)
+      .where(
+        and(
+          eq(leads.capturedByUserId, user.id),
+          isNull(leads.convertedToRequestId),
+        ),
+      )
+      .orderBy(asc(leads.createdAt))
+      .limit(50),
+  ]);
 
   const isCloseButtonVisible =
     plan.closedAt === null && isAtOrAfterIstTime(new Date(), dayCloseTargetTime);
@@ -166,6 +186,7 @@ export default async function TodayPage() {
         estimatedTime: t.estimatedTime,
         status: t.status,
         linkRequestId: t.linkRequestId,
+        linkLeadId: t.linkLeadId,
         outcomeOptionId: t.outcomeOptionId,
         outcomeOptionName: t.outcomeOptionName,
         outcomeNotes: t.outcomeNotes,
@@ -176,6 +197,7 @@ export default async function TodayPage() {
       outcomeOptionsByType={groupOutcomeOptions(allOutcomeOptions)}
       postponeReasons={allPostponeReasons}
       linkableRequests={linkableRequests}
+      linkableLeads={linkableLeads}
       isCloseButtonVisible={isCloseButtonVisible}
     />
   );

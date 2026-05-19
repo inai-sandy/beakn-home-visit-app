@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { LEAD_BHK_VALUES } from '@/lib/validators/lead';
 
 import { convertLeadToRequestAction } from '../_actions/convertLead';
-import type { BusinessTypeOption, CityOption, LeadRow } from './types';
+import type { LeadRow } from './types';
 
 // =============================================================================
 // HVA-74: Lead → Request conversion sheet
@@ -46,15 +46,23 @@ import type { BusinessTypeOption, CityOption, LeadRow } from './types';
 // =============================================================================
 
 interface Props {
-  lead: LeadRow;
-  cities: CityOption[];
-  businessTypes: BusinessTypeOption[];
+  lead: Pick<
+    LeadRow,
+    | 'id'
+    | 'type'
+    | 'name'
+    | 'phone'
+    | 'email'
+    | 'cityName'
+    | 'bhk'
+    | 'firmName'
+    | 'businessTypeName'
+    | 'interest'
+  >;
   onClose: () => void;
 }
 
-export function ConvertLeadSheet({ lead, cities, businessTypes, onClose }: Props) {
-  void cities;
-  void businessTypes;
+export function ConvertLeadSheet({ lead, onClose }: Props) {
   const router = useRouter();
   const [address, setAddress] = useState('');
   const [bhk, setBhk] = useState<string>(lead.bhk ?? '');

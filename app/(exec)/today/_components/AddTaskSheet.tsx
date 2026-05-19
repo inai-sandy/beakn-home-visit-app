@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
-import { addTaskAction } from '../actions';
+import { addTaskAction, editTaskAction } from '../actions';
 
 // =============================================================================
 // HVA-58 / HVA-60 / HVA-73 followup: AddTaskSheet
@@ -96,6 +96,22 @@ export interface PreselectedLink {
   displayLabel: string;
 }
 
+/**
+ * HVA-159: when supplied, AddTaskSheet renders in edit mode (title /
+ * submit button copy + prefilled form / editTaskAction call). The
+ * Task type is NOT in the editable set so we omit it from the prefill —
+ * the field stays disabled (greyed out) since it's immutable on edit.
+ */
+export interface TaskToEdit {
+  id: string;
+  taskType: string;
+  description: string;
+  estimatedTime: string;
+  taskDate: string;
+  linkRequestId: string | null;
+  linkLeadId: string | null;
+}
+
 interface Props {
   trigger?: React.ReactNode;
   linkableRequests: LinkableRequest[];
@@ -146,21 +162,35 @@ export function AddTaskSheet({
   linkableRequests,
   linkableLeads = [],
   preselectedLink,
+  taskToEdit,
   onClose,
 }: {
   linkableRequests: LinkableRequest[];
   linkableLeads?: LinkableLead[];
   preselectedLink?: PreselectedLink;
+  /** HVA-159: when present, renders in edit mode and calls editTaskAction. */
+  taskToEdit?: TaskToEdit;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [taskType, setTaskType] = useState<string | null>(null);
-  const [taskDate, setTaskDate] = useState<string>(() => todayLocalIso());
-  const [description, setDescription] = useState('');
-  const [estimatedTime, setEstimatedTime] = useState<string>('30min');
+  const editMode = Boolean(taskToEdit);
+  const [taskType, setTaskType] = useState<string | null>(
+    taskToEdit?.taskType ?? null,
+  );
+  const [taskDate, setTaskDate] = useState<string>(
+    taskToEdit?.taskDate ?? todayLocalIso(),
+  );
+  const [description, setDescription] = useState(taskToEdit?.description ?? '');
+  const [estimatedTime, setEstimatedTime] = useState<string>(
+    taskToEdit?.estimatedTime ?? '30min',
+  );
   const [linkSearch, setLinkSearch] = useState('');
-  const [linkRequestId, setLinkRequestId] = useState<string | null>(null);
-  const [linkLeadId, setLinkLeadId] = useState<string | null>(null);
+  const [linkRequestId, setLinkRequestId] = useState<string | null>(
+    taskToEdit?.linkRequestId ?? null,
+  );
+  const [linkLeadId, setLinkLeadId] = useState<string | null>(
+    taskToEdit?.linkLeadId ?? null,
+  );
 
   // Memoised so the min/max stay stable for the lifetime of an open sheet.
   // Long enough to be irrelevant in practice; right thing to do anyway.
@@ -212,19 +242,28 @@ export function AddTaskSheet({
     if (!canSubmit || taskType === null) return;
     setSubmitting(true);
     try {
-      const result = await addTaskAction({
-        taskType,
-        description: description.trim(),
-        estimatedTime,
-        taskDate,
-        linkRequestId: linkRequestId ?? null,
-        linkLeadId: linkLeadId ?? null,
-      });
+      const result = editMode && taskToEdit
+        ? await editTaskAction({
+            taskId: taskToEdit.id,
+            description: description.trim(),
+            taskDate,
+            estimatedTime,
+            linkRequestId: linkRequestId ?? null,
+            linkLeadId: linkLeadId ?? null,
+          })
+        : await addTaskAction({
+            taskType,
+            description: description.trim(),
+            estimatedTime,
+            taskDate,
+            linkRequestId: linkRequestId ?? null,
+            linkLeadId: linkLeadId ?? null,
+          });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
-      toast.success('Task added');
+      toast.success(editMode ? 'Task updated' : 'Task added');
       onClose();
       startTransition(() => {
         router.refresh();
@@ -244,9 +283,11 @@ export function AddTaskSheet({
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="bottom" className="max-h-[90svh] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Add a task</SheetTitle>
+          <SheetTitle>{editMode ? 'Edit task' : 'Add a task'}</SheetTitle>
           <SheetDescription>
-            Anything you want to do today that wasn&apos;t already on the plan.
+            {editMode
+              ? 'Update the description, date, or link. Task type stays the same.'
+              : "Anything you want to do today that wasn't already on the plan."}
           </SheetDescription>
         </SheetHeader>
 
@@ -264,12 +305,17 @@ export function AddTaskSheet({
                   variant={taskType === t ? 'default' : 'outline'}
                   className="rounded-full"
                   onClick={() => setTaskType(t)}
-                  disabled={busy}
+                  disabled={busy || editMode}
                 >
                   {t}
                 </Button>
               ))}
             </div>
+            {editMode && (
+              <p className="text-[11px] text-muted-foreground">
+                Task type cannot be changed.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -474,6 +520,8 @@ export function AddTaskSheet({
                 <Icon name="progress_activity" size="sm" className="animate-spin" />
                 Saving…
               </>
+            ) : editMode ? (
+              'Save'
             ) : (
               'Add task'
             )}

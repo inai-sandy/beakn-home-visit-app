@@ -22,6 +22,7 @@ import {
   undoPostponeAction,
 } from '../actions';
 
+import { EditTaskButton } from './EditTaskButton';
 import { PostponeSheet } from './PostponeSheet';
 
 // =============================================================================
@@ -55,6 +56,8 @@ export interface TaskItemProps {
     description: string;
     estimatedTime: string;
     status: string;
+    /** YYYY-MM-DD. HVA-159: needed to prefill the edit sheet's date picker. */
+    taskDate: string;
     linkRequestId: string | null;
     linkLeadId: string | null;
     outcomeOptionId: string | null;
@@ -68,6 +71,14 @@ export interface TaskItemProps {
   postponeReasons: Array<{ id: string; code: string; name: string }>;
   readOnly: boolean;
   highlighted?: boolean;
+  /** HVA-159: linkable pools threaded down so the row's edit button can
+   *  open AddTaskSheet without redoing the fetch. Both default to []. */
+  linkableRequests?: Array<{
+    id: string;
+    customerName: string;
+    customerPhone: string;
+  }>;
+  linkableLeads?: Array<{ id: string; name: string; phone: string }>;
 }
 
 function resolveDisplayMode(taskType: string) {
@@ -92,6 +103,8 @@ export function TaskItem({
   postponeReasons,
   readOnly,
   highlighted = false,
+  linkableRequests = [],
+  linkableLeads = [],
 }: TaskItemProps) {
   const router = useRouter();
   const displayMode = resolveDisplayMode(task.taskType);
@@ -208,7 +221,26 @@ export function TaskItem({
             {task.estimatedTime}
           </Badge>
         </div>
-        {statusIndicator}
+        <div className="flex items-center gap-2">
+          {/* HVA-159: edit pencil for pending/postponed tasks. Completed
+              and cancelled tasks are immutable per canExecEditTask. */}
+          {!readOnly && (isPending_ || isPostponed) && (
+            <EditTaskButton
+              task={{
+                id: task.id,
+                taskType: task.taskType,
+                description: task.description,
+                estimatedTime: task.estimatedTime,
+                taskDate: task.taskDate,
+                linkRequestId: task.linkRequestId,
+                linkLeadId: task.linkLeadId,
+              }}
+              linkableRequests={linkableRequests}
+              linkableLeads={linkableLeads}
+            />
+          )}
+          {statusIndicator}
+        </div>
       </div>
 
       <p className="text-sm leading-relaxed">{task.description}</p>

@@ -229,6 +229,11 @@ export const CONFIG_SCHEMA = {
       // afterState.created distinguishes the insert path from the
       // link-to-existing path.
       'request_contact_linked',
+      // HVA-159 — exec-side edit access. Each event carries only the
+      // changed fields in before_state / after_state (sparse diff).
+      'contact_edited',
+      'request_edited',
+      'task_edited',
     ],
     editable: true,
   },

@@ -16,6 +16,8 @@ import {
 } from '@/lib/captain/contacts-queries';
 import { cn } from '@/lib/utils';
 
+import { CaptainContactQuickActions } from './_components/CaptainContactQuickActions';
+
 // =============================================================================
 // HVA-73 PR 2: /captain/contacts/[contactId] — captain-scoped detail
 // =============================================================================
@@ -144,7 +146,7 @@ export default async function CaptainContactDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          <QuickActions
+          <CaptainContactQuickActions
             name={contact.name}
             phone={contact.phone}
             email={contact.email}
@@ -207,89 +209,6 @@ function DetailRow({
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={mono ? 'text-sm font-mono' : 'text-sm'}>{value}</p>
     </div>
-  );
-}
-
-function QuickActions({
-  name,
-  phone,
-  email,
-}: {
-  name: string;
-  phone: string;
-  email: string | null;
-}) {
-  const phoneDigits = phone.replace(/\D/g, '');
-  const phoneOk = phoneDigits.length >= 10;
-  const emailOk = email
-    ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    : false;
-  return (
-    <div className="grid grid-cols-3 gap-2" aria-label="Quick actions">
-      <Action
-        href={phoneOk ? `https://wa.me/${phoneDigits}` : undefined}
-        target="_blank"
-        rel="noreferrer noopener"
-        icon="chat"
-        label="WhatsApp"
-        ariaLabel={`WhatsApp ${name}`}
-        disabled={!phoneOk}
-      />
-      <Action
-        href={emailOk ? `mailto:${email}` : undefined}
-        icon="mail"
-        label="Email"
-        ariaLabel={emailOk ? `Email ${name}` : 'No email on file'}
-        disabled={!emailOk}
-      />
-      <Action
-        href={phoneOk ? `tel:${phone}` : undefined}
-        icon="phone"
-        label="Call"
-        ariaLabel={`Call ${name}`}
-        disabled={!phoneOk}
-      />
-    </div>
-  );
-}
-
-function Action({
-  href,
-  icon,
-  label,
-  ariaLabel,
-  disabled,
-  target,
-  rel,
-}: {
-  href: string | undefined;
-  icon: string;
-  label: string;
-  ariaLabel: string;
-  disabled?: boolean;
-  target?: string;
-  rel?: string;
-}) {
-  return (
-    <a
-      href={href}
-      target={target}
-      rel={rel}
-      aria-label={ariaLabel}
-      aria-disabled={disabled}
-      onClick={(e) => {
-        if (disabled) e.preventDefault();
-      }}
-      className={cn(
-        'flex flex-col items-center justify-center gap-1 h-16 rounded-xl border bg-card text-foreground',
-        'hover:bg-accent active:bg-accent/80 transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        disabled && 'opacity-40 pointer-events-none',
-      )}
-    >
-      <Icon name={icon} size="md" />
-      <span className="text-xs font-medium">{label}</span>
-    </a>
   );
 }
 

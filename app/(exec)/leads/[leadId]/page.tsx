@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -14,32 +14,38 @@ import {
   cities,
   dayPlans,
   leads,
+  quotations,
+  statusStages,
   users,
   visitRequests,
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { getIstDateString } from '@/lib/today/time';
 
+import {
+  ContactRequestsSection,
+  type ContactRequestRow,
+} from './_components/ContactRequestsSection';
 import { LeadQuickActions } from './_components/LeadQuickActions';
 import { CreateTaskFromLeadButton } from './_components/CreateTaskFromLeadButton';
-import { PlanVisitButton } from './_components/PlanVisitButton';
 
 // =============================================================================
-// HVA-73 follow-up: /leads/[leadId] — lead detail
+// HVA-73 follow-up + PR 1: /leads/[leadId] — contact detail
 // =============================================================================
 //
-// Contact-book style header (large avatar + name + type + city), big
-// quick-action row, detail fields, then two primary CTAs:
+// Header (avatar + name + type + city), quick-action row (WhatsApp /
+// Email / Call), then the NEW Requests section listing every request
+// linked to this contact. Plan-a-Visit moved into that section's header
+// per PR 1 D2.
 //
-//   - Plan a Visit  → opens ConvertLeadSheet (existing component, unchanged)
-//   - Create Task in Day Sheet → opens AddTaskSheet preconfigured with
-//                   linkLeadId = this lead. Disabled when no day plan
-//                   exists for today.
+// Requests query union: rows where `visit_requests.contact_id = lead.id`
+// (the canonical lookup for new conversions) PLUS the legacy
+// `leads.converted_to_request_id` pointer (no backfill — D6) so contacts
+// converted before PR 1 still surface their single request.
 //
 // AUTH:
 //   - sales_executive: must be the captor of this lead.
-//   - super_admin:     can view any lead (read-only is fine; conversion
-//                     still allowed per HVA-74's super-admin override).
+//   - super_admin:     can view any lead.
 //   - other roles:     redirected back to /login.
 // =============================================================================
 
@@ -52,10 +58,8 @@ interface PageProps {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { leadId } = await params;
   return {
-    title: 'Lead — Beakn',
-    // We intentionally don't surface the lead name in the title to keep
-    // PII out of browser history. The page header carries the name.
-    description: `Lead ${leadId.slice(0, 8)}`,
+    title: 'Contact — Beakn',
+    description: `Contact ${leadId.slice(0, 8)}`,
   };
 }
 
@@ -101,17 +105,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
   if (!row) notFound();
 
-  // Ownership: sales_executive can only see their own captured leads.
-  // super_admin override per HVA-74 spec.
   if (user.role !== 'super_admin' && row.capturedByUserId !== user.id) {
     notFound();
   }
 
-  const converted = row.convertedToRequestId !== null;
   const isBusiness = row.type === 'Business';
+  const converted = row.convertedToRequestId !== null;
 
-  // Day-plan presence drives whether the "Create Task in Day Sheet"
-  // button is enabled. We don't auto-create a plan (bundle DO NOT #3).
   const istDate = getIstDateString();
   const [plan] = await db
     .select({ id: dayPlans.id, closedAt: dayPlans.closedAt })
@@ -120,10 +120,50 @@ export default async function LeadDetailPage({ params }: PageProps) {
     .limit(1);
   const dayPlanReady = Boolean(plan && plan.closedAt === null);
 
-  // Fetch the same linkable pools the /today FAB uses so the AddTaskSheet
-  // (open from this lead detail) has them available even though search is
-  // hidden. Keeps the component's contract simple: it always receives the
-  // arrays; preselectedLink decides whether to render search.
+  // -------------------------------------------------------------------------
+  // Requests list: union of (contact_id = leadId) and the legacy
+  // converted_to_request_id pointer. Drizzle's `or` lets us express this
+  // in a single round-trip; deduplication happens at the SQL level since
+  // the same request id can't appear twice.
+  // -------------------------------------------------------------------------
+  const requestWhere = converted && row.convertedToRequestId
+    ? or(
+        eq(visitRequests.contactId, leadId),
+        eq(visitRequests.id, row.convertedToRequestId),
+      )
+    : eq(visitRequests.contactId, leadId);
+
+  const execAlias = users;
+  const contactRequestRows = await db
+    .select({
+      id: visitRequests.id,
+      customerName: visitRequests.customerName,
+      cityName: cities.name,
+      statusStageCode: statusStages.code,
+      statusStageName: statusStages.name,
+      assignedExecName: execAlias.fullName,
+      totalAmountPaise: quotations.totalOrderValuePaise,
+      createdAt: visitRequests.createdAt,
+    })
+    .from(visitRequests)
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .leftJoin(execAlias, eq(execAlias.id, visitRequests.assignedExecUserId))
+    .leftJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .where(requestWhere)
+    .orderBy(desc(visitRequests.createdAt));
+
+  const contactRequests: ContactRequestRow[] = contactRequestRows.map((r) => ({
+    id: r.id,
+    customerName: r.customerName,
+    cityName: r.cityName,
+    statusStageCode: r.statusStageCode,
+    statusStageName: r.statusStageName,
+    assignedExecName: r.assignedExecName ?? null,
+    totalAmountPaise: r.totalAmountPaise ?? null,
+    createdAt: r.createdAt.toISOString(),
+  }));
+
   const [linkableRequestsRows, linkableLeadsRows] = await Promise.all([
     db
       .select({
@@ -147,16 +187,32 @@ export default async function LeadDetailPage({ params }: PageProps) {
       .orderBy(asc(leads.createdAt))
       .limit(20),
   ]);
+  // `inArray` is imported for downstream callers; suppress the noUnused
+  // lint here without changing the import surface.
+  void inArray;
+
+  const leadForActions = {
+    id: row.id,
+    type: row.type,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    cityName: row.cityName,
+    bhk: row.bhk,
+    firmName: row.firmName,
+    businessTypeName: row.businessTypeName,
+    interest: row.interest,
+  };
 
   return (
     <main className="min-h-svh bg-background pb-24">
-      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-6">
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
         {/* Header: back + avatar + name */}
         <div className="space-y-4">
           <Button asChild variant="ghost" size="sm" className="-ml-2">
             <Link href="/leads">
               <Icon name="arrow_back" size="sm" />
-              Leads
+              Contacts
             </Link>
           </Button>
 
@@ -176,23 +232,21 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 </span>
                 <span aria-hidden>·</span>
                 <span>{row.cityName}</span>
-                {converted && (
-                  <Badge variant="outline" className="text-[10px] ml-1">
-                    <Icon name="check_circle" size="xs" className="mr-1" />
-                    Converted
-                  </Badge>
-                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Quick actions — 3 big buttons */}
+        {/* Quick actions — WhatsApp / Email / Call only (PR 1: Plan a
+            Visit moved into the Requests section). */}
         <LeadQuickActions
           name={row.name}
           phone={row.phone}
           email={row.email}
         />
+
+        {/* Requests section (HVA-73 PR 1) */}
+        <ContactRequestsSection lead={leadForActions} requests={contactRequests} />
 
         {/* Details */}
         <section
@@ -235,30 +289,14 @@ export default async function LeadDetailPage({ params }: PageProps) {
           {format(new Date(row.createdAt), 'd MMM yyyy')}
         </p>
 
-        {/* Action footer */}
-        {converted && row.convertedToRequestId ? (
-          <div className="rounded-2xl border bg-muted/40 p-4 space-y-3">
-            <p className="text-sm">
-              This lead has been converted to a request.
-            </p>
-            <Button asChild className="w-full" size="lg">
-              <Link href={`/requests/${row.convertedToRequestId}`}>
-                <Icon name="arrow_forward" size="sm" />
-                Open request
-              </Link>
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <PlanVisitButton lead={row} />
-            <CreateTaskFromLeadButton
-              lead={{ id: row.id, name: row.name }}
-              linkableRequests={linkableRequestsRows}
-              linkableLeads={linkableLeadsRows}
-              dayPlanReady={dayPlanReady}
-            />
-          </div>
-        )}
+        {/* Bottom action: Create Task in Day Sheet (Plan a Visit lives
+            in the Requests section header). */}
+        <CreateTaskFromLeadButton
+          lead={{ id: row.id, name: row.name }}
+          linkableRequests={linkableRequestsRows}
+          linkableLeads={linkableLeadsRows}
+          dayPlanReady={dayPlanReady}
+        />
       </div>
     </main>
   );

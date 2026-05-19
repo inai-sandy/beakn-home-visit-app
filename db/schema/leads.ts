@@ -62,11 +62,19 @@ export const leads = pgTable(
       .references(() => users.id, { onDelete: 'restrict' }),
     capturedDate: date('captured_date').notNull().defaultNow(),
 
+    // HVA-73 PR 1 (semantics shift): historically this was the single
+    // request a 1:1 lead→request conversion produced. With the contacts
+    // model (PR 1) a lead may convert multiple times — each conversion
+    // creates a new visit_request with `visit_requests.contact_id` set
+    // to this lead's id. We KEEP this column as the FIRST converted
+    // request for legacy reads (badge text, audit history); the full
+    // request list is derived by `WHERE visit_requests.contact_id = ?`.
     convertedToRequestId: uuid('converted_to_request_id').references(() => visitRequests.id, {
       onDelete: 'set null',
     }),
-    // HVA-73: timestamp when the lead was converted into a visit_request.
-    // NULL until conversion fires. Migration 0022 added this column.
+    // HVA-73: timestamp when the lead was FIRST converted into a
+    // visit_request. NULL until the first conversion; not updated on
+    // subsequent re-conversions (PR 1 D4).
     convertedAt: timestamp('converted_at', { withTimezone: true }),
 
     ...timestamps(),

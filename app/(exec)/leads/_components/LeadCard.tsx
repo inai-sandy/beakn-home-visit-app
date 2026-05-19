@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import type { LeadRow } from './types';
 
 // =============================================================================
-// HVA-73 follow-up: contact-book row
+// HVA-73 follow-up + PR 1: contact-book row
 // =============================================================================
 //
 // Compact horizontal row (~64dp tall):
@@ -20,15 +20,21 @@ import type { LeadRow } from './types';
 //             City · Customer/Business
 //
 // Behaviour:
-//   - Row body (avatar + text) navigates to /leads/[id]
+//   - Tapping the row body (avatar + text) ALWAYS navigates to
+//     /leads/[id] — the contact detail page (HVA-73 PR 1 D3).
+//     Converted contacts no longer skip past the detail to /requests/[id];
+//     the detail page lists all linked requests.
 //   - Action icons stop propagation; each is a real <a href> so the OS
-//     handles the protocol (wa.me, mailto:, tel:)
-//   - Converted leads: muted, chevron-right replaces the action cluster,
-//     row navigates to /requests/[convertedRequestId] instead.
+//     handles the protocol (wa.me, mailto:, tel:).
+//   - Converted contacts render muted, with a chevron-right on the right
+//     edge (visual hint that more is available) plus a small "N requests"
+//     subline added to the type chip area.
 // =============================================================================
 
 interface Props {
   lead: LeadRow;
+  /** Total requests linked to this contact (HVA-73 PR 1). */
+  requestCount?: number;
 }
 
 function digitsOnly(s: string): string {
@@ -40,15 +46,16 @@ function emailValid(e: string | null): e is string {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
-export function LeadCard({ lead }: Props) {
+export function LeadCard({ lead, requestCount = 0 }: Props) {
   const router = useRouter();
   const converted = lead.convertedToRequestId !== null;
   const isBusiness = lead.type === 'Business';
   const phoneDigits = digitsOnly(lead.phone);
   const phoneOk = phoneDigits.length >= 10;
-  const targetHref = converted
-    ? `/requests/${lead.convertedToRequestId}`
-    : `/leads/${lead.id}`;
+  // HVA-73 PR 1 D3: ALWAYS land on the contact detail. Converted rows no
+  // longer skip past the detail to /requests/[id]; the detail page hosts
+  // the requests list now.
+  const targetHref = `/leads/${lead.id}`;
 
   function onRowClick(e: MouseEvent<HTMLDivElement>) {
     // Stops accidental row-navigation when a tap lands on (or bubbles up
@@ -99,10 +106,18 @@ export function LeadCard({ lead }: Props) {
             aria-hidden
           />
           <span>{typeLabel}</span>
+          {converted && requestCount > 0 && (
+            <>
+              <span aria-hidden>·</span>
+              <span>
+                {requestCount} request{requestCount === 1 ? '' : 's'}
+              </span>
+            </>
+          )}
         </p>
       </div>
 
-      {converted && lead.convertedToRequestId ? (
+      {converted ? (
         <Icon
           name="chevron_right"
           size="sm"

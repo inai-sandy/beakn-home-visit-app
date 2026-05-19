@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
@@ -7,6 +7,7 @@ import {
   businessTypes,
   cities,
   leads,
+  visitRequests,
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 
@@ -39,7 +40,7 @@ import type { LeadRow } from './_components/types';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Leads — Beakn',
+  title: 'Contacts — Beakn',
 };
 
 export default async function LeadsPage() {
@@ -97,6 +98,25 @@ export default async function LeadsPage() {
       .orderBy(asc(businessTypes.sequenceNumber)),
   ]);
 
+  // HVA-73 PR 1: one aggregate query for request counts per contact.
+  // Done in a second round-trip (kept out of the main Promise.all so
+  // the leadIds are known). Empty lead list → skip the query entirely.
+  const leadIds = rows.map((r) => r.id);
+  const countMap = new Map<string, number>();
+  if (leadIds.length > 0) {
+    const counts = await db
+      .select({
+        contactId: visitRequests.contactId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(visitRequests)
+      .where(inArray(visitRequests.contactId, leadIds))
+      .groupBy(visitRequests.contactId);
+    for (const c of counts) {
+      if (c.contactId) countMap.set(c.contactId, c.count);
+    }
+  }
+
   const serialized: LeadRow[] = rows.map((r) => ({
     id: r.id,
     type: r.type,
@@ -118,17 +138,18 @@ export default async function LeadsPage() {
     createdAt: r.createdAt.toISOString(),
     convertedToRequestId: r.convertedToRequestId,
     convertedAt: r.convertedAt ? r.convertedAt.toISOString() : null,
+    requestCount: countMap.get(r.id) ?? 0,
   }));
 
   return (
     <main className="min-h-svh bg-background">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5 md:max-w-5xl">
         <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {rows.length === 0
-              ? 'No leads captured yet.'
-              : `${rows.length} ${rows.length === 1 ? 'lead' : 'leads'} captured.`}
+              ? 'No contacts captured yet.'
+              : `${rows.length} ${rows.length === 1 ? 'contact' : 'contacts'} captured.`}
           </p>
         </header>
 

@@ -14,7 +14,7 @@ describe('EXEC_NAV', () => {
   it('exposes the exec destinations in order', () => {
     expect(EXEC_NAV.map((i) => i.label)).toEqual([
       'Today',
-      'Leads',
+      'Contacts',
       'Requests',
       'Profile',
     ]);
@@ -72,7 +72,7 @@ describe('isExecNavItemActive', () => {
 describe('resolveExecPageTitle', () => {
   it('returns the matched item label for each main route', () => {
     expect(resolveExecPageTitle('/today')).toBe('Today');
-    expect(resolveExecPageTitle('/leads')).toBe('Leads');
+    expect(resolveExecPageTitle('/leads')).toBe('Contacts');
     expect(resolveExecPageTitle('/requests')).toBe('Requests');
     expect(resolveExecPageTitle('/profile')).toBe('Profile');
   });

@@ -323,6 +323,8 @@ describe('HVA-74 convertLeadToRequestAction — happy path', () => {
     expect(req.customerPhone).toBe('+919885698665');
     expect(req.address).toBe('12 MG Road, Bangalore 560001');
     expect(req.bhk).toBe('3BHK');
+    // HVA-73 PR 1: every conversion sets contact_id back to the source lead.
+    expect(req.contactId).toBe(leadId);
 
     const [lead] = await db
       .select()
@@ -353,7 +355,7 @@ describe('HVA-74 convertLeadToRequestAction — happy path', () => {
     expect(audit.length).toBeGreaterThan(0);
   });
 
-  it('is idempotent — second conversion attempt is rejected', async () => {
+  it('PR 1: allows re-conversion — each call creates a NEW request, both reference the contact via contact_id', async () => {
     const cap = await seedCaptain();
     const exec = await seedExecutive(cap.id);
     const sess = await loginByPhone(exec.phone, exec.password);
@@ -377,13 +379,35 @@ describe('HVA-74 convertLeadToRequestAction — happy path', () => {
       extra: { address: '12 MG Road, Bangalore', bhk: '3BHK' },
     });
     expect(first.ok).toBe(true);
+    if (!first.ok) return;
 
     const second = await convertLeadToRequestAction({
       leadId,
-      extra: { address: '12 MG Road, Bangalore', bhk: '3BHK' },
+      extra: { address: '34 Indiranagar, Bangalore', bhk: '2BHK' },
     });
-    expect(second.ok).toBe(false);
-    if (!second.ok) expect(second.error).toMatch(/already/i);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.data!.requestId).not.toBe(first.data!.requestId);
+
+    // Both requests reference the same contact.
+    const reqs = await db
+      .select({ id: visitRequests.id, contactId: visitRequests.contactId })
+      .from(visitRequests)
+      .where(eq(visitRequests.contactId, leadId));
+    expect(reqs).toHaveLength(2);
+    for (const r of reqs) expect(r.contactId).toBe(leadId);
+
+    // The lead's legacy convertedToRequestId points at the FIRST request only.
+    const [lead] = await db
+      .select({
+        convertedToRequestId: leads.convertedToRequestId,
+        convertedAt: leads.convertedAt,
+      })
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1);
+    expect(lead.convertedToRequestId).toBe(first.data!.requestId);
+    expect(lead.convertedAt).not.toBeNull();
   });
 
   it('rejects conversion when address is too short', async () => {

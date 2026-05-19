@@ -24,7 +24,10 @@ export interface ExecNavItem {
 
 export const EXEC_NAV: ExecNavItem[] = [
   { label: 'Today', icon: 'today', href: '/today' },
-  { label: 'Leads', icon: 'person_add', href: '/leads' },
+  // HVA-73 PR 1: label renamed Leads → Contacts. Route, icon and DB
+  // table all stay (`/leads`, `person_add`, `leads`). The model shift is
+  // 1:1 lead→request → 1:N contact→requests; the data store is the same.
+  { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
   { label: 'Profile', icon: 'person', href: '/profile' },
 ];

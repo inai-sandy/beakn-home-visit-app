@@ -56,6 +56,7 @@ export interface TaskItemProps {
     estimatedTime: string;
     status: string;
     linkRequestId: string | null;
+    linkLeadId: string | null;
     outcomeOptionId: string | null;
     outcomeOptionName: string | null;
     outcomeNotes: string | null;
@@ -219,6 +220,16 @@ export function TaskItem({
         >
           <Icon name="link" size="xs" />
           View linked request
+        </a>
+      )}
+
+      {task.linkLeadId && !task.linkRequestId && (
+        <a
+          href={`/leads/${task.linkLeadId}`}
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Icon name="link" size="xs" />
+          View linked lead
         </a>
       )}
 

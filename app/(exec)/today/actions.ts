@@ -4,7 +4,7 @@ import { and, eq, isNotNull } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db/client';
-import { dayPlans, postponeReasons, tasks, visitRequests } from '@/db/schema';
+import { dayPlans, leads, postponeReasons, tasks, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { log } from '@/lib/logger';
 import {
@@ -120,6 +120,8 @@ export interface AddTaskInput {
   description: string;
   estimatedTime: string;
   linkRequestId?: string | null;
+  /** HVA-73 follow-up: tasks may link to a lead instead of a request. */
+  linkLeadId?: string | null;
 }
 
 export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{ taskId: string }>> {
@@ -135,6 +137,15 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
   const description = input.description.trim();
   if (description.length < 5 || description.length > 200) {
     return { ok: false, error: 'Description must be 5–200 characters' };
+  }
+
+  // HVA-73 follow-up: link_request_id XOR link_lead_id (or both null).
+  // No DB CHECK constraint; app-side enforcement is authoritative.
+  if (input.linkRequestId && input.linkLeadId) {
+    return {
+      ok: false,
+      error: 'A task can link to a request OR a lead, not both',
+    };
   }
 
   const plan = await loadOpenDayPlan(auth.actor.id);
@@ -157,6 +168,20 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
     if (!req) return { ok: false, error: 'Request not assigned to you' };
   }
 
+  // HVA-73 follow-up: validate lead ownership before linking. Super_admin
+  // is *not* exempt here — a task is the actor's own scheduled work; even
+  // an admin shouldn't claim another exec's lead under their day plan.
+  if (input.linkLeadId) {
+    const [lead] = await db
+      .select({ id: leads.id })
+      .from(leads)
+      .where(
+        and(eq(leads.id, input.linkLeadId), eq(leads.capturedByUserId, auth.actor.id)),
+      )
+      .limit(1);
+    if (!lead) return { ok: false, error: 'Lead not captured by you' };
+  }
+
   const [inserted] = await db
     .insert(tasks)
     .values({
@@ -167,6 +192,7 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
       estimatedTime: input.estimatedTime,
       taskDate: plan.planDate,
       linkRequestId: input.linkRequestId ?? null,
+      linkLeadId: input.linkLeadId ?? null,
     })
     .returning({ id: tasks.id });
 

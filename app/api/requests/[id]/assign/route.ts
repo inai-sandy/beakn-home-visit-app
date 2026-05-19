@@ -19,6 +19,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { findOrCreateContactForAssignment } from '@/lib/captain/contact-linker';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { transitionRequestStatus } from '@/lib/status-transition';
@@ -133,10 +134,14 @@ export async function POST(
     .select({
       id: visitRequests.id,
       customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      customerEmail: visitRequests.customerEmail,
+      bhk: visitRequests.bhk,
       cityId: visitRequests.cityId,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      contactId: visitRequests.contactId,
       statusStageCode: statusStages.code,
     })
     .from(visitRequests)
@@ -308,6 +313,68 @@ export async function POST(
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // 10b. HVA-73 PR 2: find-or-create a leads row for this customer and
+  //      link the request via visit_requests.contact_id. The transition
+  //      already committed; this is a follow-on step. Failure here logs
+  //      a warning but does NOT roll back the assignment — the customer
+  //      contact-book is best-effort relative to the status flow.
+  //
+  // Skip when:
+  //   - a contact_id is already set on the request (lead-conversion flow
+  //     from HVA-74 puts the request straight at ASSIGNED, but defensive
+  //     check anyway against any other future write path);
+  //   - phone is unparseable (the helper itself logs + returns null).
+  if (reqRow.contactId === null) {
+    try {
+      const linkResult = await findOrCreateContactForAssignment({
+        requestId: requestUuid,
+        customerPhone: reqRow.customerPhone,
+        customerName: reqRow.customerName,
+        customerEmail: reqRow.customerEmail,
+        cityId: reqRow.cityId,
+        bhk: reqRow.bhk,
+        assignedExecUserId: execRow.userId,
+      });
+      if (linkResult.contactId) {
+        // Race guard: only patch when still null. A concurrent lead
+        // conversion (improbable from SUBMITTED) wouldn't get clobbered.
+        await db
+          .update(visitRequests)
+          .set({ contactId: linkResult.contactId })
+          .where(
+            and(
+              eq(visitRequests.id, requestUuid),
+              isNull(visitRequests.contactId),
+            ),
+          );
+        await logEvent({
+          eventType: 'request_contact_linked',
+          actorUserId,
+          actorRole,
+          targetEntityType: 'visit_request',
+          targetEntityId: requestUuid,
+          afterState: {
+            contactId: linkResult.contactId,
+            created: linkResult.created,
+            capturedByUserId: execRow.userId,
+          },
+          ipAddress:
+            reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+          userAgent: reqHeaders.get('user-agent'),
+        });
+      }
+    } catch (err) {
+      reqLog.warn(
+        {
+          requestUuid,
+          err: err instanceof Error ? err.message : String(err),
+          msg: 'contact_link_failed_assignment_still_committed',
+        },
+        'contact_linker_post_commit_failed',
+      );
+    }
+  }
 
   // 11. Notification dispatch (HVA-48). Fire-and-forget — the HTTP
   //     response below returns BEFORE the engine resolves rules + invokes

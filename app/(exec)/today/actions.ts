@@ -122,7 +122,27 @@ export interface AddTaskInput {
   linkRequestId?: string | null;
   /** HVA-73 follow-up: tasks may link to a lead instead of a request. */
   linkLeadId?: string | null;
+  /**
+   * Task calendar picker: YYYY-MM-DD in IST. Default = today.
+   * Allowed window: [today, today+30]. When > today, this action
+   * auto-creates the matching future day_plan row if one doesn't exist.
+   */
+  taskDate?: string | null;
 }
+
+const FUTURE_TASK_WINDOW_DAYS = 30;
+
+function ymdAddDays(istDate: string, deltaDays: number): string {
+  const [y, m, d] = istDate.split('-').map((s) => Number(s));
+  const t = new Date(Date.UTC(y, m - 1, d));
+  t.setUTCDate(t.getUTCDate() + deltaDays);
+  const yy = t.getUTCFullYear();
+  const mm = String(t.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(t.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{ taskId: string }>> {
   const auth = await authorize();
@@ -148,9 +168,76 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
     };
   }
 
-  const plan = await loadOpenDayPlan(auth.actor.id);
-  if (plan === null) return { ok: false, error: 'Start your day first' };
-  if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
+  // Task date picker (defaults to today IST). Server-side bounds check.
+  const todayIst = getIstDateString();
+  const maxIst = ymdAddDays(todayIst, FUTURE_TASK_WINDOW_DAYS);
+  const taskDate = input.taskDate ?? todayIst;
+  if (!ISO_DATE_RE.test(taskDate)) {
+    return { ok: false, error: 'Task date must be YYYY-MM-DD' };
+  }
+  if (taskDate < todayIst) {
+    return { ok: false, error: 'Task date cannot be in the past' };
+  }
+  if (taskDate > maxIst) {
+    return {
+      ok: false,
+      error: `Task date cannot be more than ${FUTURE_TASK_WINDOW_DAYS} days out`,
+    };
+  }
+
+  // Today-dated tasks: today's plan must already exist (the Start My
+  // Day button shipped the row). Future-dated tasks: look up the future
+  // plan for the chosen date, auto-creating it if missing.
+  let targetPlanId: string;
+  if (taskDate === todayIst) {
+    const plan = await loadOpenDayPlan(auth.actor.id);
+    if (plan === null) return { ok: false, error: 'Start your day first' };
+    if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
+    targetPlanId = plan.id;
+  } else {
+    // Find-or-create future day_plan. The unique (exec_user_id,
+    // plan_date) constraint makes the insert idempotent across races.
+    const existing = await db
+      .select({ id: dayPlans.id, closedAt: dayPlans.closedAt })
+      .from(dayPlans)
+      .where(
+        and(eq(dayPlans.execUserId, auth.actor.id), eq(dayPlans.planDate, taskDate)),
+      )
+      .limit(1);
+    if (existing[0]) {
+      // A future-dated plan should never have closed_at set, but guard
+      // anyway so we don't silently write into a sealed plan.
+      if (existing[0].closedAt !== null) {
+        return { ok: false, error: 'That day plan is already closed' };
+      }
+      targetPlanId = existing[0].id;
+    } else {
+      await db
+        .insert(dayPlans)
+        .values({
+          execUserId: auth.actor.id,
+          planDate: taskDate,
+          scheduledVisitCount: 0,
+          additionalTaskCount: 1,
+          isLate: false,
+        })
+        .onConflictDoNothing();
+      const [reloaded] = await db
+        .select({ id: dayPlans.id })
+        .from(dayPlans)
+        .where(
+          and(
+            eq(dayPlans.execUserId, auth.actor.id),
+            eq(dayPlans.planDate, taskDate),
+          ),
+        )
+        .limit(1);
+      if (!reloaded) {
+        return { ok: false, error: 'Could not create day plan' };
+      }
+      targetPlanId = reloaded.id;
+    }
+  }
 
   // Validate optional request link belongs to this exec (defence-in-depth;
   // UI only suggests own requests).
@@ -186,11 +273,11 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
     .insert(tasks)
     .values({
       execUserId: auth.actor.id,
-      dayPlanId: plan.id,
+      dayPlanId: targetPlanId,
       taskType: input.taskType as TaskType,
       description,
       estimatedTime: input.estimatedTime,
-      taskDate: plan.planDate,
+      taskDate,
       linkRequestId: input.linkRequestId ?? null,
       linkLeadId: input.linkLeadId ?? null,
     })
@@ -232,6 +319,7 @@ export async function markTaskDoneAction(
       createdAt: tasks.createdAt,
       taskType: tasks.taskType,
       status: tasks.status,
+      taskDate: tasks.taskDate,
     })
     .from(tasks)
     .where(
@@ -243,6 +331,20 @@ export async function markTaskDoneAction(
     )
     .limit(1);
   if (!task) return { ok: false, error: 'Task not found' };
+
+  // Task-calendar-picker guard: a future-dated task cannot be marked
+  // done before its scheduled day arrives. Today's /today task list
+  // can't surface a future task because the dayPlanId filter above
+  // restricts to today's plan, so this is redundant *today*. It becomes
+  // load-bearing when HVA-155 Part B's Pending Tasks view ships and may
+  // mutate tasks across plans.
+  const todayIstForGuard = getIstDateString();
+  if (task.taskDate > todayIstForGuard) {
+    return {
+      ok: false,
+      error: 'This task is scheduled for the future — mark it done on its day',
+    };
+  }
 
   // Free-text mode requires non-empty notes; chip mode requires an
   // outcomeOptionId. The UI enforces this too but server-side is

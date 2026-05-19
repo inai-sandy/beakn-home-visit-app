@@ -225,6 +225,10 @@ export const CONFIG_SCHEMA = {
       // Records leadId in targetEntityId and the resulting requestId
       // in afterState.requestId.
       'lead_converted_to_request',
+      // HVA-73 PR 2 — captain assignment auto-creates or links a contact.
+      // afterState.created distinguishes the insert path from the
+      // link-to-existing path.
+      'request_contact_linked',
     ],
     editable: true,
   },

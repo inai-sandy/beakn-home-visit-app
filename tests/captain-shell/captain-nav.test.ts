@@ -35,7 +35,7 @@ import {
 // =============================================================================
 
 describe('HVA-152: shared captain nav config', () => {
-  it('CAPTAIN_NAV_ITEMS lists the 9 expected items in the expected order', () => {
+  it('CAPTAIN_NAV_ITEMS lists the expected items in the expected order', () => {
     expect(CAPTAIN_NAV_ITEMS).toMatchInlineSnapshot(`
       [
         {
@@ -52,6 +52,11 @@ describe('HVA-152: shared captain nav config', () => {
           "href": "/captain/team",
           "icon": "groups",
           "label": "My Team",
+        },
+        {
+          "href": "/captain/contacts",
+          "icon": "contacts",
+          "label": "Contacts",
         },
         {
           "href": "/captain/approvals",

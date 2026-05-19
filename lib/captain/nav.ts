@@ -24,6 +24,10 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // statuses. Placed second since this is the captain's primary workflow.
   { href: '/captain/requests', label: 'Requests', icon: 'list_alt' },
   { href: '/captain/team', label: 'My Team', icon: 'groups' },
+  // HVA-73 PR 2: every contact captured by the captain's team (including
+  // auto-created ones from request assignment). Read-only for captain
+  // in this ticket; edit lands in PR 3.
+  { href: '/captain/contacts', label: 'Contacts', icon: 'contacts' },
   { href: '/captain/approvals', label: 'Pending Approvals', icon: 'task_alt' },
   { href: '/captain/collections', label: 'Pending Collections', icon: 'payments' },
   { href: '/captain/reports', label: 'Reports', icon: 'monitoring' },

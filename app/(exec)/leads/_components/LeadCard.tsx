@@ -115,6 +115,12 @@ export function LeadCard({ lead, requestCount = 0 }: Props) {
             </>
           )}
         </p>
+        {lead.visibilityReason === 'assignment' && lead.capturedByName && (
+          <p className="text-[11px] text-muted-foreground/80">
+            Captured by{' '}
+            <span className="font-medium">{lead.capturedByName}</span>
+          </p>
+        )}
       </div>
 
       {converted ? (

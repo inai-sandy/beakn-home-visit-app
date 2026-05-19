@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { db } from '@/db/client';
 import { dayPlans, leads, postponeReasons, tasks, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { log } from '@/lib/logger';
 import {
   ESTIMATED_TIME_BUCKETS,
@@ -255,18 +256,30 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
     if (!req) return { ok: false, error: 'Request not assigned to you' };
   }
 
-  // HVA-73 follow-up: validate lead ownership before linking. Super_admin
-  // is *not* exempt here — a task is the actor's own scheduled work; even
-  // an admin shouldn't claim another exec's lead under their day plan.
+  // HVA-73 PR 3: validate lead visibility before linking. Visibility
+  // broadens beyond captor — if the actor has ever been assigned to a
+  // contact-linked request, they can link tasks against that contact.
+  // Super_admin still goes through the captor-only narrow path since
+  // visibility isn't defined for them (they have no assignment trail).
   if (input.linkLeadId) {
     const [lead] = await db
-      .select({ id: leads.id })
+      .select({ id: leads.id, capturedByUserId: leads.capturedByUserId })
       .from(leads)
-      .where(
-        and(eq(leads.id, input.linkLeadId), eq(leads.capturedByUserId, auth.actor.id)),
-      )
+      .where(eq(leads.id, input.linkLeadId))
       .limit(1);
-    if (!lead) return { ok: false, error: 'Lead not captured by you' };
+    if (!lead) {
+      return { ok: false, error: 'Lead not found' };
+    }
+    if (auth.actor.role === 'super_admin') {
+      if (lead.capturedByUserId !== auth.actor.id) {
+        return { ok: false, error: 'Lead not captured by you' };
+      }
+    } else {
+      const visibleIds = await loadExecVisibleContactIds(auth.actor.id);
+      if (!visibleIds.includes(input.linkLeadId)) {
+        return { ok: false, error: 'Lead is not visible to you' };
+      }
+    }
   }
 
   const [inserted] = await db

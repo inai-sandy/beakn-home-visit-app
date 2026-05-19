@@ -267,7 +267,10 @@ describe('HVA-74 convertLeadToRequestAction — auth + ownership', () => {
       },
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/your own/i);
+    // HVA-73 PR 3: the ownership error message moved from "your own"
+    // to "not visible to you" when visibility broadened. Exec B has no
+    // assignment trail to this lead's contact, so they remain blocked.
+    if (!res.ok) expect(res.error).toMatch(/not visible to you/i);
   });
 });
 

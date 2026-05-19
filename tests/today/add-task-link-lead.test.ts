@@ -137,7 +137,10 @@ describe('HVA-73 followup: lead ownership guard', () => {
       linkLeadId: addLead.data!.leadId,
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/captured by you/i);
+    // HVA-73 PR 3: error message moved from "Lead not captured by you"
+    // to "Lead is not visible to you" when visibility broadened.
+    // Exec B has no captor/assignment claim on Exec A's lead.
+    if (!res.ok) expect(res.error).toMatch(/not visible to you/i);
   });
 });
 

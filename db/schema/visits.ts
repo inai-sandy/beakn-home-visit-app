@@ -81,6 +81,21 @@ export const visitRequests = pgTable(
     trackingToken: varchar('tracking_token', { length: 32 }).notNull(),
     source: varchar('source', { length: 32 }).notNull().default('web'),
 
+    // HVA-73 PR 1: the contact (leads.id) this request was created from.
+    // Nullable: requests created via the public customer-request form are
+    // contact-less; only lead-conversion-created requests carry one. A
+    // single contact may have multiple requests (interior designer with
+    // repeat orders).
+    //
+    // We intentionally DO NOT declare `.references(() => leads.id)` here:
+    // leads.ts already imports `visitRequests` for its
+    // `converted_to_request_id` FK, and declaring the reverse direction
+    // creates a circular module-level type cycle that TS can't infer
+    // through. The FK is fully expressed in migration 0023 — the runtime
+    // constraint, ON DELETE SET NULL behaviour, and the index all live
+    // there.
+    contactId: uuid('contact_id'),
+
     statusStageId: uuid('status_stage_id')
       .notNull()
       .references(() => statusStages.id, { onDelete: 'restrict' }),
@@ -120,6 +135,8 @@ export const visitRequests = pgTable(
     index('visit_requests_phone_idx').on(table.customerPhone),
     index('visit_requests_created_idx').on(table.createdAt),
     index('visit_requests_visit_scheduled_idx').on(table.visitScheduledAt),
+    // HVA-73 PR 1: drives "all requests for this contact" on /leads/[id].
+    index('visit_requests_contact_idx').on(table.contactId),
   ],
 );
 

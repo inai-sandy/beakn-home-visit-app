@@ -20,6 +20,8 @@ export interface LeadRow {
   createdAt: string; // ISO timestamp
   convertedToRequestId: string | null;
   convertedAt: string | null; // ISO timestamp when converted
+  /** Total visit_requests linked to this contact via contact_id (HVA-73 PR 1). */
+  requestCount: number;
 }
 
 export interface CityOption {

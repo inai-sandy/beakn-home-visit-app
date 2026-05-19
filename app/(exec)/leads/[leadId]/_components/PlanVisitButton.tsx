@@ -31,20 +31,21 @@ interface Props {
     | 'businessTypeName'
     | 'interest'
   >;
+  /** "Plan a Visit" (default) or "Plan Another Visit" (HVA-73 PR 1). */
+  label?: string;
 }
 
-export function PlanVisitButton({ lead }: Props) {
+export function PlanVisitButton({ lead, label = 'Plan a Visit' }: Props) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button
         type="button"
-        size="lg"
+        size="sm"
         onClick={() => setOpen(true)}
-        className="w-full"
       >
-        <Icon name="event" size="sm" />
-        Plan a Visit
+        <Icon name="event" size="xs" />
+        {label}
       </Button>
       {open && <ConvertLeadSheet lead={lead} onClose={() => setOpen(false)} />}
     </>

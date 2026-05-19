@@ -22,31 +22,33 @@ import {
 } from '@/lib/validators/lead';
 
 // =============================================================================
-// HVA-74: convertLeadToRequestAction — Lead → visit_request
+// HVA-74 + HVA-73 PR 1: convertLeadToRequestAction — Lead → visit_request
 // =============================================================================
 //
-// Flow (single transaction):
+// Flow:
 //   1. Auth + ownership: lead.captured_by_user_id must equal the actor
-//      (or actor is super_admin). Skipping this would let a different
-//      exec convert someone else's lead.
+//      (or actor is super_admin).
 //   2. Validate extra fields (address, bhk, optional state).
-//   3. Refuse if lead.converted_to_request_id is already set.
-//   4. Resolve the ASSIGNED status_stage id once.
-//   5. INSERT visit_requests with assigned_exec_user_id = actor,
-//      assigned_captain_user_id = city.captain_user_id, statusStageId =
-//      ASSIGNED, source = 'lead_conversion', tracking_token via nanoid.
-//   6. INSERT request_status_history initial row (from=NULL,
-//      to=ASSIGNED, transition_order=1, sequence_number=2). Keeps the
-//      audit trail intact even though we skipped SUBMITTED.
-//   7. UPDATE leads SET converted_to_request_id, converted_at.
-//   8. Audit log entry ('lead_converted_to_request').
-//   9. Stub the captain notification (console.log + TODO HVA-79); the
-//      action does NOT block on notification readiness.
+//   3. Resolve the ASSIGNED status_stage id once.
+//   4. INSERT visit_requests with:
+//        - assigned_exec_user_id = actor
+//        - assigned_captain_user_id = city.captain_user_id
+//        - statusStageId = ASSIGNED
+//        - source = 'lead_conversion'
+//        - tracking_token via nanoid
+//        - contact_id = lead.id (HVA-73 PR 1 — new on every conversion)
+//   5. INSERT request_status_history initial row (from=NULL,
+//      to=ASSIGNED, transition_order=1, sequence_number=2).
+//   6. ONLY on first conversion (leads.converted_to_request_id IS NULL):
+//      UPDATE leads SET converted_to_request_id, converted_at.
+//      Subsequent re-conversions leave those columns pointing at the
+//      first request (HVA-73 PR 1 D4 — column is "first request",
+//      contact_id is the source of truth for the full list).
+//   7. Audit log entry ('lead_converted_to_request').
+//   8. Stub the captain notification (real wiring in HVA-79).
 //
-// `request_status_history.sequence_number = 2` matches the canonical
-// ASSIGNED stage's seq number in the seeded status_stages table
-// (migration 0005). Hardcoded here because we already resolved the
-// stage row.
+// Re-conversion is now allowed: an interior designer who places three
+// orders is one contact with three requests.
 // =============================================================================
 
 type ActionResult<T = undefined> =
@@ -111,11 +113,8 @@ export async function convertLeadToRequestAction(
     return { ok: false, error: 'You can only convert your own leads' };
   }
 
-  // Idempotency: once converted, refuse to convert again. The UI hides
-  // the action but a stale tab could still try.
-  if (lead.convertedToRequestId !== null) {
-    return { ok: false, error: 'Lead is already converted' };
-  }
+  // HVA-73 PR 1 D4: re-conversion is allowed. A contact (lead) can have
+  // many requests. Don't block on `lead.convertedToRequestId !== null`.
 
   // Resolve the ASSIGNED stage id + the city's captain (for
   // assigned_captain_user_id mirroring visit_requests semantics).
@@ -164,6 +163,8 @@ export async function convertLeadToRequestAction(
       interest: lead.interest,
       trackingToken,
       source: 'lead_conversion',
+      // HVA-73 PR 1: every lead-conversion request points back to the lead.
+      contactId: lead.id,
       statusStageId: assignedStage.id,
       assignedExecUserId: actor.id,
       assignedCaptainUserId: cityRow?.captainUserId ?? null,
@@ -183,11 +184,15 @@ export async function convertLeadToRequestAction(
     changedAt: now,
   });
 
-  // Mark the lead as converted.
-  await db
-    .update(leads)
-    .set({ convertedToRequestId: requestRow.id, convertedAt: now })
-    .where(eq(leads.id, input.leadId));
+  // Mark the lead as converted ONLY on the first conversion. Subsequent
+  // re-conversions don't overwrite — the column stores the FIRST request
+  // for legacy reads (HVA-73 PR 1 D4).
+  if (lead.convertedToRequestId === null) {
+    await db
+      .update(leads)
+      .set({ convertedToRequestId: requestRow.id, convertedAt: now })
+      .where(eq(leads.id, input.leadId));
+  }
 
   // Audit trail.
   await logEvent({

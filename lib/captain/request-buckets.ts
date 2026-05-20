@@ -1,5 +1,5 @@
 // =============================================================================
-// HVA-127: bucket logic for the captain's /captain/requests list
+// HVA-127 / HVA-153: bucket logic for the captain's /captain/requests list
 // =============================================================================
 //
 // `status_stages` doesn't carry an `is_terminal` or `category` column, so
@@ -10,9 +10,14 @@
 //   * Assigned  — assigned_exec_user_id IS NOT NULL, not terminal
 //   * Open      — assigned_exec_user_id IS NULL, not terminal
 //
+// HVA-153 lift: the same code-driven rules are now also expressed as
+// Drizzle SQL builders so the captain page can filter + count at the
+// server. `categorizeRequest` stays for in-memory call sites (existing
+// tests).
+//
 // Adding a new positive-terminal stage in the future = update
-// TERMINAL_POSITIVE_STATUS_CODES below + the test that asserts the
-// bucket distribution.
+// TERMINAL_POSITIVE_STATUS_CODES below + bucketWhereClause() + the test
+// that asserts the bucket distribution.
 // =============================================================================
 
 export const CAPTAIN_REQUEST_BUCKETS = [
@@ -58,3 +63,63 @@ export const BUCKET_LABELS: Record<CaptainRequestBucket, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+// =============================================================================
+// HVA-153: SQL builders for server-side bucket filtering + count rollup
+// =============================================================================
+
+import { and, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+
+import { statusStages, visitRequests } from '@/db/schema';
+
+/**
+ * Returns the SQL predicate matching a single bucket. `all` returns
+ * undefined so the caller composes only the scope filter.
+ */
+export function bucketWhereClause(bucket: CaptainRequestBucket) {
+  switch (bucket) {
+    case 'all':
+      return undefined;
+    case 'cancelled':
+      return isNotNull(visitRequests.cancelledAt);
+    case 'completed':
+      return and(
+        isNull(visitRequests.cancelledAt),
+        eq(statusStages.code, 'ORDER_EXECUTED_SUCCESSFULLY'),
+      );
+    case 'assigned':
+      return and(
+        isNull(visitRequests.cancelledAt),
+        ne(statusStages.code, 'ORDER_EXECUTED_SUCCESSFULLY'),
+        isNotNull(visitRequests.assignedExecUserId),
+      );
+    case 'open':
+      return and(
+        isNull(visitRequests.cancelledAt),
+        ne(statusStages.code, 'ORDER_EXECUTED_SUCCESSFULLY'),
+        isNull(visitRequests.assignedExecUserId),
+      );
+  }
+}
+
+/**
+ * GROUP BY a CASE expression rolling each row up into its bucket name.
+ * The caller composes the scope predicate (city, exec, search) and
+ * passes it as `scopeWhere`; bucket filtering is intentionally omitted
+ * so the chip counts stay independent of the active bucket (D6).
+ *
+ * Returns counts for every bucket key — missing keys default to 0 so
+ * the caller doesn't have to.
+ */
+export const BUCKET_CASE_SQL = sql<string>`
+  CASE
+    WHEN ${visitRequests.cancelledAt} IS NOT NULL THEN 'cancelled'
+    WHEN ${statusStages.code} = 'ORDER_EXECUTED_SUCCESSFULLY' THEN 'completed'
+    WHEN ${visitRequests.assignedExecUserId} IS NOT NULL THEN 'assigned'
+    ELSE 'open'
+  END
+`;
+
+export function emptyBucketCounts(): Record<CaptainRequestBucket, number> {
+  return { all: 0, open: 0, assigned: 0, completed: 0, cancelled: 0 };
+}

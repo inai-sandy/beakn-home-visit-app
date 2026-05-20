@@ -17,7 +17,7 @@ import type {
   TeamExecOption,
 } from '@/lib/captain/contacts-queries';
 
-import { CaptainContactRow } from './CaptainContactRow';
+import { ContactCard } from '@/components/contacts/ContactCard';
 
 // =============================================================================
 // HVA-73 PR 2: captain contacts list — search + type filter + exec filter
@@ -184,7 +184,16 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
         <ul className="space-y-2" aria-label="Contacts">
           {visible.map((c) => (
             <li key={c.id}>
-              <CaptainContactRow contact={c} />
+              <ContactCard
+                id={c.id}
+                name={c.name}
+                type={c.type}
+                cityName={c.cityName}
+                capturedByName={c.capturedByName}
+                requestCount={c.requestCount}
+                converted={c.convertedToRequestId !== null}
+                hrefPrefix="/captain/contacts"
+              />
             </li>
           ))}
         </ul>

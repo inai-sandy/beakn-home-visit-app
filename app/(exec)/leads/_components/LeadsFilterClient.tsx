@@ -7,8 +7,9 @@ import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { ContactCard } from '@/components/contacts/ContactCard';
+
 import { AddLeadFab } from './AddLeadFab';
-import { LeadCard } from './LeadCard';
 import type {
   BusinessTypeOption,
   CityOption,
@@ -158,10 +159,19 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
           </p>
         </div>
       ) : (
-        <ul className="space-y-2" aria-label="Leads">
+        <ul className="space-y-2" aria-label="Contacts">
           {visible.map((lead) => (
             <li key={lead.id}>
-              <LeadCard lead={lead} requestCount={lead.requestCount} />
+              <ContactCard
+                id={lead.id}
+                name={lead.name}
+                type={lead.type}
+                cityName={lead.cityName}
+                capturedByName={lead.capturedByName}
+                requestCount={lead.requestCount}
+                converted={lead.convertedToRequestId !== null}
+                hrefPrefix="/leads"
+              />
             </li>
           ))}
         </ul>

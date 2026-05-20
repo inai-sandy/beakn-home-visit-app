@@ -229,5 +229,10 @@ export const requestExecAssignments = pgTable(
       table.requestId,
       table.createdAt,
     ),
+    // HVA-162: per-exec lookups for the visibility hot path
+    // (loadExecVisibleContactSet's historical-reassignment branch).
+    // Matches the indexes added by migration 0027.
+    index('request_exec_assignments_to_exec_idx').on(table.toExecUserId),
+    index('request_exec_assignments_from_exec_idx').on(table.fromExecUserId),
   ],
 );

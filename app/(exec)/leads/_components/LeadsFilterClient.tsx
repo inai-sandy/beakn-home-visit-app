@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/ui/icon';
-import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { ContactCard } from '@/components/contacts/ContactCard';
+import { Icon } from '@/components/ui/icon';
+import { Input } from '@/components/ui/input';
+import { buildListUrl } from '@/lib/pagination';
+import { cn } from '@/lib/utils';
 
 import { AddLeadFab } from './AddLeadFab';
 import type {
@@ -17,19 +17,14 @@ import type {
 } from './types';
 
 // =============================================================================
-// HVA-73: client-side filter + search for the /leads list
+// HVA-73 + HVA-153: client-side filter + URL-driven search for /leads
 // =============================================================================
 //
-// Server hands the full row set + dropdown options down. This wrapper
-// owns:
-//   - 300ms debounced search by name / phone (digits-only normalisation
-//     so "9885 698 665" matches "+919885698665")
-//   - Filter chip row: All / Customer / Business
-//   - The AddLeadFab + the per-card Plan-a-Visit conversion sheet trigger
-//
-// No URL state on the leads list (the surface is single-exec, not
-// shareable like /captain/requests). All filter state stays in
-// component memory.
+// The page is now server-rendered against `?q`, `?type`, `?page`. This
+// component owns the input + chip UI, debounces typing, and pushes
+// updates back into the URL via router.push(). Any non-page filter
+// change drops `?page` (handled by buildListUrl) so the list returns
+// to page 1 on a new filter.
 // =============================================================================
 
 type TypeFilter = 'all' | 'Customer' | 'Business';
@@ -40,61 +35,73 @@ const FILTER_OPTIONS: ReadonlyArray<{ key: TypeFilter; label: string }> = [
   { key: 'Business', label: 'Business' },
 ];
 
-function digitsOnly(s: string): string {
-  return s.replace(/\D/g, '');
-}
-
-function matchesSearch(row: LeadRow, q: string): boolean {
-  const trimmed = q.trim();
-  if (trimmed === '') return true;
-  const needle = trimmed.toLowerCase();
-  if (row.name.toLowerCase().includes(needle)) return true;
-  if (row.cityName.toLowerCase().includes(needle)) return true;
-  const needleDigits = digitsOnly(trimmed);
-  if (needleDigits.length > 0 && digitsOnly(row.phone).includes(needleDigits)) {
-    return true;
-  }
-  if (row.firmName && row.firmName.toLowerCase().includes(needle)) return true;
-  return false;
-}
-
 interface Props {
   rows: LeadRow[];
   cities: CityOption[];
   businessTypes: BusinessTypeOption[];
+  /** Server-decoded query state — used to seed local controls. */
+  initial: {
+    q: string;
+    type: TypeFilter;
+  };
+  /** Pre-filter type-bucket counts for the chip badges. */
+  typeCounts: Record<TypeFilter, number>;
 }
 
-export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [filter, setFilter] = useState<TypeFilter>('all');
+export function LeadsFilterClient({
+  rows,
+  cities,
+  businessTypes,
+  initial,
+  typeCounts,
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
+  // The search input is the only control with debounce. Type chips push
+  // immediately.
+  const [searchText, setSearchText] = useState(initial.q);
+  // Reseed local state when the URL changes externally (back/forward).
+  // The `initial.q` prop only re-renders when the server re-fetches,
+  // which happens on every router.push, so this keeps both views in
+  // lockstep.
+  const lastInitialQ = useRef(initial.q);
+  if (lastInitialQ.current !== initial.q) {
+    lastInitialQ.current = initial.q;
+    if (searchText !== initial.q) setSearchText(initial.q);
+  }
+
+  // 300ms debounce on search input. Skip the initial render so we don't
+  // re-push the URL on mount.
+  const firstRender = useRef(true);
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(id);
-  }, [search]);
-
-  const counts = useMemo(() => {
-    const c: Record<TypeFilter, number> = {
-      all: rows.length,
-      Customer: 0,
-      Business: 0,
-    };
-    for (const r of rows) {
-      if (r.type === 'Customer') c.Customer += 1;
-      else if (r.type === 'Business') c.Business += 1;
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
     }
-    return c;
-  }, [rows]);
+    const id = setTimeout(() => {
+      const trimmed = searchText.trim();
+      if (trimmed === initial.q) return;
+      startTransition(() => {
+        router.push(
+          buildListUrl(pathname, searchParams, { q: trimmed || null }),
+        );
+      });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [searchText, initial.q, pathname, router, searchParams]);
 
-  const visible = useMemo(
-    () =>
-      rows.filter((r) => {
-        if (filter !== 'all' && r.type !== filter) return false;
-        return matchesSearch(r, debouncedSearch);
-      }),
-    [rows, filter, debouncedSearch],
-  );
+  function pushType(t: TypeFilter) {
+    startTransition(() => {
+      router.push(
+        buildListUrl(pathname, searchParams, {
+          type: t === 'all' ? null : t,
+        }),
+      );
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -102,10 +109,10 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
         type="search"
         inputMode="search"
         placeholder="Search by name, phone, city, or firm"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
         className="h-11"
-        aria-label="Search leads"
+        aria-label="Search contacts"
       />
 
       <nav
@@ -113,13 +120,14 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
         className="flex flex-wrap gap-1.5 border-b pb-3"
       >
         {FILTER_OPTIONS.map((opt) => {
-          const active = filter === opt.key;
+          const active = initial.type === opt.key;
           return (
             <button
               type="button"
               key={opt.key}
-              onClick={() => setFilter(opt.key)}
+              onClick={() => pushType(opt.key)}
               aria-current={active ? 'page' : undefined}
+              disabled={isPending}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                 active
@@ -136,14 +144,14 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
                     : 'bg-muted-foreground/15 text-muted-foreground',
                 )}
               >
-                {counts[opt.key]}
+                {typeCounts[opt.key]}
               </span>
             </button>
           );
         })}
       </nav>
 
-      {visible.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
           <Icon
             name="person_add"
@@ -151,16 +159,16 @@ export function LeadsFilterClient({ rows, cities, businessTypes }: Props) {
             className="text-muted-foreground/70 mx-auto"
           />
           <p className="text-sm text-muted-foreground">
-            {debouncedSearch !== ''
-              ? `No leads matching "${debouncedSearch}".`
-              : filter === 'all'
-                ? 'No leads yet. Tap + to capture your first lead.'
-                : `No ${filter.toLowerCase()} leads.`}
+            {initial.q
+              ? `No leads matching "${initial.q}".`
+              : initial.type !== 'all'
+                ? `No ${initial.type.toLowerCase()} leads.`
+                : 'No leads yet. Tap + to capture your first lead.'}
           </p>
         </div>
       ) : (
         <ul className="space-y-2" aria-label="Contacts">
-          {visible.map((lead) => (
+          {rows.map((lead) => (
             <li key={lead.id}>
               <ContactCard
                 id={lead.id}

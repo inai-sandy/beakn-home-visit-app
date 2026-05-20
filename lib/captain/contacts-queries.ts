@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -11,6 +11,7 @@ import {
   users,
   visitRequests,
 } from '@/db/schema';
+import { computePageRange, DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 // =============================================================================
 // HVA-73 PR 2: captain-scoped contact reads
@@ -85,85 +86,134 @@ export async function loadCaptainTeamExecOptions(
     .orderBy(asc(users.fullName));
 }
 
+export interface FetchTeamContactsParams {
+  teamUserIds: string[];
+  search?: string;
+  typeFilter?: 'Customer' | 'Business';
+  /** Captor's user id — when set, narrows to a single team exec. */
+  execFilter?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FetchTeamContactsResult {
+  rows: TeamContactRow[];
+  total: number;
+}
+
+/**
+ * HVA-153: server-side filtered + paginated team contacts.
+ *
+ * Filter composition:
+ *   - team scope: `leads.captured_by_user_id IN teamUserIds`
+ *   - exec narrow (optional): the above narrowed to a single captor
+ *   - type narrow (optional): `leads.type = ?`
+ *   - search (optional): OR over name / city name / firm name /
+ *     digit-only phone substring
+ *
+ * Two round-trips: paginated rows + matching total. The request-count
+ * aggregate runs as a third round-trip but is scoped to the **visible
+ * page's lead ids only** (D3 from the bundle) so we don't load N counts
+ * to render 20.
+ */
 export async function fetchTeamContacts(
-  teamUserIds: string[],
-): Promise<TeamContactRow[]> {
-  if (teamUserIds.length === 0) return [];
+  params: FetchTeamContactsParams,
+): Promise<FetchTeamContactsResult> {
+  const { teamUserIds } = params;
+  if (teamUserIds.length === 0) return { rows: [], total: 0 };
+
+  const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+
+  // Compose the predicate once; reuse for both the rows query and the
+  // total-count query so they can't drift.
+  const conditions = buildContactsWhere({
+    teamUserIds,
+    search: params.search,
+    typeFilter: params.typeFilter,
+    execFilter: params.execFilter,
+  });
 
   const captorAlias = users;
-  const rows = await db
-    .select({
-      id: leads.id,
-      type: leads.type,
-      name: leads.name,
-      phone: leads.phone,
-      email: leads.email,
-      cityId: leads.cityId,
-      cityName: cities.name,
-      bhk: leads.bhk,
-      firmName: leads.firmName,
-      businessTypeId: leads.businessTypeId,
-      businessTypeName: businessTypes.name,
-      interest: leads.interest,
-      notes: leads.notes,
-      capturedByUserId: leads.capturedByUserId,
-      capturedByName: captorAlias.fullName,
-      capturedDate: leads.capturedDate,
-      createdAt: leads.createdAt,
-      convertedToRequestId: leads.convertedToRequestId,
-      convertedAt: leads.convertedAt,
-    })
+
+  const [totalRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
     .from(leads)
     .innerJoin(cities, eq(cities.id, leads.cityId))
-    .leftJoin(businessTypes, eq(businessTypes.id, leads.businessTypeId))
     .innerJoin(captorAlias, eq(captorAlias.id, leads.capturedByUserId))
-    .where(inArray(leads.capturedByUserId, teamUserIds))
-    .orderBy(
-      // Unconverted first within each captor; newest first within each
-      // group. Same sort the exec /leads page uses.
-      asc(leads.convertedToRequestId),
-      desc(leads.createdAt),
-    );
+    .where(conditions);
+  const total = totalRow?.count ?? 0;
 
-  // Aggregate request counts via visit_requests.contact_id. Includes
-  // legacy converted_to_request_id pointer requests (whose contact_id
-  // may still be NULL — no backfill per PR 1 D6).
-  const leadIds = rows.map((r) => r.id);
-  const convertedRequestIds = rows
-    .map((r) => r.convertedToRequestId)
-    .filter((v): v is string => v !== null);
+  const range = computePageRange({ total, page: params.page ?? 1, pageSize });
 
+  const baseRows =
+    total === 0
+      ? []
+      : await db
+          .select({
+            id: leads.id,
+            type: leads.type,
+            name: leads.name,
+            phone: leads.phone,
+            email: leads.email,
+            cityId: leads.cityId,
+            cityName: cities.name,
+            bhk: leads.bhk,
+            firmName: leads.firmName,
+            businessTypeId: leads.businessTypeId,
+            businessTypeName: businessTypes.name,
+            interest: leads.interest,
+            notes: leads.notes,
+            capturedByUserId: leads.capturedByUserId,
+            capturedByName: captorAlias.fullName,
+            capturedDate: leads.capturedDate,
+            createdAt: leads.createdAt,
+            convertedToRequestId: leads.convertedToRequestId,
+            convertedAt: leads.convertedAt,
+          })
+          .from(leads)
+          .innerJoin(cities, eq(cities.id, leads.cityId))
+          .leftJoin(businessTypes, eq(businessTypes.id, leads.businessTypeId))
+          .innerJoin(captorAlias, eq(captorAlias.id, leads.capturedByUserId))
+          .where(conditions)
+          .orderBy(
+            // HVA-153: unconverted first, then newest within each group.
+            // Postgres default for `ORDER BY uuid_col ASC` is NULLS LAST,
+            // which is the opposite of what we want — so use an explicit
+            // boolean expression: `(col IS NOT NULL) ASC` puts FALSE
+            // (i.e. unconverted) first.
+            sql`${leads.convertedToRequestId} IS NOT NULL ASC`,
+            desc(leads.createdAt),
+          )
+          .limit(range.pageSize)
+          .offset(range.offset);
+
+  // Request-count aggregate — scope to the visible page only (HVA-153 D3).
+  const visibleIds = baseRows.map((r) => r.id);
   const countMap = new Map<string, number>();
-  if (leadIds.length > 0) {
+  if (visibleIds.length > 0) {
     const counts = await db
       .select({
         contactId: visitRequests.contactId,
         count: sql<number>`count(*)::int`,
       })
       .from(visitRequests)
-      .where(inArray(visitRequests.contactId, leadIds))
+      .where(inArray(visitRequests.contactId, visibleIds))
       .groupBy(visitRequests.contactId);
     for (const c of counts) {
       if (c.contactId) countMap.set(c.contactId, c.count);
     }
   }
 
-  // Legacy patch: a row with convertedToRequestId set but contact_id NULL
-  // on that request should still show "≥1 request". We don't double-count
-  // since contact_id-matched requests would dominate; for legacy-only
-  // rows we promote the count to 1.
-  if (convertedRequestIds.length > 0) {
-    for (const r of rows) {
-      if (
-        r.convertedToRequestId &&
-        !countMap.has(r.id)
-      ) {
-        countMap.set(r.id, 1);
-      }
+  // Legacy patch (HVA-73 PR 1): convertedToRequestId set but the linked
+  // request has NULL contact_id (pre-PR-1 conversion that never got
+  // backfilled). Promote to count=1 so the row still surfaces "1 request".
+  for (const r of baseRows) {
+    if (r.convertedToRequestId && !countMap.has(r.id)) {
+      countMap.set(r.id, 1);
     }
   }
 
-  return rows.map((r) => ({
+  const rows = baseRows.map((r) => ({
     id: r.id,
     type: r.type,
     name: r.name,
@@ -185,6 +235,52 @@ export async function fetchTeamContacts(
     convertedAt: r.convertedAt ? r.convertedAt.toISOString() : null,
     requestCount: countMap.get(r.id) ?? 0,
   }));
+
+  return { rows, total };
+}
+
+/**
+ * Shared predicate builder. Exposed so tests can verify the SQL
+ * composition without hitting the DB; also used by both the rows query
+ * and the total-count query above.
+ */
+export function buildContactsWhere(params: {
+  teamUserIds: string[];
+  search?: string;
+  typeFilter?: 'Customer' | 'Business';
+  execFilter?: string;
+}) {
+  const clauses: ReturnType<typeof eq>[] = [];
+
+  // Team scope. If an execFilter is supplied, narrow to that single id
+  // (still defence-in-depth gated against team membership by the page).
+  if (params.execFilter) {
+    clauses.push(eq(leads.capturedByUserId, params.execFilter));
+  } else {
+    clauses.push(inArray(leads.capturedByUserId, params.teamUserIds));
+  }
+
+  if (params.typeFilter) {
+    clauses.push(eq(leads.type, params.typeFilter));
+  }
+
+  const trimmed = params.search?.trim() ?? '';
+  if (trimmed.length > 0) {
+    const needle = `%${trimmed}%`;
+    const digits = trimmed.replace(/\D/g, '');
+    const ors: ReturnType<typeof ilike>[] = [
+      ilike(leads.name, needle),
+      ilike(cities.name, needle),
+      ilike(leads.firmName, needle),
+    ];
+    if (digits.length > 0) {
+      ors.push(ilike(leads.phone, `%${digits}%`));
+    }
+    const orClause = or(...ors);
+    if (orClause) clauses.push(orClause);
+  }
+
+  return and(...clauses);
 }
 
 export interface TeamContactDetail extends TeamContactRow {

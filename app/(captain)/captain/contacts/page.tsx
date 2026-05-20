@@ -1,23 +1,19 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { Pagination } from '@/components/lists/Pagination';
 import { getServerSession } from '@/lib/auth-server';
 import {
   fetchTeamContacts,
   loadCaptainTeamExecOptions,
   loadCaptainTeamUserIds,
 } from '@/lib/captain/contacts-queries';
+import { computePageRange, parsePage } from '@/lib/pagination';
 
 import { CaptainContactsFilterClient } from './_components/CaptainContactsFilterClient';
 
 // =============================================================================
-// HVA-73 PR 2: /captain/contacts — team-wide contact-book
-// =============================================================================
-//
-// Lists every leads row captured by an exec on the captain's team.
-// Read-only in this ticket — edit lands in PR 3. super_admin sees nothing
-// here (no team scoped to them); they can still walk via /exec/leads for
-// support. The layout already enforces role at the route boundary.
+// HVA-73 + HVA-153: /captain/contacts — server-driven search + pagination
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -26,7 +22,23 @@ export const metadata: Metadata = {
   title: 'Contacts — Captain',
 };
 
-export default async function CaptainContactsPage() {
+type TypeFilter = 'all' | 'Customer' | 'Business';
+
+function parseTypeFilter(raw: unknown): TypeFilter {
+  if (raw === 'Customer' || raw === 'Business') return raw;
+  return 'all';
+}
+
+interface PageProps {
+  searchParams: Promise<{
+    q?: string;
+    type?: string;
+    exec?: string;
+    page?: string;
+  }>;
+}
+
+export default async function CaptainContactsPage({ searchParams }: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/captain/contacts');
 
@@ -35,19 +47,69 @@ export default async function CaptainContactsPage() {
     redirect('/login');
   }
 
-  // super_admin has no team; show empty list (route allowed for support
-  // visibility, not for browsing). For a real captain, resolve their team.
-  const teamUserIds =
-    user.role === 'captain'
-      ? await loadCaptainTeamUserIds(user.id)
-      : [];
+  const params = await searchParams;
+  const q = (params.q ?? '').trim();
+  const typeFilter = parseTypeFilter(params.type);
+  const execFilter = params.exec && params.exec !== 'all' ? params.exec : undefined;
+  const page = parsePage(params.page);
 
-  const [rows, execOptions] = await Promise.all([
-    fetchTeamContacts(teamUserIds),
+  const teamUserIds =
+    user.role === 'captain' ? await loadCaptainTeamUserIds(user.id) : [];
+
+  // Defence-in-depth: if the URL exec filter isn't on the captain's
+  // team, drop it rather than 404 — the user-visible result is the
+  // unfiltered list, which matches the dropdown's "All execs" state.
+  const safeExecFilter =
+    execFilter && teamUserIds.includes(execFilter) ? execFilter : undefined;
+
+  const [{ rows, total }, execOptions] = await Promise.all([
+    fetchTeamContacts({
+      teamUserIds,
+      search: q || undefined,
+      typeFilter: typeFilter === 'all' ? undefined : typeFilter,
+      execFilter: safeExecFilter,
+      page,
+    }),
     user.role === 'captain'
       ? loadCaptainTeamExecOptions(user.id)
       : Promise.resolve([]),
   ]);
+
+  // Per-type counts (independent of the active type filter so the chip
+  // badges stay honest).
+  const [customerTotal, businessTotal, allTotal] = await Promise.all([
+    typeFilter === 'Customer'
+      ? Promise.resolve(total)
+      : fetchTeamContacts({
+          teamUserIds,
+          search: q || undefined,
+          typeFilter: 'Customer',
+          execFilter: safeExecFilter,
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+    typeFilter === 'Business'
+      ? Promise.resolve(total)
+      : fetchTeamContacts({
+          teamUserIds,
+          search: q || undefined,
+          typeFilter: 'Business',
+          execFilter: safeExecFilter,
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+    typeFilter === 'all'
+      ? Promise.resolve(total)
+      : fetchTeamContacts({
+          teamUserIds,
+          search: q || undefined,
+          execFilter: safeExecFilter,
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+  ]);
+
+  const range = computePageRange({ total, page });
 
   return (
     <main className="min-h-svh bg-background">
@@ -55,13 +117,37 @@ export default async function CaptainContactsPage() {
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {rows.length === 0
+            {total === 0
               ? 'No contacts captured by your team yet.'
-              : `${rows.length} contact${rows.length === 1 ? '' : 's'} across your team.`}
+              : `${total} contact${total === 1 ? '' : 's'} across your team.`}
           </p>
         </header>
 
-        <CaptainContactsFilterClient rows={rows} execOptions={execOptions} />
+        <CaptainContactsFilterClient
+          rows={rows}
+          execOptions={execOptions}
+          initial={{
+            q,
+            type: typeFilter,
+            exec: safeExecFilter ?? 'all',
+          }}
+          typeCounts={{
+            all: allTotal,
+            Customer: customerTotal,
+            Business: businessTotal,
+          }}
+        />
+
+        {range.totalPages > 1 && (
+          <Pagination
+            pathname="/captain/contacts"
+            page={range.page}
+            totalPages={range.totalPages}
+            from={range.from}
+            to={range.to}
+            total={range.total}
+          />
+        )}
       </div>
     </main>
   );

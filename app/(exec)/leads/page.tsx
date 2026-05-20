@@ -1,42 +1,26 @@
-import { asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { Pagination } from '@/components/lists/Pagination';
 import { db } from '@/db/client';
-import {
-  businessTypes,
-  cities,
-  leads,
-  users,
-  visitRequests,
-} from '@/db/schema';
+import { businessTypes, cities } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
-import { loadExecVisibleContactSet } from '@/lib/exec/visible-contacts';
+import { fetchExecLeads } from '@/lib/exec/leads-queries';
+import { computePageRange, parsePage } from '@/lib/pagination';
 
 import { LeadsFilterClient } from './_components/LeadsFilterClient';
 import type { LeadRow } from './_components/types';
 
 // =============================================================================
-// HVA-73: /leads — sales-exec leads list
+// HVA-73 + HVA-153: /leads — server-driven search + pagination
 // =============================================================================
 //
-// Server component. Fetches every lead captured by the current exec
-// (super_admin sees nothing — leads are scoped to the captor, Phase 1
-// per locked decision D5 in HVA-73 bundle) + the cities/business-types
-// option lists for the Add/Convert sheets, then hands everything to the
-// client wrapper.
-//
-// Sort: not-yet-converted first (most recent capture first), converted
-// leads sink below (most recent conversion first). The bundle's D2
-// "Converted leads sink below unconverted" is implemented as a two-key
-// sort applied here at the SQL layer.
-//
-// AUTH (defence-in-depth; proxy.ts also gates by role):
-//   - sales_executive → own captured leads
-//   - super_admin     → empty list (no captor-of-record; future Phase 2
-//                       could surface team rollups for admin)
-//   - captain         → bounced to /captain/dashboard
-//   - anonymous       → bounced to /login
+// Filter params land in the URL. The page reads them, runs the filtered
+// + paginated query via fetchExecLeads, and renders the rows + the page
+// navigation strip. Per-type counts come from a tiny supplementary
+// query that re-runs the same WHERE except the type predicate, so the
+// chip badges stay independent of the active type filter.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -45,7 +29,22 @@ export const metadata: Metadata = {
   title: 'Contacts — Beakn',
 };
 
-export default async function LeadsPage() {
+type TypeFilter = 'all' | 'Customer' | 'Business';
+
+function parseTypeFilter(raw: unknown): TypeFilter {
+  if (raw === 'Customer' || raw === 'Business') return raw;
+  return 'all';
+}
+
+interface PageProps {
+  searchParams: Promise<{
+    q?: string;
+    type?: string;
+    page?: string;
+  }>;
+}
+
+export default async function LeadsPage({ searchParams }: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/leads');
 
@@ -55,72 +54,52 @@ export default async function LeadsPage() {
     redirect('/login');
   }
 
-  // HVA-73 PR 3: visibility set = captor OR ever-assigned (current or
-  // historical). Read the set once, then drive the list query off the
-  // resolved ids.
-  const visibility = await loadExecVisibleContactSet(user.id);
+  const params = await searchParams;
+  const q = (params.q ?? '').trim();
+  const typeFilter = parseTypeFilter(params.type);
+  const page = parsePage(params.page);
 
-  // Fetch the contacts + dropdown options in parallel. Empty visibility
-  // → skip the leads query (Drizzle's `inArray(col, [])` short-circuits
-  // anyway, but the round-trip is wasted).
-  const [rows, cityRows, businessTypeRows] = await Promise.all([
-    visibility.ids.length === 0
-      ? Promise.resolve([] as Array<{
-          id: string;
-          type: string;
-          name: string;
-          phone: string;
-          email: string | null;
-          cityId: string;
-          cityName: string;
-          bhk: string | null;
-          firmName: string | null;
-          businessTypeId: string | null;
-          businessTypeName: string | null;
-          interest: string[];
-          notes: string | null;
-          capturedByUserId: string;
-          capturedByName: string | null;
-          capturedDate: string;
-          createdAt: Date;
-          convertedToRequestId: string | null;
-          convertedAt: Date | null;
-        }>)
-      : db
-          .select({
-            id: leads.id,
-            type: leads.type,
-            name: leads.name,
-            phone: leads.phone,
-            email: leads.email,
-            cityId: leads.cityId,
-            cityName: cities.name,
-            bhk: leads.bhk,
-            firmName: leads.firmName,
-            businessTypeId: leads.businessTypeId,
-            businessTypeName: businessTypes.name,
-            interest: leads.interest,
-            notes: leads.notes,
-            capturedByUserId: leads.capturedByUserId,
-            capturedByName: users.fullName,
-            capturedDate: leads.capturedDate,
-            createdAt: leads.createdAt,
-            convertedToRequestId: leads.convertedToRequestId,
-            convertedAt: leads.convertedAt,
-          })
-          .from(leads)
-          .innerJoin(cities, eq(cities.id, leads.cityId))
-          .leftJoin(businessTypes, eq(businessTypes.id, leads.businessTypeId))
-          .innerJoin(users, eq(users.id, leads.capturedByUserId))
-          .where(inArray(leads.id, visibility.ids))
-          .orderBy(
-            // Drizzle's `asc(x IS NOT NULL)` translates to ORDER BY (x IS
-            // NOT NULL) ASC — FALSE sorts first so unconverted rows
-            // (NULL) come before converted ones. Within each group,
-            // newest first.
-            asc(leads.convertedToRequestId),
-            desc(leads.createdAt),
-          ),
+  const { rows, total, visibility } = await fetchExecLeads({
+    execUserId: user.id,
+    search: q || undefined,
+    typeFilter: typeFilter === 'all' ? undefined : typeFilter,
+    page,
+  });
+
+  // Per-type counts for the chip badges. We run two cheap supplementary
+  // queries (Customer + Business) using fetchExecLeads with page-size 0
+  // would be wasteful, so just fire two count-only fetches.
+  const [customerTotal, businessTotal, allTotal] = await Promise.all([
+    typeFilter === 'Customer'
+      ? Promise.resolve(total)
+      : fetchExecLeads({
+          execUserId: user.id,
+          search: q || undefined,
+          typeFilter: 'Customer',
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+    typeFilter === 'Business'
+      ? Promise.resolve(total)
+      : fetchExecLeads({
+          execUserId: user.id,
+          search: q || undefined,
+          typeFilter: 'Business',
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+    typeFilter === 'all'
+      ? Promise.resolve(total)
+      : fetchExecLeads({
+          execUserId: user.id,
+          search: q || undefined,
+          page: 1,
+          pageSize: 1,
+        }).then((r) => r.total),
+  ]);
+
+  // Dropdown data for the Add Lead + Plan a Visit sheets — unchanged.
+  const [cityRows, businessTypeRows] = await Promise.all([
     db
       .select({ id: cities.id, name: cities.name })
       .from(cities)
@@ -133,25 +112,7 @@ export default async function LeadsPage() {
       .orderBy(asc(businessTypes.sequenceNumber)),
   ]);
 
-  // HVA-73 PR 1: one aggregate query for request counts per contact.
-  // Done in a second round-trip (kept out of the main Promise.all so
-  // the leadIds are known). Empty lead list → skip the query entirely.
-  const leadIds = rows.map((r) => r.id);
-  const countMap = new Map<string, number>();
-  if (leadIds.length > 0) {
-    const counts = await db
-      .select({
-        contactId: visitRequests.contactId,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(visitRequests)
-      .where(inArray(visitRequests.contactId, leadIds))
-      .groupBy(visitRequests.contactId);
-    for (const c of counts) {
-      if (c.contactId) countMap.set(c.contactId, c.count);
-    }
-  }
-
+  // Serialize rows to the LeadRow shape the existing UI expects.
   const serialized: LeadRow[] = rows.map((r) => ({
     id: r.id,
     type: r.type,
@@ -166,20 +127,18 @@ export default async function LeadsPage() {
     businessTypeName: r.businessTypeName,
     interest: r.interest,
     notes: r.notes,
-    // `capturedDate` is the date column; `createdAt` carries the
-    // timestamp. UI shows relative time from createdAt, calendar from
-    // capturedDate.
     capturedDate: r.capturedDate,
-    createdAt: r.createdAt.toISOString(),
+    createdAt: r.createdAt,
     convertedToRequestId: r.convertedToRequestId,
-    convertedAt: r.convertedAt ? r.convertedAt.toISOString() : null,
-    requestCount: countMap.get(r.id) ?? 0,
-    // HVA-73 PR 3: surface captor identity so the row can render
-    // "Captured by <other exec>" when the viewer isn't the captor.
+    convertedAt: r.convertedAt,
+    requestCount: r.requestCount,
     capturedByUserId: r.capturedByUserId,
-    capturedByName: r.capturedByName ?? null,
-    visibilityReason: visibility.reasons.get(r.id) ?? 'assignment',
+    capturedByName: r.capturedByName,
+    visibilityReason: r.visibilityReason,
   }));
+
+  const range = computePageRange({ total, page });
+  void visibility;
 
   return (
     <main className="min-h-svh bg-background">
@@ -187,9 +146,9 @@ export default async function LeadsPage() {
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Contacts</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {rows.length === 0
+            {total === 0
               ? 'No contacts visible to you yet.'
-              : `${rows.length} ${rows.length === 1 ? 'contact' : 'contacts'} (captured by you or assigned).`}
+              : `${total} ${total === 1 ? 'contact' : 'contacts'} (captured by you or assigned).`}
           </p>
         </header>
 
@@ -197,7 +156,24 @@ export default async function LeadsPage() {
           rows={serialized}
           cities={cityRows}
           businessTypes={businessTypeRows}
+          initial={{ q, type: typeFilter }}
+          typeCounts={{
+            all: allTotal,
+            Customer: customerTotal,
+            Business: businessTotal,
+          }}
         />
+
+        {range.totalPages > 1 && (
+          <Pagination
+            pathname="/leads"
+            page={range.page}
+            totalPages={range.totalPages}
+            from={range.from}
+            to={range.to}
+            total={range.total}
+          />
+        )}
       </div>
     </main>
   );

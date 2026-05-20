@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useRef, useState, useTransition } from 'react';
 
+import { ContactCard } from '@/components/contacts/ContactCard';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,20 +13,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { buildListUrl } from '@/lib/pagination';
 import { cn } from '@/lib/utils';
 import type {
   TeamContactRow,
   TeamExecOption,
 } from '@/lib/captain/contacts-queries';
 
-import { ContactCard } from '@/components/contacts/ContactCard';
-
 // =============================================================================
-// HVA-73 PR 2: captain contacts list — search + type filter + exec filter
-// =============================================================================
-//
-// Mirrors the exec /leads client wrapper but adds an exec dropdown chip
-// since a captain views many execs' contacts in one list.
+// HVA-73 + HVA-153: URL-driven search + filter UI for /captain/contacts
 // =============================================================================
 
 type TypeFilter = 'all' | 'Customer' | 'Business';
@@ -35,68 +32,74 @@ const FILTER_OPTIONS: ReadonlyArray<{ key: TypeFilter; label: string }> = [
   { key: 'Business', label: 'Business' },
 ];
 
-function digitsOnly(s: string): string {
-  return s.replace(/\D/g, '');
-}
-
-function matchesSearch(row: TeamContactRow, q: string): boolean {
-  const trimmed = q.trim();
-  if (trimmed === '') return true;
-  const needle = trimmed.toLowerCase();
-  if (row.name.toLowerCase().includes(needle)) return true;
-  if (row.cityName.toLowerCase().includes(needle)) return true;
-  const needleDigits = digitsOnly(trimmed);
-  if (needleDigits.length > 0 && digitsOnly(row.phone).includes(needleDigits)) {
-    return true;
-  }
-  if (row.firmName && row.firmName.toLowerCase().includes(needle)) return true;
-  if (
-    row.capturedByName &&
-    row.capturedByName.toLowerCase().includes(needle)
-  ) {
-    return true;
-  }
-  return false;
-}
-
 interface Props {
   rows: TeamContactRow[];
   execOptions: TeamExecOption[];
+  initial: {
+    q: string;
+    type: TypeFilter;
+    exec: string;
+  };
+  typeCounts: Record<TypeFilter, number>;
 }
 
-export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [execFilter, setExecFilter] = useState<string>('all');
+export function CaptainContactsFilterClient({
+  rows,
+  execOptions,
+  initial,
+  typeCounts,
+}: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
+  const [searchText, setSearchText] = useState(initial.q);
+
+  // Reseed local state when the URL changes (back/forward).
+  const lastInitialQ = useRef(initial.q);
+  if (lastInitialQ.current !== initial.q) {
+    lastInitialQ.current = initial.q;
+    if (searchText !== initial.q) setSearchText(initial.q);
+  }
+
+  const firstRender = useRef(true);
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(id);
-  }, [search]);
-
-  const counts = useMemo(() => {
-    const c: Record<TypeFilter, number> = {
-      all: rows.length,
-      Customer: 0,
-      Business: 0,
-    };
-    for (const r of rows) {
-      if (r.type === 'Customer') c.Customer += 1;
-      else if (r.type === 'Business') c.Business += 1;
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
     }
-    return c;
-  }, [rows]);
+    const id = setTimeout(() => {
+      const trimmed = searchText.trim();
+      if (trimmed === initial.q) return;
+      startTransition(() => {
+        router.push(
+          buildListUrl(pathname, searchParams, { q: trimmed || null }),
+        );
+      });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [searchText, initial.q, pathname, router, searchParams]);
 
-  const visible = useMemo(
-    () =>
-      rows.filter((r) => {
-        if (typeFilter !== 'all' && r.type !== typeFilter) return false;
-        if (execFilter !== 'all' && r.capturedByUserId !== execFilter) return false;
-        return matchesSearch(r, debouncedSearch);
-      }),
-    [rows, typeFilter, execFilter, debouncedSearch],
-  );
+  function pushType(t: TypeFilter) {
+    startTransition(() => {
+      router.push(
+        buildListUrl(pathname, searchParams, {
+          type: t === 'all' ? null : t,
+        }),
+      );
+    });
+  }
+
+  function pushExec(execId: string) {
+    startTransition(() => {
+      router.push(
+        buildListUrl(pathname, searchParams, {
+          exec: execId === 'all' ? null : execId,
+        }),
+      );
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -104,8 +107,8 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
         type="search"
         inputMode="search"
         placeholder="Search by name, phone, city, firm, or captor"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
         className="h-11"
         aria-label="Search contacts"
       />
@@ -116,13 +119,14 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
           className="flex flex-wrap gap-1.5"
         >
           {FILTER_OPTIONS.map((opt) => {
-            const active = typeFilter === opt.key;
+            const active = initial.type === opt.key;
             return (
               <button
                 type="button"
                 key={opt.key}
-                onClick={() => setTypeFilter(opt.key)}
+                onClick={() => pushType(opt.key)}
                 aria-current={active ? 'page' : undefined}
+                disabled={isPending}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                   active
@@ -139,7 +143,7 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
                       : 'bg-muted-foreground/15 text-muted-foreground',
                   )}
                 >
-                  {counts[opt.key]}
+                  {typeCounts[opt.key]}
                 </span>
               </button>
             );
@@ -147,7 +151,7 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
         </nav>
 
         <div className="ml-auto">
-          <Select value={execFilter} onValueChange={setExecFilter}>
+          <Select value={initial.exec} onValueChange={pushExec}>
             <SelectTrigger className="h-9 w-44 text-xs">
               <SelectValue />
             </SelectTrigger>
@@ -163,7 +167,7 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
           <Icon
             name="contacts"
@@ -171,18 +175,18 @@ export function CaptainContactsFilterClient({ rows, execOptions }: Props) {
             className="text-muted-foreground/70 mx-auto"
           />
           <p className="text-sm text-muted-foreground">
-            {debouncedSearch !== ''
-              ? `No contacts matching "${debouncedSearch}".`
-              : execFilter !== 'all'
+            {initial.q !== ''
+              ? `No contacts matching "${initial.q}".`
+              : initial.exec !== 'all'
                 ? 'No contacts for this exec.'
-                : rows.length === 0
-                  ? 'No contacts captured by your team yet.'
-                  : `No ${typeFilter.toLowerCase()} contacts.`}
+                : initial.type !== 'all'
+                  ? `No ${initial.type.toLowerCase()} contacts.`
+                  : 'No contacts captured by your team yet.'}
           </p>
         </div>
       ) : (
         <ul className="space-y-2" aria-label="Contacts">
-          {visible.map((c) => (
+          {rows.map((c) => (
             <li key={c.id}>
               <ContactCard
                 id={c.id}

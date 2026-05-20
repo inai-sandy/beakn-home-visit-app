@@ -96,20 +96,22 @@ describe('fetchTeamContacts — captain scope', () => {
     await seedLeadFor(execB.id, city.id, 'Bob (Cap B team)');
 
     const teamA = await loadCaptainTeamUserIds(capA.id);
-    const visibleToCapA = await fetchTeamContacts(teamA);
-    expect(visibleToCapA.map((r) => r.name).sort()).toEqual([
+    const visibleToCapA = await fetchTeamContacts({ teamUserIds: teamA });
+    expect(visibleToCapA.rows.map((r) => r.name).sort()).toEqual([
       'Alice (Cap A team)',
     ]);
 
     const teamB = await loadCaptainTeamUserIds(capB.id);
-    const visibleToCapB = await fetchTeamContacts(teamB);
-    expect(visibleToCapB.map((r) => r.name).sort()).toEqual([
+    const visibleToCapB = await fetchTeamContacts({ teamUserIds: teamB });
+    expect(visibleToCapB.rows.map((r) => r.name).sort()).toEqual([
       'Bob (Cap B team)',
     ]);
   });
 
   it('returns empty when team is empty', async () => {
-    expect(await fetchTeamContacts([])).toEqual([]);
+    const res = await fetchTeamContacts({ teamUserIds: [] });
+    expect(res.rows).toEqual([]);
+    expect(res.total).toBe(0);
   });
 });
 

@@ -12,7 +12,9 @@ import {
 
 describe('EXEC_NAV', () => {
   it('exposes the exec destinations in order', () => {
+    // HVA-169: Dashboard inserted ahead of Today.
     expect(EXEC_NAV.map((i) => i.label)).toEqual([
+      'Dashboard',
       'Today',
       'Contacts',
       'Requests',
@@ -79,6 +81,9 @@ describe('resolveExecPageTitle', () => {
 
   it('falls back to title-cased last segment for unmapped paths', () => {
     expect(resolveExecPageTitle('/some-page')).toBe('Some Page');
-    expect(resolveExecPageTitle('/')).toBe('Today'); // empty segments → fallback default
+    // HVA-169: empty path segments → fallback default, which is the
+    // last segment of '/today' (the historical default — kept literal
+    // here to avoid sentinel coupling on EXEC_NAV ordering).
+    expect(resolveExecPageTitle('/')).toBe('Today');
   });
 });

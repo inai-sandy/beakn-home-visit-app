@@ -287,8 +287,25 @@ export async function loadTeamPerformance(
   captainUserId: string,
   filter: DateFilter,
 ): Promise<TeamPerformance> {
-  const resolved = resolveDateFilter(filter);
   const execIds = await loadCaptainTeamIds(captainUserId);
+  return loadPerformanceForExecIds(execIds, filter);
+}
+
+/**
+ * HVA-169: shared performance computation usable for either a captain's team
+ * (loadTeamPerformance) or a single exec self-view (loadExecPerformance in
+ * lib/exec/dashboard-queries.ts). Same 6-metric `TeamPerformance` shape so
+ * the PerformanceCard component is reusable verbatim.
+ *
+ * `execIds` is the set the metrics roll up over: pass the captain's full
+ * team for the captain dashboard, or `[execId]` for the exec self-view.
+ * Returns the zero-row shape if execIds is empty.
+ */
+export async function loadPerformanceForExecIds(
+  execIds: readonly string[],
+  filter: DateFilter,
+): Promise<TeamPerformance> {
+  const resolved = resolveDateFilter(filter);
 
   const [target, compare, targets] = await Promise.all([
     loadWindowAggregates({ execIds, from: resolved.target.from, to: resolved.target.to }),
@@ -734,6 +751,31 @@ export async function loadTeamExecStatuses(
     .groupBy(tasks.execUserId);
   const overdueByExec = new Map(overdueRows.map((r) => [r.execUserId, r.count]));
 
+  // HVA-169: aged rolled-over predicate. A task that has been carrying
+  // `rolled_over_at` for more than 3 days (= 72 wall-clock hours) raises
+  // the red flag on the captain dashboard, even if the exec has zero
+  // overdue-postponed tasks.
+  //
+  // Threshold semantics: `NOW() - INTERVAL '3 days'` is wall-clock UTC
+  // and timezone-stable. A task rolled over at 21:31 IST clears the flag
+  // exactly 72h later at 21:31 IST — symmetric, no DST or IST-midnight
+  // edge cases. Don't "fix" this to IST midnight; the symmetry is
+  // intentional and matches how `created_at`-based aging buckets work
+  // elsewhere.
+  const agedRolledOverRows = await db
+    .select({ execUserId: tasks.execUserId })
+    .from(tasks)
+    .where(
+      and(
+        inArray(tasks.execUserId, execIds),
+        eq(tasks.status, 'pending'),
+        sqlBuilder`${tasks.rolledOverAt} IS NOT NULL`,
+        sqlBuilder`${tasks.rolledOverAt} < NOW() - INTERVAL '3 days'`,
+      ),
+    )
+    .groupBy(tasks.execUserId);
+  const agedRolledOverExecs = new Set(agedRolledOverRows.map((r) => r.execUserId));
+
   const isSingle = filter.mode === 'single';
 
   const result: TeamExecStatus[] = team.map((t) => {
@@ -776,6 +818,7 @@ export async function loadTeamExecStatuses(
     }
 
     const overdueCount = overdueByExec.get(t.userId) ?? 0;
+    const hasAgedRolledOver = agedRolledOverExecs.has(t.userId);
     return {
       userId: t.userId,
       fullName: t.fullName,
@@ -784,7 +827,10 @@ export async function loadTeamExecStatuses(
       visitsToday: visits,
       collectionsTodayRupees: (collectionsByExec.get(t.userId) ?? 0) / 100,
       overdueTaskCount: overdueCount,
-      hasRedFlag: overdueCount > 0,
+      // HVA-169: either signal raises the flag. overdueTaskCount stays
+      // the literal count (consumers can split-display if they want);
+      // hasRedFlag is the OR.
+      hasRedFlag: overdueCount > 0 || hasAgedRolledOver,
       todayTaskBreakdown: { pending, done, postponed },
     };
   });

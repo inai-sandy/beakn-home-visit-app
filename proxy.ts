@@ -127,6 +127,11 @@ function canAccess(pathname: string, role: string): boolean {
   if (pathname === '/today' || pathname.startsWith('/today/')) {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }
+  // HVA-169: /dashboard is the exec analytical surface. super_admin
+  // escape-hatched above; sales_executive is the only other role allowed.
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+    return role === USER_ROLES.SALES_EXECUTIVE;
+  }
   if (pathname.startsWith('/captain/')) return role === USER_ROLES.CAPTAIN;
   if (pathname.startsWith('/admin/')) return role === USER_ROLES.SUPER_ADMIN;
   // /set-password is accessible to any authenticated user (gated by

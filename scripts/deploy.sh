@@ -170,4 +170,14 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
+# HVA-169: post-flight env-var warnings. Non-fatal — surface missing
+# operator-config so a brand-new VPS doesn't silently ship a half-wired
+# feature. Each warning corresponds to a feature that needs out-of-app
+# operator action (e.g. installing a host crontab line).
+if ! grep -q '^CRON_SECRET=' "$ENV_FILE" || [ -z "$(grep '^CRON_SECRET=' "$ENV_FILE" | cut -d= -f2-)" ]; then
+  echo "[deploy] WARNING: CRON_SECRET is not set in $ENV_FILE." >&2
+  echo "[deploy]          /api/cron/roll-over-tasks will refuse ALL requests." >&2
+  echo "[deploy]          See docs/cron.md for install steps." >&2
+fi
+
 echo "[deploy] done"

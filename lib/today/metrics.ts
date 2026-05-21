@@ -171,9 +171,16 @@ export async function loadDayCloseMetrics(args: {
   const quotationsCount = quotationAgg?.cnt ?? 0;
 
   // -------------------------------------------------------------------------
-  // 4. Orders closed today — distinct request_id where this exec drove a
-  //    transition to ORDER_CONFIRMED or ORDER_EXECUTED_SUCCESSFULLY today.
-  //    INNER JOIN status_stages so we can filter by code.
+  // 4. Orders closed today — distinct request_id where an order transition
+  //    fired today against this exec's assigned request. INNER JOIN
+  //    status_stages so we can filter by code.
+  //
+  //    HVA-168: previously this also required `changed_by_user_id = exec`.
+  //    That over-narrowed — when the captain approves on behalf
+  //    (HVA-137 flow), changed_by is captain, not exec, and the order
+  //    was missing from the exec's tally. The fix attributes the order
+  //    to whoever the request is assigned to, regardless of who fired
+  //    the transition.
   // -------------------------------------------------------------------------
   const [ordersAgg] = await db
     .select({
@@ -184,7 +191,6 @@ export async function loadDayCloseMetrics(args: {
     .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
     .where(
       and(
-        eq(requestStatusHistory.changedByUserId, execUserId),
         eq(visitRequests.assignedExecUserId, execUserId),
         inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
         sqlBuilder`${requestStatusHistory.changedAt}::date = ${istDateStr}::date`,

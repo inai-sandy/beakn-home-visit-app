@@ -66,6 +66,10 @@ const NO_AUTH_PREFIXES = [
   '/api/auth/', // Better-Auth's own surface — never redirect it
   '/api/health', // Docker HEALTHCHECK + monitoring; must stay public
   '/api/customer-request', // HVA-34: public visit-request submission endpoint
+  // HVA-169: cron endpoints carry their own bearer auth (CRON_SECRET);
+  // the session-based proxy gate would otherwise 307-redirect the host
+  // crontab's curl invocation to /login and silently no-op the job.
+  '/api/cron/',
   ...(process.env.NODE_ENV !== 'production'
     ? ['/dev/'] // developer smoke routes — dev/test only; see HVA-99
     : []),

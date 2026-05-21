@@ -57,9 +57,17 @@ function offsetDateLocal(date: string, days: number): string {
 
 interface Props {
   filter: DateFilter;
+  /**
+   * HVA-167: the route to push URL updates into. Required (no default)
+   * so the captain drill-down doesn't silently navigate to the dashboard
+   * if someone forgets to wire it. DashboardHeader passes
+   * `/captain/dashboard`; ExecDrillDownHeader passes
+   * `/captain/team/${execId}`.
+   */
+  pathname: string;
 }
 
-export function DateRangePicker({ filter }: Props) {
+export function DateRangePicker({ filter, pathname }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -95,14 +103,14 @@ export function DateRangePicker({ filter }: Props) {
     const qs = params.toString();
     setOpen(false);
     startTransition(() => {
-      router.push(qs === '' ? '/captain/dashboard' : `/captain/dashboard?${qs}`);
+      router.push(qs === '' ? pathname : `${pathname}?${qs}`);
     });
   }
 
   function resetToToday() {
     setOpen(false);
     startTransition(() => {
-      router.push('/captain/dashboard');
+      router.push(pathname);
     });
   }
 

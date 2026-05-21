@@ -237,6 +237,10 @@ export const CONFIG_SCHEMA = {
       // HVA-73 PR 2 + PR 3 — append-only note added on a request or contact.
       // afterState: { targetType, targetId, bodyPreview, actorRole }.
       'note_created',
+      // HVA-167 — captain flips an exec's sales_executives.is_unavailable
+      // via the drill-down "Mark Unavailable" toggle. before/after carry
+      // the boolean state.
+      'exec_availability_changed',
     ],
     editable: true,
   },

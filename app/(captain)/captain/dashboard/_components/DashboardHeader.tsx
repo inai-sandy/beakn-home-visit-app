@@ -75,7 +75,7 @@ export function DashboardHeader({ filter }: { filter: DateFilter }) {
           <Icon name="calendar_today" size="xs" className="mr-1.5" />
           {label}
         </span>
-        <DateRangePicker filter={filter} />
+        <DateRangePicker filter={filter} pathname="/captain/dashboard" />
       </div>
     </header>
   );

@@ -204,7 +204,11 @@ async function loadWindowAggregates(args: {
       .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
       .where(
         and(
-          inArray(requestStatusHistory.changedByUserId, execIds as string[]),
+          // HVA-168: attribute the order to the assigned exec, not to
+          // whoever fired the transition. Captain-approved orders
+          // (HVA-137 flow, where changed_by_user_id = captain) were
+          // previously excluded from the exec's tally.
+          inArray(visitRequests.assignedExecUserId, execIds as string[]),
           inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
           sqlBuilder`${requestStatusHistory.changedAt}::date >= ${from}::date`,
           sqlBuilder`${requestStatusHistory.changedAt}::date <= ${to}::date`,
@@ -395,17 +399,19 @@ export async function loadTeamPerformance(
 // 2. Pending Approvals
 // ---------------------------------------------------------------------------
 //
-// SINGLE-DATE PAST OR RANGE MODE INTERPRETATION:
-//   "Approvals received during this window" — count + top-5 of transitions
-//   INTO PENDING_CAPTAIN_APPROVAL whose changedAt falls within the window.
+// ALWAYS SNAPSHOT SEMANTIC (HVA-168):
+//   The card is an action prompt — "what needs my attention right now"
+//   — not an analytics tile. Count + top-5 always reflect requests
+//   whose CURRENT `statusStageId` is PENDING_CAPTAIN_APPROVAL. Window
+//   filter is intentionally ignored.
 //
-// TODAY (the default): same logic. The current behaviour from PR #83
-// ("currently pending" by status_stage_id snapshot) emerges naturally
-// when the window is just today AND none of those have moved out yet.
-// For historical windows the "received during" semantic is correct and
-// tractable; "still-pending-as-of-EOD-X" would require finding the last
-// transition per request as-of X, which is a much heavier query. Flagged
-// as a follow-up; PR description documents the divergence.
+// Previously this had a two-branch implementation: snapshot for today,
+// `request_status_history` "entered the stage in window" for past
+// dates / ranges. The historical branch never re-checked current
+// status, so already-approved requests reappeared whenever the
+// captain selected a non-today filter. HVA-168 deletes that branch.
+// The `filter` parameter is kept on the signature so call sites
+// don't need to change; it's no longer used.
 
 export interface PendingApprovalRow {
   id: string;
@@ -416,12 +422,12 @@ export interface PendingApprovalRow {
 
 export async function loadPendingApprovals(
   captainUserId: string,
-  filter: DateFilter,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _filter: DateFilter,
 ): Promise<{
   totalCount: number;
   topFive: PendingApprovalRow[];
 }> {
-  const resolved = resolveDateFilter(filter);
   const myCities = await db
     .select({ id: cities.id })
     .from(cities)
@@ -436,106 +442,59 @@ export async function loadPendingApprovals(
     .limit(1);
   if (!pendingStage) return { totalCount: 0, topFive: [] };
 
-  // For single-day TODAY mode we keep the original "currently pending"
-  // semantic — visit_requests still at PENDING_CAPTAIN_APPROVAL,
-  // regardless of when they entered the stage. For any other window we
-  // use the "received during" semantic via request_status_history.
-  const istToday = getIstDateString();
-  const isTodaySingle =
-    filter.mode === 'single' && filter.date === istToday;
-
-  if (isTodaySingle) {
-    const [countRow] = await db
-      .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
-      .from(visitRequests)
-      .where(
-        and(
-          eq(visitRequests.statusStageId, pendingStage.id),
-          inArray(visitRequests.cityId, cityIds),
-          isNull(visitRequests.cancelledAt),
-        ),
-      );
-
-    const rows = await db
-      .select({
-        id: visitRequests.id,
-        customerName: visitRequests.customerName,
-        execName: users.fullName,
-        completedAt: sqlBuilder<Date | null>`(
-          SELECT rsh.changed_at FROM request_status_history rsh
-          WHERE rsh.request_id = ${visitRequests.id}
-            AND rsh.to_status_stage_id = ${pendingStage.id}
-          ORDER BY rsh.transition_order DESC
-          LIMIT 1
-        )`,
-      })
-      .from(visitRequests)
-      .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
-      .where(
-        and(
-          eq(visitRequests.statusStageId, pendingStage.id),
-          inArray(visitRequests.cityId, cityIds),
-          isNull(visitRequests.cancelledAt),
-        ),
-      )
-      .orderBy(desc(visitRequests.createdAt))
-      .limit(5);
-
-    const normalized: PendingApprovalRow[] = rows.map((row) => ({
-      id: row.id,
-      customerName: row.customerName,
-      execName: row.execName,
-      completedAt:
-        row.completedAt === null
-          ? null
-          : row.completedAt instanceof Date
-            ? row.completedAt
-            : new Date(row.completedAt as unknown as string),
-    }));
-    normalized.sort(
-      (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0),
+  const [countRow] = await db
+    .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
+    .from(visitRequests)
+    .where(
+      and(
+        eq(visitRequests.statusStageId, pendingStage.id),
+        inArray(visitRequests.cityId, cityIds),
+        isNull(visitRequests.cancelledAt),
+      ),
     );
 
-    return { totalCount: countRow?.cnt ?? 0, topFive: normalized };
-  }
-
-  // Historical / range path — count distinct request_ids that entered
-  // PENDING_CAPTAIN_APPROVAL during the window.
-  const transitionRows = await db
+  const rows = await db
     .select({
-      requestId: requestStatusHistory.requestId,
-      changedAt: requestStatusHistory.changedAt,
+      id: visitRequests.id,
       customerName: visitRequests.customerName,
       execName: users.fullName,
+      completedAt: sqlBuilder<Date | null>`(
+        SELECT rsh.changed_at FROM request_status_history rsh
+        WHERE rsh.request_id = ${visitRequests.id}
+          AND rsh.to_status_stage_id = ${pendingStage.id}
+        ORDER BY rsh.transition_order DESC
+        LIMIT 1
+      )`,
     })
-    .from(requestStatusHistory)
-    .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
+    .from(visitRequests)
     .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
     .where(
       and(
-        eq(requestStatusHistory.toStatusStageId, pendingStage.id),
+        eq(visitRequests.statusStageId, pendingStage.id),
         inArray(visitRequests.cityId, cityIds),
-        sqlBuilder`${requestStatusHistory.changedAt}::date >= ${resolved.target.from}::date`,
-        sqlBuilder`${requestStatusHistory.changedAt}::date <= ${resolved.target.to}::date`,
+        isNull(visitRequests.cancelledAt),
       ),
     )
-    .orderBy(desc(requestStatusHistory.changedAt));
+    .orderBy(desc(visitRequests.createdAt))
+    .limit(5);
 
-  // Distinct by request_id (the same request entering pending twice in the
-  // window would otherwise double-count). Keep the most-recent transition.
-  const seen = new Set<string>();
-  const distinct: PendingApprovalRow[] = [];
-  for (const r of transitionRows) {
-    if (seen.has(r.requestId)) continue;
-    seen.add(r.requestId);
-    distinct.push({
-      id: r.requestId,
-      customerName: r.customerName,
-      execName: r.execName,
-      completedAt: r.changedAt,
-    });
-  }
-  return { totalCount: distinct.length, topFive: distinct.slice(0, 5) };
+  const normalized: PendingApprovalRow[] = rows.map((row) => ({
+    id: row.id,
+    customerName: row.customerName,
+    execName: row.execName,
+    completedAt:
+      row.completedAt === null
+        ? null
+        : row.completedAt instanceof Date
+          ? row.completedAt
+          : new Date(row.completedAt as unknown as string),
+  }));
+  // Most recent entry-into-pending first.
+  normalized.sort(
+    (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0),
+  );
+
+  return { totalCount: countRow?.cnt ?? 0, topFive: normalized };
 }
 
 // ---------------------------------------------------------------------------

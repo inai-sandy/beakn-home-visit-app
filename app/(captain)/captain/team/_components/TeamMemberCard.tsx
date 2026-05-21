@@ -1,33 +1,30 @@
+import Link from 'next/link';
+
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
-// HVA-154: per-exec row on /captain/team
+// HVA-154 + HVA-167: per-exec row on /captain/team
 // =============================================================================
 //
 // Layout:
 //
-//   [Avatar]  Full Name [⚑ N overdue]            [Unavailable today]
-//             +91 99876 54321  [📞]
+//   [Avatar]  Full Name [⚑ N overdue]            [Unavailable today] [›]
+//             +91 99876 54321
 //             5 active · 12 captured · 3 overdue
 //
-// NOT a Link — D1 says no drill-down. Just a flat read-only card.
-// Phone affordance is the tel: link only (WhatsApp dropped per the
-// adjustment; no WhatsApp brand asset, and the Material Symbols `chat`
-// glyph is too ambiguous to repurpose).
-//
-// Red-flag visual matches the dashboard's ExecStatusRow verbatim:
-// destructive Badge with ⚑ glyph and the overdue count. Keeps the two
-// surfaces in lockstep.
+// HVA-167: row is now a real <Link> to /captain/team/[execId]. The
+// inline tel: button is gone — too noisy alongside Link wrapping
+// (nested anchors are invalid HTML) and the drill-down header carries
+// its own tel: affordance.
 // =============================================================================
 
 export interface TeamMember {
   userId: string;
   fullName: string;
   phone: string;
-  /** From sales_executives.is_unavailable */
   isUnavailable: boolean;
   hasRedFlag: boolean;
   overdueTaskCount: number;
@@ -40,16 +37,16 @@ interface Props {
 }
 
 export function TeamMemberCard({ member }: Props) {
-  const phoneDigits = member.phone.replace(/\D/g, '');
-  const phoneOk = phoneDigits.length >= 10;
-
   return (
-    <article
+    <Link
+      href={`/captain/team/${member.userId}`}
+      aria-label={`Open ${member.fullName}'s drill-down`}
       className={cn(
         'flex items-start gap-3 rounded-lg border bg-card px-3 py-2.5 shadow-sm',
+        'transition-colors hover:bg-accent/40 active:bg-accent',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         member.isUnavailable && 'opacity-80',
       )}
-      aria-label={`Team member ${member.fullName}`}
     >
       <LeadAvatar name={member.fullName} aria-hidden />
 
@@ -72,18 +69,7 @@ export function TeamMemberCard({ member }: Props) {
           )}
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="font-mono">{member.phone}</span>
-          {phoneOk && (
-            <a
-              href={`tel:${member.phone}`}
-              aria-label={`Call ${member.fullName}`}
-              className="inline-flex items-center justify-center size-7 rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <Icon name="phone" size="xs" />
-            </a>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground font-mono">{member.phone}</p>
 
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">
@@ -109,6 +95,13 @@ export function TeamMemberCard({ member }: Props) {
           overdue
         </p>
       </div>
-    </article>
+
+      <Icon
+        name="chevron_right"
+        size="sm"
+        className="shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+    </Link>
   );
 }

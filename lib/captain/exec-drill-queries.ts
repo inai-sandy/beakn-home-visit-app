@@ -1,0 +1,474 @@
+import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+
+import { db } from '@/db/client';
+import {
+  dayPlans,
+  leads,
+  outcomeOptions,
+  salesExecutives,
+  tasks,
+} from '@/db/schema';
+import {
+  offsetIstDate,
+  resolveDateFilter,
+  type DateFilter,
+} from '@/lib/captain/dashboard-queries';
+import { loadDayCloseMetrics, type DayCloseMetrics } from '@/lib/today/metrics';
+import { getIstDateString } from '@/lib/today/time';
+
+// =============================================================================
+// HVA-167: queries powering the captain drill-down at /captain/team/[execId]
+// =============================================================================
+//
+// Helpers exported here:
+//   - canCaptainViewExec(captainUserId, execUserId, isAdmin) — auth gate
+//   - loadExecDayPlan(execUserId, dateFilter) — task list per day(s)
+//   - loadExecDayClose(execUserId, dateFilter) — close-day metrics single
+//     OR aggregated across the range
+//   - loadExecWeeklyReport(execUserId) — last 7 days vs prev 7 (constant)
+//   - loadExecLeadsBreakdown(execUserId) — 4 numbers: type × converted
+//
+// All assume the page-level auth gate has already validated captain ↔ exec.
+// =============================================================================
+
+export async function canCaptainViewExec(
+  captainUserId: string,
+  execUserId: string,
+  isAdmin: boolean,
+): Promise<boolean> {
+  if (isAdmin) {
+    // super_admin can drill into any active exec.
+    const [row] = await db
+      .select({ userId: salesExecutives.userId })
+      .from(salesExecutives)
+      .where(eq(salesExecutives.userId, execUserId))
+      .limit(1);
+    return Boolean(row);
+  }
+  const [row] = await db
+    .select({ captainUserId: salesExecutives.captainUserId })
+    .from(salesExecutives)
+    .where(eq(salesExecutives.userId, execUserId))
+    .limit(1);
+  if (!row) return false;
+  return row.captainUserId === captainUserId;
+}
+
+// -----------------------------------------------------------------------------
+// Day Plan
+// -----------------------------------------------------------------------------
+
+export interface ExecDayPlanTask {
+  id: string;
+  taskType: string;
+  description: string;
+  estimatedTime: string;
+  status: string;
+  taskDate: string;
+  linkRequestId: string | null;
+  linkLeadId: string | null;
+  outcomeOptionId: string | null;
+  outcomeOptionName: string | null;
+  outcomeNotes: string | null;
+  postponedToDate: string | null;
+  customerInformed: boolean | null;
+  createdAt: string;
+}
+
+export interface ExecDayPlanDay {
+  planDate: string;
+  planId: string | null;
+  submittedAt: string | null;
+  closedAt: string | null;
+  tasks: ExecDayPlanTask[];
+}
+
+export interface ExecDayPlanData {
+  mode: 'single' | 'range';
+  days: ExecDayPlanDay[];
+  /** Total task count across all days in the result set. */
+  taskTotal: number;
+  /** Total done across all days. */
+  doneTotal: number;
+}
+
+export async function loadExecDayPlan(
+  execUserId: string,
+  dateFilter: DateFilter,
+): Promise<ExecDayPlanData> {
+  const resolved = resolveDateFilter(dateFilter);
+  const { from, to } = resolved.target;
+  const mode = dateFilter.mode;
+
+  const plans = await db
+    .select({
+      id: dayPlans.id,
+      planDate: dayPlans.planDate,
+      submittedAt: dayPlans.submittedAt,
+      closedAt: dayPlans.closedAt,
+    })
+    .from(dayPlans)
+    .where(
+      and(
+        eq(dayPlans.execUserId, execUserId),
+        gte(dayPlans.planDate, from),
+        lte(dayPlans.planDate, to),
+      ),
+    )
+    .orderBy(desc(dayPlans.planDate));
+
+  const planIds = plans.map((p) => p.id);
+  const taskRows =
+    planIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: tasks.id,
+            taskType: tasks.taskType,
+            description: tasks.description,
+            estimatedTime: tasks.estimatedTime,
+            status: tasks.status,
+            taskDate: tasks.taskDate,
+            linkRequestId: tasks.linkRequestId,
+            linkLeadId: tasks.linkLeadId,
+            outcomeOptionId: tasks.outcomeOptionId,
+            outcomeOptionName: outcomeOptions.name,
+            outcomeNotes: tasks.outcomeNotes,
+            postponedToDate: tasks.postponedToDate,
+            customerInformed: tasks.customerInformed,
+            createdAt: tasks.createdAt,
+            dayPlanId: tasks.dayPlanId,
+          })
+          .from(tasks)
+          .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+          .where(
+            and(
+              eq(tasks.execUserId, execUserId),
+              gte(tasks.taskDate, from),
+              lte(tasks.taskDate, to),
+            ),
+          )
+          .orderBy(asc(tasks.createdAt));
+
+  // Group tasks by dayPlanId. Tasks without a dayPlanId (legacy or
+  // orphaned) bucket by taskDate's matching plan if any; otherwise
+  // they're filtered out (defensive — would be unusual).
+  const planByDate = new Map(plans.map((p) => [p.planDate, p]));
+  const tasksByPlanId = new Map<string, ExecDayPlanTask[]>();
+  for (const t of taskRows) {
+    const key = t.dayPlanId ?? planByDate.get(t.taskDate)?.id ?? null;
+    if (!key) continue;
+    if (!tasksByPlanId.has(key)) tasksByPlanId.set(key, []);
+    tasksByPlanId.get(key)!.push({
+      id: t.id,
+      taskType: t.taskType,
+      description: t.description,
+      estimatedTime: t.estimatedTime,
+      status: t.status,
+      taskDate: t.taskDate,
+      linkRequestId: t.linkRequestId,
+      linkLeadId: t.linkLeadId,
+      outcomeOptionId: t.outcomeOptionId,
+      outcomeOptionName: t.outcomeOptionName,
+      outcomeNotes: t.outcomeNotes,
+      postponedToDate: t.postponedToDate,
+      customerInformed: t.customerInformed,
+      createdAt: t.createdAt.toISOString(),
+    });
+  }
+
+  // For range mode we still want a row per *day in range* even if no
+  // plan was submitted that day, so the UI can show "no plan submitted"
+  // markers. Single mode just renders the one date.
+  const days: ExecDayPlanDay[] = [];
+  if (mode === 'single') {
+    const plan = planByDate.get(from);
+    days.push({
+      planDate: from,
+      planId: plan?.id ?? null,
+      submittedAt: plan?.submittedAt.toISOString() ?? null,
+      closedAt: plan?.closedAt ? plan.closedAt.toISOString() : null,
+      tasks: plan ? (tasksByPlanId.get(plan.id) ?? []) : [],
+    });
+  } else {
+    // Walk every IST date in [from, to] so absent plans render
+    // "no plan" placeholders. Capped at 31 days (calendar picker max
+    // is today-30 → today, so 31 days is the upper bound here).
+    let cursor = to;
+    const out: ExecDayPlanDay[] = [];
+    while (cursor >= from) {
+      const plan = planByDate.get(cursor);
+      out.push({
+        planDate: cursor,
+        planId: plan?.id ?? null,
+        submittedAt: plan?.submittedAt.toISOString() ?? null,
+        closedAt: plan?.closedAt ? plan.closedAt.toISOString() : null,
+        tasks: plan ? (tasksByPlanId.get(plan.id) ?? []) : [],
+      });
+      cursor = offsetIstDate(cursor, -1);
+    }
+    days.push(...out);
+  }
+
+  const taskTotal = days.reduce((acc, d) => acc + d.tasks.length, 0);
+  const doneTotal = days.reduce(
+    (acc, d) => acc + d.tasks.filter((t) => t.status === 'completed').length,
+    0,
+  );
+
+  return { mode, days, taskTotal, doneTotal };
+}
+
+// -----------------------------------------------------------------------------
+// Day Close (single date) OR Aggregated (range)
+// -----------------------------------------------------------------------------
+
+export interface ExecDayCloseData {
+  mode: 'single' | 'range';
+  /** When no plan exists for the requested single date. Range mode never null. */
+  metrics: DayCloseMetrics | null;
+  /** Range mode: how many days in the window had a submitted plan. */
+  daysWithPlan: number;
+  /** Range mode: how many days total were in the window. */
+  daysInWindow: number;
+}
+
+const EMPTY_TARGET_CELL = { actual: 0, target: null, status: 'no_target' as const };
+const EMPTY_METRICS: DayCloseMetrics = {
+  taskCounts: {
+    done: 0,
+    postponed: 0,
+    pending: 0,
+    totalAtSubmission: 0,
+    addedDuringDay: 0,
+    fastCompletionCount: 0,
+  },
+  amountCollectedPaise: 0,
+  inboundPaymentCount: 0,
+  quotationsCount: 0,
+  targets: {
+    revenue: { ...EMPTY_TARGET_CELL },
+    visits: { ...EMPTY_TARGET_CELL },
+    quotations: { ...EMPTY_TARGET_CELL },
+    orders: { ...EMPTY_TARGET_CELL },
+    conversionPct: { ...EMPTY_TARGET_CELL },
+    taskCompletionPct: { ...EMPTY_TARGET_CELL },
+  },
+};
+
+function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
+  if (parts.length === 0) return EMPTY_METRICS;
+
+  const merged: DayCloseMetrics = {
+    taskCounts: {
+      done: 0,
+      postponed: 0,
+      pending: 0,
+      totalAtSubmission: 0,
+      addedDuringDay: 0,
+      fastCompletionCount: 0,
+    },
+    amountCollectedPaise: 0,
+    inboundPaymentCount: 0,
+    quotationsCount: 0,
+    targets: {
+      revenue: { actual: 0, target: null, status: 'no_target' },
+      visits: { actual: 0, target: null, status: 'no_target' },
+      quotations: { actual: 0, target: null, status: 'no_target' },
+      orders: { actual: 0, target: null, status: 'no_target' },
+      conversionPct: { actual: null, target: null, status: 'no_target' },
+      taskCompletionPct: { actual: null, target: null, status: 'no_target' },
+    },
+  };
+
+  for (const p of parts) {
+    merged.taskCounts.done += p.taskCounts.done;
+    merged.taskCounts.postponed += p.taskCounts.postponed;
+    merged.taskCounts.pending += p.taskCounts.pending;
+    merged.taskCounts.totalAtSubmission += p.taskCounts.totalAtSubmission;
+    merged.taskCounts.addedDuringDay += p.taskCounts.addedDuringDay;
+    merged.taskCounts.fastCompletionCount += p.taskCounts.fastCompletionCount;
+    merged.amountCollectedPaise += p.amountCollectedPaise;
+    merged.inboundPaymentCount += p.inboundPaymentCount;
+    merged.quotationsCount += p.quotationsCount;
+    for (const k of ['revenue', 'visits', 'quotations', 'orders'] as const) {
+      const left = merged.targets[k];
+      const right = p.targets[k];
+      const a = left.actual ?? 0;
+      const b = right.actual ?? 0;
+      merged.targets[k] = {
+        actual: a + b,
+        target: null,
+        status: 'no_target',
+      };
+    }
+  }
+
+  // Percent metrics: recompute against accumulated counts so we don't
+  // average percentages across days (statistically wrong).
+  const totalTasks =
+    merged.taskCounts.done +
+    merged.taskCounts.postponed +
+    merged.taskCounts.pending;
+  if (totalTasks > 0) {
+    merged.targets.taskCompletionPct = {
+      actual: Math.round((merged.taskCounts.done / totalTasks) * 1000) / 10,
+      target: null,
+      status: 'no_target',
+    };
+  }
+  // Conversion pct = orders / visits; null when visits = 0.
+  const visits = merged.targets.visits.actual ?? 0;
+  const orders = merged.targets.orders.actual ?? 0;
+  if (visits > 0) {
+    merged.targets.conversionPct = {
+      actual: Math.round((orders / visits) * 1000) / 10,
+      target: null,
+      status: 'no_target',
+    };
+  }
+  return merged;
+}
+
+export async function loadExecDayClose(
+  execUserId: string,
+  dateFilter: DateFilter,
+): Promise<ExecDayCloseData> {
+  const resolved = resolveDateFilter(dateFilter);
+  const { from, to } = resolved.target;
+  const mode = dateFilter.mode;
+
+  const plans = await db
+    .select({
+      id: dayPlans.id,
+      planDate: dayPlans.planDate,
+      submittedAt: dayPlans.submittedAt,
+    })
+    .from(dayPlans)
+    .where(
+      and(
+        eq(dayPlans.execUserId, execUserId),
+        gte(dayPlans.planDate, from),
+        lte(dayPlans.planDate, to),
+      ),
+    );
+
+  // Days-in-window count via inclusive IST calendar arithmetic.
+  let daysInWindow = 0;
+  let cursor = from;
+  while (cursor <= to) {
+    daysInWindow += 1;
+    cursor = offsetIstDate(cursor, 1);
+  }
+
+  if (plans.length === 0) {
+    return {
+      mode,
+      metrics: mode === 'single' ? null : EMPTY_METRICS,
+      daysWithPlan: 0,
+      daysInWindow,
+    };
+  }
+
+  if (mode === 'single') {
+    const plan = plans[0];
+    const metrics = await loadDayCloseMetrics({
+      execUserId,
+      dayPlanId: plan.id,
+      dayPlanSubmittedAt: plan.submittedAt,
+      istDateStr: plan.planDate,
+    });
+    return { mode, metrics, daysWithPlan: 1, daysInWindow };
+  }
+
+  // Range mode: load each plan's metrics in parallel and aggregate.
+  // At calendar-max 31 days this is bounded; production team sizes are
+  // small. If the matrix grows we'd push aggregation into SQL.
+  const perDay = await Promise.all(
+    plans.map((p) =>
+      loadDayCloseMetrics({
+        execUserId,
+        dayPlanId: p.id,
+        dayPlanSubmittedAt: p.submittedAt,
+        istDateStr: p.planDate,
+      }),
+    ),
+  );
+  return {
+    mode,
+    metrics: aggregateMetrics(perDay),
+    daysWithPlan: plans.length,
+    daysInWindow,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Weekly Report (constant: last 7 days vs previous 7)
+// -----------------------------------------------------------------------------
+
+export interface ExecWeeklyReport {
+  current: DayCloseMetrics;
+  previous: DayCloseMetrics;
+  currentWindow: { from: string; to: string };
+  previousWindow: { from: string; to: string };
+}
+
+export async function loadExecWeeklyReport(
+  execUserId: string,
+): Promise<ExecWeeklyReport> {
+  const today = getIstDateString();
+  const currentWindow = { from: offsetIstDate(today, -6), to: today };
+  const previousWindow = {
+    from: offsetIstDate(today, -13),
+    to: offsetIstDate(today, -7),
+  };
+
+  const [current, previous] = await Promise.all([
+    loadExecDayClose(execUserId, {
+      mode: 'range',
+      from: currentWindow.from,
+      to: currentWindow.to,
+    }).then((d) => d.metrics ?? EMPTY_METRICS),
+    loadExecDayClose(execUserId, {
+      mode: 'range',
+      from: previousWindow.from,
+      to: previousWindow.to,
+    }).then((d) => d.metrics ?? EMPTY_METRICS),
+  ]);
+
+  return { current, previous, currentWindow, previousWindow };
+}
+
+// -----------------------------------------------------------------------------
+// Leads Breakdown — 4 numbers: type × converted
+// -----------------------------------------------------------------------------
+
+export interface ExecLeadsBreakdown {
+  business: { converted: number; notYetConverted: number };
+  customer: { converted: number; notYetConverted: number };
+}
+
+export async function loadExecLeadsBreakdown(
+  execUserId: string,
+): Promise<ExecLeadsBreakdown> {
+  const rows = await db
+    .select({
+      type: leads.type,
+      converted: sql<boolean>`${leads.convertedToRequestId} IS NOT NULL`,
+      count: sql<number>`COUNT(*)::int`,
+    })
+    .from(leads)
+    .where(eq(leads.capturedByUserId, execUserId))
+    .groupBy(leads.type, sql`${leads.convertedToRequestId} IS NOT NULL`);
+
+  const out: ExecLeadsBreakdown = {
+    business: { converted: 0, notYetConverted: 0 },
+    customer: { converted: 0, notYetConverted: 0 },
+  };
+  for (const r of rows) {
+    const bucket = r.type === 'Business' ? out.business : out.customer;
+    if (r.converted) bucket.converted = r.count;
+    else bucket.notYetConverted = r.count;
+  }
+  return out;
+}

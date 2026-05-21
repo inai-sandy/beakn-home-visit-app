@@ -15,9 +15,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
-import { cn } from '@/lib/utils';
+import {
+  DayCloseMetricTiles,
+  formatRupees,
+} from '@/components/today/DayCloseMetricTiles';
 
-import type { DayCloseMetrics, TargetCell } from '@/lib/today/metrics';
+import type { DayCloseMetrics } from '@/lib/today/metrics';
 
 import { closeDayAction } from '../../actions';
 
@@ -42,69 +45,6 @@ import { closeDayAction } from '../../actions';
 interface Props {
   dayPlan: { id: string; closedAt: string | null };
   metrics: DayCloseMetrics;
-}
-
-function StatusDot({ status }: { status: TargetCell['status'] }) {
-  const cls =
-    status === 'green'
-      ? 'bg-green-500'
-      : status === 'yellow'
-        ? 'bg-yellow-400'
-        : status === 'red'
-          ? 'bg-red-500'
-          : 'bg-muted-foreground/40';
-  return <span aria-hidden className={cn('inline-block h-2 w-2 rounded-full', cls)} />;
-}
-
-function MetricTile({
-  label,
-  cell,
-  formatActual,
-}: {
-  label: string;
-  cell: TargetCell;
-  formatActual: (n: number) => string;
-}) {
-  const actualText =
-    cell.actual === null ? '—' : formatActual(cell.actual);
-  return (
-    <div className="rounded-2xl border bg-card p-4 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        {cell.status === 'no_target' ? (
-          <Badge variant="outline" className="text-[10px]">
-            No target
-          </Badge>
-        ) : (
-          <StatusDot status={cell.status} />
-        )}
-      </div>
-      <p className="text-2xl font-semibold tracking-tight">{actualText}</p>
-      {cell.target !== null && cell.status !== 'no_target' && (
-        <p className="text-[11px] text-muted-foreground">
-          Target {formatActual(cell.target)}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function formatInteger(n: number): string {
-  return Math.round(n).toLocaleString('en-IN');
-}
-
-function formatRupees(rupees: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(rupees);
-}
-
-function formatPercent(p: number): string {
-  return `${Math.round(p)}%`;
 }
 
 export function CloseDayView({ dayPlan, metrics }: Props) {
@@ -137,7 +77,7 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
     }
   }
 
-  const { taskCounts, amountCollectedPaise, inboundPaymentCount, quotationsCount, targets } =
+  const { taskCounts, amountCollectedPaise, inboundPaymentCount, quotationsCount } =
     metrics;
   const rupees = amountCollectedPaise / 100;
 
@@ -160,39 +100,9 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
           </p>
         </header>
 
-        {/* 6-metric grid */}
-        <section aria-label="Daily targets" className="grid grid-cols-2 gap-3">
-          <MetricTile
-            label="Revenue"
-            cell={targets.revenue}
-            formatActual={(n) => formatRupees(n)}
-          />
-          <MetricTile
-            label="Visits"
-            cell={targets.visits}
-            formatActual={(n) => formatInteger(n)}
-          />
-          <MetricTile
-            label="Quotations"
-            cell={targets.quotations}
-            formatActual={(n) => formatInteger(n)}
-          />
-          <MetricTile
-            label="Orders closed"
-            cell={targets.orders}
-            formatActual={(n) => formatInteger(n)}
-          />
-          <MetricTile
-            label="Conversion"
-            cell={targets.conversionPct}
-            formatActual={(n) => formatPercent(n)}
-          />
-          <MetricTile
-            label="Tasks done"
-            cell={targets.taskCompletionPct}
-            formatActual={(n) => formatPercent(n)}
-          />
-        </section>
+        {/* 6-metric grid (HVA-167 — extracted to a shared component;
+            render output is byte-identical for the single-day mode). */}
+        <DayCloseMetricTiles metrics={metrics} mode="single" />
 
         {/* Plan vs Actual */}
         <section

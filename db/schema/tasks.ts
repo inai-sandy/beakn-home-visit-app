@@ -130,6 +130,14 @@ export const tasks = pgTable(
     }),
     customerInformed: boolean('customer_informed'),
 
+    // HVA-169: stamped by the 21:31 IST roll-over cron on tasks left
+    // `pending` after `task_date` passed. NULL on the originating day;
+    // non-null once rolled over. `task_date` is preserved (audit trail);
+    // only this column changes. Partial index `tasks_rolled_over_idx`
+    // (status='pending' AND rolled_over_at IS NOT NULL) covers the
+    // exec dashboard's Pending accordion + captain red-flag predicate.
+    rolledOverAt: timestamp('rolled_over_at', { withTimezone: true }),
+
     ...timestamps(),
   },
   (table) => [

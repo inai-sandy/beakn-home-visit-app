@@ -21,12 +21,15 @@ import {
 import { loadSingleExecMetrics } from '@/lib/captain/team-queries';
 import { getIstDateString } from '@/lib/today/time';
 
+// HVA-169: WeeklyReportCard + LeadsEnrolledCard moved to components/dashboard/
+// so app/(exec)/dashboard can reuse them. Props + behaviour unchanged.
+import { LeadsEnrolledCard } from '@/components/dashboard/LeadsEnrolledCard';
+import { WeeklyReportCard } from '@/components/dashboard/WeeklyReportCard';
+
 import { AIDailyReportCard } from './_components/AIDailyReportCard';
 import { DayCloseReportSection } from './_components/DayCloseReportSection';
 import { DayPlanSection } from './_components/DayPlanSection';
 import { ExecDrillDownHeader } from './_components/ExecDrillDownHeader';
-import { LeadsEnrolledCard } from './_components/LeadsEnrolledCard';
-import { WeeklyReportCard } from './_components/WeeklyReportCard';
 
 // =============================================================================
 // HVA-167: /captain/team/[execId] — exec drill-down

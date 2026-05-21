@@ -131,8 +131,30 @@ export function LoginForm({ adminPhone }: LoginFormProps) {
         user?: { role?: string };
       };
       const role = session.user?.role;
-      // HVA-25: honour ?next= if proxy.ts set it; otherwise fall to role home.
-      const destination = nextParam ?? (role ? ROLE_HOME[role] ?? "/" : "/");
+      // HVA-25: honour ?next= if proxy.ts set it; otherwise fall to a
+      // role-specific home.
+      //
+      // HVA-169: for sales_executive the destination depends on whether
+      // a day_plan row exists for today IST. We hit a server endpoint
+      // rather than embed the DB query in the client. On any failure
+      // we fall back to the legacy ROLE_HOME default so a flaky probe
+      // never strands the user on /login.
+      let destination = nextParam ?? (role ? ROLE_HOME[role] ?? "/" : "/");
+      if (!nextParam && role) {
+        try {
+          const probe = await fetch("/api/auth/post-login-destination", {
+            credentials: "include",
+          });
+          if (probe.ok) {
+            const body = (await probe.json()) as { destination?: string };
+            if (body.destination && body.destination.startsWith("/")) {
+              destination = body.destination;
+            }
+          }
+        } catch {
+          // Network blip — fall through to ROLE_HOME default already set above.
+        }
+      }
       router.push(destination);
       router.refresh();
     } catch (err) {

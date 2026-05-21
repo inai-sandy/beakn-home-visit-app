@@ -23,6 +23,10 @@ export interface ExecNavItem {
 }
 
 export const EXEC_NAV: ExecNavItem[] = [
+  // HVA-169: Dashboard added as the analytical surface. /today stays as
+  // the operational day-plan loop. Order places Dashboard first so it
+  // matches the post-login redirect for execs who have submitted today.
+  { label: 'Dashboard', icon: 'dashboard', href: '/dashboard' },
   { label: 'Today', icon: 'today', href: '/today' },
   // HVA-73 PR 1: label renamed Leads → Contacts. Route, icon and DB
   // table all stay (`/leads`, `person_add`, `leads`). The model shift is

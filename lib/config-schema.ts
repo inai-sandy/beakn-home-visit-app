@@ -241,6 +241,10 @@ export const CONFIG_SCHEMA = {
       // via the drill-down "Mark Unavailable" toggle. before/after carry
       // the boolean state.
       'exec_availability_changed',
+      // HVA-169 — 21:31 IST cron flips `tasks.rolled_over_at` on tasks
+      // left `pending` after their `task_date` passed. actor_user_id is
+      // null (system event). afterState carries { rolledOverAt }.
+      'task_rolled_over',
     ],
     editable: true,
   },

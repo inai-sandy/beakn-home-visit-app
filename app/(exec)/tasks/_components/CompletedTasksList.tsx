@@ -11,7 +11,7 @@ import { buildListUrl } from '@/lib/pagination';
 
 import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
-import { TaskRowWithClone } from './TaskRowWithClone';
+import { TaskRowWithAction } from './TaskRowWithAction';
 
 // =============================================================================
 // HVA-170: Completed accordion body — date-grouped list + range filter + pagination
@@ -177,10 +177,11 @@ export function CompletedTasksList({
               <ul className="space-y-2">
                 {group.tasks.map((t) => (
                   <li key={t.id}>
-                    <TaskRowWithClone
+                    <TaskRowWithAction
                       task={t}
                       showCompletedTimestamp
-                      onCloneClick={() => onCloneClick(t)}
+                      actionLabel="Re-add"
+                      onActionClick={() => onCloneClick(t)}
                     />
                   </li>
                 ))}

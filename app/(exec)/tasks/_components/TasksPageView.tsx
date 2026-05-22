@@ -19,16 +19,21 @@ import {
 import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
 import { CompletedTasksList } from './CompletedTasksList';
-import { TaskRowWithClone } from './TaskRowWithClone';
+import { MoveTaskSheet, type MoveTarget } from './MoveTaskSheet';
+import { TaskRowWithAction } from './TaskRowWithAction';
 
 // =============================================================================
-// HVA-170: /tasks accordion view
+// HVA-170 / HVA-170-FIX1: /tasks accordion view
 // =============================================================================
 //
-// Three accordion sections, Pending open by default. Each row carries a
-// re-add (clone) button that opens AddTaskSheet pre-filled via the new
-// `cloneFromTask` prop (HVA-170 D5). The sheet submits as a NEW task
-// (addTaskAction), default date = today (D7).
+// Three-section accordion. Action buttons differ by bucket per D15:
+//   - Pending   → "+" opens MoveTaskSheet (move).
+//   - Postponed → "+" opens MoveTaskSheet (reschedule).
+//   - Completed → "+" opens AddTaskSheet in clone mode (re-add).
+//
+// Two independent state slots so the two sheets never collide. Clone
+// mode no longer inherits the source's link (HVA-170-FIX1 D14) — the
+// exec picks the customer manually in the sheet.
 // =============================================================================
 
 interface Props {
@@ -51,9 +56,8 @@ function buildCloneSource(task: ExecTaskRow): CloneFromTask {
     taskType: task.taskType,
     description: task.description,
     estimatedTime: task.estimatedTime,
-    linkRequestId: task.linkRequestId,
-    linkLeadId: task.linkLeadId,
-    // taskDate intentionally omitted — defaults to today per D7.
+    // HVA-170-FIX1 D14: link fields intentionally dropped — exec re-links
+    // in the sheet to avoid stale-assignment validation errors.
   };
 }
 
@@ -66,7 +70,22 @@ export function TasksPageView({
   linkableRequests,
   linkableLeads,
 }: Props) {
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [cloneSource, setCloneSource] = useState<CloneFromTask | null>(null);
+
+  function openMove(task: ExecTaskRow) {
+    const status = task.status === 'postponed' ? 'postponed' : 'pending';
+    const currentDate =
+      status === 'postponed'
+        ? task.postponedToDate ?? task.taskDate
+        : task.taskDate;
+    setMoveTarget({
+      taskId: task.id,
+      status,
+      currentDate,
+      description: task.description,
+    });
+  }
 
   function openClone(task: ExecTaskRow) {
     setCloneSource(buildCloneSource(task));
@@ -78,7 +97,8 @@ export function TasksPageView({
         <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Everything open across days, plus history. Tap{' '}
-          <span className="font-medium">+</span> on any row to log it again.
+          <span className="font-medium">+</span> to move a pending task,
+          reschedule a postponed one, or re-add a completed one.
         </p>
       </header>
 
@@ -107,9 +127,10 @@ export function TasksPageView({
                 <ul className="space-y-2">
                   {pendingTasks.map((t) => (
                     <li key={t.id}>
-                      <TaskRowWithClone
+                      <TaskRowWithAction
                         task={t}
-                        onCloneClick={() => openClone(t)}
+                        actionLabel="Move"
+                        onActionClick={() => openMove(t)}
                       />
                     </li>
                   ))}
@@ -134,10 +155,11 @@ export function TasksPageView({
                 <ul className="space-y-2">
                   {postponedTasks.map((t) => (
                     <li key={t.id}>
-                      <TaskRowWithClone
+                      <TaskRowWithAction
                         task={t}
                         showPostponedPill
-                        onCloneClick={() => openClone(t)}
+                        actionLabel="Reschedule"
+                        onActionClick={() => openMove(t)}
                       />
                     </li>
                   ))}
@@ -166,6 +188,13 @@ export function TasksPageView({
           </AccordionItem>
         </Accordion>
       </section>
+
+      {moveTarget !== null && (
+        <MoveTaskSheet
+          target={moveTarget}
+          onClose={() => setMoveTarget(null)}
+        />
+      )}
 
       {cloneSource !== null && (
         <AddTaskSheet

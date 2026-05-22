@@ -58,6 +58,56 @@ async function authorize(): Promise<{ ok: true; actor: Actor } | { ok: false; er
   return { ok: true, actor: { id: u.id, role: u.role as Actor['role'] } };
 }
 
+/**
+ * HVA-170-FIX1: find-or-create the day_plans row for (exec, date). Idempotent
+ * across races via the unique (exec_user_id, plan_date) index. Returns
+ * the row's id on success; an error result on a sealed plan or unreachable
+ * insert.
+ *
+ * Today-dated case routes through loadOpenDayPlan (today's plan must
+ * exist via Start My Day) — caller is responsible for that branch.
+ * This helper handles non-today dates only.
+ */
+async function findOrCreateFutureDayPlan(
+  execUserId: string,
+  taskDate: string,
+): Promise<{ ok: true; planId: string } | { ok: false; error: string }> {
+  const existing = await db
+    .select({ id: dayPlans.id, closedAt: dayPlans.closedAt })
+    .from(dayPlans)
+    .where(
+      and(eq(dayPlans.execUserId, execUserId), eq(dayPlans.planDate, taskDate)),
+    )
+    .limit(1);
+  if (existing[0]) {
+    if (existing[0].closedAt !== null) {
+      return { ok: false, error: 'That day plan is already closed' };
+    }
+    return { ok: true, planId: existing[0].id };
+  }
+  await db
+    .insert(dayPlans)
+    .values({
+      execUserId,
+      planDate: taskDate,
+      scheduledVisitCount: 0,
+      additionalTaskCount: 1,
+      isLate: false,
+    })
+    .onConflictDoNothing();
+  const [reloaded] = await db
+    .select({ id: dayPlans.id })
+    .from(dayPlans)
+    .where(
+      and(eq(dayPlans.execUserId, execUserId), eq(dayPlans.planDate, taskDate)),
+    )
+    .limit(1);
+  if (!reloaded) {
+    return { ok: false, error: 'Could not create day plan' };
+  }
+  return { ok: true, planId: reloaded.id };
+}
+
 async function loadOpenDayPlan(execUserId: string) {
   const [row] = await db
     .select({
@@ -190,8 +240,9 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
   }
 
   // Today-dated tasks: today's plan must already exist (the Start My
-  // Day button shipped the row). Future-dated tasks: look up the future
-  // plan for the chosen date, auto-creating it if missing.
+  // Day button shipped the row). Future-dated tasks: look up via the
+  // shared findOrCreateFutureDayPlan helper (HVA-170-FIX1) — same
+  // path moveTaskAction uses.
   let targetPlanId: string;
   if (taskDate === todayIst) {
     const plan = await loadOpenDayPlan(auth.actor.id);
@@ -199,48 +250,9 @@ export async function addTaskAction(input: AddTaskInput): Promise<ActionResult<{
     if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
     targetPlanId = plan.id;
   } else {
-    // Find-or-create future day_plan. The unique (exec_user_id,
-    // plan_date) constraint makes the insert idempotent across races.
-    const existing = await db
-      .select({ id: dayPlans.id, closedAt: dayPlans.closedAt })
-      .from(dayPlans)
-      .where(
-        and(eq(dayPlans.execUserId, auth.actor.id), eq(dayPlans.planDate, taskDate)),
-      )
-      .limit(1);
-    if (existing[0]) {
-      // A future-dated plan should never have closed_at set, but guard
-      // anyway so we don't silently write into a sealed plan.
-      if (existing[0].closedAt !== null) {
-        return { ok: false, error: 'That day plan is already closed' };
-      }
-      targetPlanId = existing[0].id;
-    } else {
-      await db
-        .insert(dayPlans)
-        .values({
-          execUserId: auth.actor.id,
-          planDate: taskDate,
-          scheduledVisitCount: 0,
-          additionalTaskCount: 1,
-          isLate: false,
-        })
-        .onConflictDoNothing();
-      const [reloaded] = await db
-        .select({ id: dayPlans.id })
-        .from(dayPlans)
-        .where(
-          and(
-            eq(dayPlans.execUserId, auth.actor.id),
-            eq(dayPlans.planDate, taskDate),
-          ),
-        )
-        .limit(1);
-      if (!reloaded) {
-        return { ok: false, error: 'Could not create day plan' };
-      }
-      targetPlanId = reloaded.id;
-    }
+    const found = await findOrCreateFutureDayPlan(auth.actor.id, taskDate);
+    if (!found.ok) return found;
+    targetPlanId = found.planId;
   }
 
   // Validate optional request link belongs to this exec (defence-in-depth;
@@ -802,6 +814,121 @@ export async function closeDayAction(input: CloseDayInput): Promise<ActionResult
     { actorUserId: auth.actor.id, dayPlanId: plan.id },
     'day_plan_closed',
   );
+
+  revalidatePath('/', 'layout');
+  return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// moveTaskAction — HVA-170-FIX1: move a pending/postponed task's date.
+// -----------------------------------------------------------------------------
+//
+// Replaces the clone-on-Pending/Postponed flow that shipped with HVA-170
+// and produced duplicate rows. For pending tasks: bumps `task_date` and
+// re-anchors `day_plan_id` to the destination day's plan. For postponed
+// tasks: bumps `postponed_to_date` only (task_date stays as the original
+// enrollment date — audit trail). Status, link_request_id, link_lead_id
+// are preserved; no re-validation of links (D14) — the exec is not
+// adding a new link, just rescheduling existing work.
+//
+// Date validation: newDate ∈ [today_ist, today_ist + 30 days].
+// Status guard: completed + cancelled tasks reject explicitly.
+//
+// No audit row written (parallels addTaskAction / postponeTaskAction
+// which don't emit per-event audit either; this is a quiet
+// reschedule, not a stage transition).
+// =============================================================================
+
+export interface MoveTaskInput {
+  taskId: string;
+  /** YYYY-MM-DD IST. Must be in [today, today+30]. */
+  newDate: string;
+}
+
+export async function moveTaskAction(input: MoveTaskInput): Promise<ActionResult> {
+  const auth = await authorize();
+  if (!auth.ok) return auth;
+
+  if (!ISO_DATE_RE.test(input.newDate)) {
+    return { ok: false, error: 'Date must be YYYY-MM-DD' };
+  }
+  const todayIst = getIstDateString();
+  const maxIst = ymdAddDays(todayIst, FUTURE_TASK_WINDOW_DAYS);
+  if (input.newDate < todayIst) {
+    return { ok: false, error: 'Date must be today or future' };
+  }
+  if (input.newDate > maxIst) {
+    return {
+      ok: false,
+      error: `Date must be within ${FUTURE_TASK_WINDOW_DAYS} days`,
+    };
+  }
+
+  // Ownership + status guard. exec_user_id alone is enough for
+  // authorisation (HVA-171 walk fix removed the dayPlanId predicate
+  // trap). Status is what gates the action — only pending/postponed
+  // are movable.
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      status: tasks.status,
+      taskDate: tasks.taskDate,
+      postponedToDate: tasks.postponedToDate,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.id, input.taskId),
+        eq(tasks.execUserId, auth.actor.id),
+      ),
+    )
+    .limit(1);
+  if (!task) return { ok: false, error: 'Not your task' };
+  if (task.status !== 'pending' && task.status !== 'postponed') {
+    return {
+      ok: false,
+      error: 'Only pending or postponed tasks can be moved',
+    };
+  }
+
+  if (task.status === 'pending') {
+    // Resolve destination plan. Today-dated moves use today's open
+    // plan (refuse if Start My Day hasn't fired or day is closed);
+    // future-dated moves use the find-or-create helper.
+    let targetPlanId: string;
+    if (input.newDate === todayIst) {
+      const plan = await loadOpenDayPlan(auth.actor.id);
+      if (plan === null) return { ok: false, error: 'Start your day first' };
+      if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
+      targetPlanId = plan.id;
+    } else {
+      const found = await findOrCreateFutureDayPlan(auth.actor.id, input.newDate);
+      if (!found.ok) return found;
+      targetPlanId = found.planId;
+    }
+
+    await db
+      .update(tasks)
+      .set({
+        taskDate: input.newDate,
+        dayPlanId: targetPlanId,
+        // HVA-169 roll-over: clear the stamp so the moved row is no
+        // longer surfaced under "rolled over from past" — it's now a
+        // legitimate task on its new date.
+        rolledOverAt: null,
+      })
+      .where(eq(tasks.id, task.id));
+  } else {
+    // Postponed: only postponed_to_date changes. Keep task_date as
+    // the historical original (audit). dayPlanId stays anchored
+    // to the original plan.
+    await db
+      .update(tasks)
+      .set({
+        postponedToDate: input.newDate,
+      })
+      .where(eq(tasks.id, task.id));
+  }
 
   revalidatePath('/', 'layout');
   return { ok: true };

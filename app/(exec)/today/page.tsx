@@ -70,44 +70,13 @@ export default async function TodayPage() {
     .limit(1);
 
   if (!plan) {
-    // HVA-170 D6: pre-submission surface includes the last-7-days
-    // open-tasks accordion. Loads in parallel with the linkable pools
-    // so the clone flow's AddTaskSheet has its suggestion data ready.
-    const visibleContactIds = await loadExecVisibleContactIds(user.id);
-    const [lastWeekOpenTasks, linkableRequests, linkableLeads] = await Promise.all([
-      loadExecLastWeekOpenTasks(user.id),
-      db
-        .select({
-          id: visitRequests.id,
-          customerName: visitRequests.customerName,
-          customerPhone: visitRequests.customerPhone,
-        })
-        .from(visitRequests)
-        .where(eq(visitRequests.assignedExecUserId, user.id))
-        .orderBy(asc(visitRequests.createdAt))
-        .limit(50),
-      visibleContactIds.length === 0
-        ? Promise.resolve(
-            [] as Array<{ id: string; name: string; phone: string }>,
-          )
-        : db
-            .select({ id: leads.id, name: leads.name, phone: leads.phone })
-            .from(leads)
-            .where(
-              and(
-                inArray(leads.id, visibleContactIds),
-                isNull(leads.convertedToRequestId),
-              ),
-            )
-            .orderBy(asc(leads.createdAt))
-            .limit(50),
-    ]);
+    // HVA-170 D6 / HVA-170-FIX1: pre-submission surface shows a last-7-days
+    // open-tasks accordion. The action on each row is MOVE/RESCHEDULE
+    // (date-only), so no linkable pools needed here — MoveTaskSheet
+    // doesn't accept link inputs.
+    const lastWeekOpenTasks = await loadExecLastWeekOpenTasks(user.id);
     return (
-      <StartMyDayWithRecentTasks
-        lastWeekOpenTasks={lastWeekOpenTasks}
-        linkableRequests={linkableRequests}
-        linkableLeads={linkableLeads}
-      />
+      <StartMyDayWithRecentTasks lastWeekOpenTasks={lastWeekOpenTasks} />
     );
   }
 

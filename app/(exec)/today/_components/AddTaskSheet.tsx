@@ -113,19 +113,20 @@ export interface TaskToEdit {
 }
 
 /**
- * HVA-170 D5: when supplied (and `taskToEdit` is absent), AddTaskSheet
- * renders in clone mode — same form fields as add mode pre-filled from
- * the source task, but submits a NEW row via addTaskAction. taskDate
- * intentionally NOT in this shape — clone always defaults to today
- * per D7. Task type chip stays editable; user may want to log a
- * follow-up of a different type.
+ * HVA-170 D5 / HVA-170-FIX1 D14: when supplied (and `taskToEdit` is absent),
+ * AddTaskSheet renders in clone mode — pre-filled from the source task
+ * (type / description / estimatedTime) and submits a NEW row via
+ * addTaskAction. taskDate defaults to today (D7).
+ *
+ * HVA-170-FIX1: linkRequestId / linkLeadId are NO LONGER copied from the
+ * source. The original "Request not assigned to you" toast happened when
+ * a stale link reference was submitted with a task created by an exec who
+ * is no longer the assignee. The exec re-links manually in the sheet.
  */
 export interface CloneFromTask {
   taskType: string;
   description: string;
   estimatedTime: string;
-  linkRequestId: string | null;
-  linkLeadId: string | null;
 }
 
 interface Props {
@@ -210,11 +211,14 @@ export function AddTaskSheet({
     taskToEdit?.estimatedTime ?? cloneFromTask?.estimatedTime ?? '30min',
   );
   const [linkSearch, setLinkSearch] = useState('');
+  // HVA-170-FIX1 D14: clone mode does NOT inherit the source's link.
+  // The exec re-links manually in the sheet (the original assignment
+  // may have moved on). Only edit mode inherits the existing link.
   const [linkRequestId, setLinkRequestId] = useState<string | null>(
-    taskToEdit?.linkRequestId ?? cloneFromTask?.linkRequestId ?? null,
+    taskToEdit?.linkRequestId ?? null,
   );
   const [linkLeadId, setLinkLeadId] = useState<string | null>(
-    taskToEdit?.linkLeadId ?? cloneFromTask?.linkLeadId ?? null,
+    taskToEdit?.linkLeadId ?? null,
   );
 
   // Memoised so the min/max stay stable for the lifetime of an open sheet.

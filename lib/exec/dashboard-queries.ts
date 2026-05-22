@@ -21,7 +21,12 @@ import { getIstDateString, isAtOrAfterIstTime } from '@/lib/today/time';
 // Helpers exported:
 //   - loadExecDashboardSummary  → status-banner state machine (D2)
 //   - loadExecPendingTasks      → pending today + rolled-over from past
-//   - loadExecPostponedTasksToday / loadExecCompletedTasksToday
+//   - loadExecPostponedTasksOpen → postponed-to-today + overdue-postponed
+//                                  (HVA-171: was loadExecPostponedTasksToday;
+//                                  predicate broadened so the exec can see
+//                                  abandoned tasks the captain already counts
+//                                  toward red-flag).
+//   - loadExecCompletedTasksToday → completed today (task_date=today)
 //   - loadExecTodayTaskCounts   → 3-number breakdown for accordion headers
 //   - loadExecPerformance       → wrapper around shared performance helper
 //
@@ -47,6 +52,17 @@ export interface ExecDashboardSummary {
   istDate: string;
 }
 
+/**
+ * Banner state machine for the dashboard hero.
+ *
+ * HVA-171 note: the `in_progress` task counts here scope to TODAY'S plan
+ * (`tasks.day_plan_id = today_plan.id`), NOT to the broader open-work
+ * surface that TasksAccordion shows. A task postponed from a past plan to
+ * a past target date does NOT show up in the banner's `postponed` count,
+ * but DOES appear in the accordion (via loadExecPostponedTasksOpen). That
+ * drift is intentional: the banner answers "how is today going?" while
+ * the accordion answers "what work is open across dates?".
+ */
 export async function loadExecDashboardSummary(
   execUserId: string,
   now: Date = new Date(),
@@ -224,7 +240,19 @@ export async function loadExecPendingTasks(
   return rows.map(mapTaskRow);
 }
 
-export async function loadExecPostponedTasksToday(
+/**
+ * HVA-171: postponed tasks that are still actionable from the exec's POV —
+ * postponed-to-today AND overdue-postponed (postponed_to_date < today).
+ * Future-postponed rows stay hidden until their target date, per D1.
+ *
+ * Renamed from `loadExecPostponedTasksToday` (HVA-169) — the original
+ * predicate scoped by the row's enrollment `task_date`, which silently
+ * dropped tasks postponed FROM the past to a past target date (e.g.
+ * Sandeep's May 16 → May 19 task on May 22, walk bug). Captain side
+ * (loadTeamExecStatuses overdue predicate) already had the right axis;
+ * exec dashboard now matches.
+ */
+export async function loadExecPostponedTasksOpen(
   execUserId: string,
   now: Date = new Date(),
 ): Promise<ExecDashboardTaskRow[]> {
@@ -253,10 +281,16 @@ export async function loadExecPostponedTasksToday(
       and(
         eq(tasks.execUserId, execUserId),
         eq(tasks.status, 'postponed'),
-        eq(tasks.taskDate, istDate),
+        // postponed_to_date <= today (today + overdue). NULL postponed_to_date
+        // is excluded — defensive guard since the postpone action validates
+        // a non-null target, but better to drop ambiguous rows than render
+        // them in a section that promises an actionable target date.
+        sql`${tasks.postponedToDate} IS NOT NULL`,
+        sql`${tasks.postponedToDate} <= ${istDate}::date`,
       ),
     )
-    .orderBy(asc(tasks.createdAt));
+    // Overdue rows first (oldest target date), then today's postponed.
+    .orderBy(asc(tasks.postponedToDate), asc(tasks.createdAt));
   return rows.map(mapTaskRow);
 }
 
@@ -307,52 +341,66 @@ export async function loadExecTodayTaskCounts(
   now: Date = new Date(),
 ): Promise<ExecTodayTaskCounts> {
   const istDate = getIstDateString(now);
-  // Two queries: today scoped by task_date, rolled-over pending scoped by
-  // the rolled_over_at flag. Pending = today_pending + rolled_pending.
-  // (Postgres rejected a single GROUP BY query because the same parameter
-  // bound twice gets distinct positional slots, so the two `task_date = $`
-  // exprs in SELECT vs GROUP BY didn't match.)
-  const [todayRows, rolledRow] = await Promise.all([
-    db
-      .select({
-        status: tasks.status,
-        count: sql<number>`COUNT(*)::int`,
-      })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.execUserId, execUserId),
-          eq(tasks.taskDate, istDate),
-          inArray(tasks.status, ['pending', 'postponed', 'completed'] as const),
+  // HVA-171: each bucket has its own predicate axis, so we issue three
+  // independent COUNTs instead of forcing a single GROUP BY:
+  //   - pending:   task_date=today  OR  rolled_over_at IS NOT NULL
+  //   - postponed: status='postponed' AND postponed_to_date <= today
+  //                (today + overdue; matches loadExecPostponedTasksOpen)
+  //   - completed: status='completed' AND task_date = today
+  // Forcing one GROUP BY would have to OR these axes together and lose
+  // bucket-level selectivity; cheaper to just run three covered queries.
+  const [todayPendingRow, rolledPendingRow, postponedRow, completedRow] =
+    await Promise.all([
+      db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.execUserId, execUserId),
+            eq(tasks.status, 'pending'),
+            eq(tasks.taskDate, istDate),
+          ),
         ),
-      )
-      .groupBy(tasks.status),
-    db
-      .select({ count: sql<number>`COUNT(*)::int` })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.execUserId, execUserId),
-          eq(tasks.status, 'pending'),
-          sql`${tasks.rolledOverAt} IS NOT NULL`,
-          // Don't double-count if the rolled-over row also has task_date=today
-          // (shouldn't happen since the cron only rolls task_date < today,
-          // but cheap to be defensive).
-          sql`${tasks.taskDate} < ${istDate}::date`,
+      db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.execUserId, execUserId),
+            eq(tasks.status, 'pending'),
+            sql`${tasks.rolledOverAt} IS NOT NULL`,
+            // Defensive: don't double-count if a row has both axes set.
+            sql`${tasks.taskDate} < ${istDate}::date`,
+          ),
         ),
-      ),
-  ]);
+      db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.execUserId, execUserId),
+            eq(tasks.status, 'postponed'),
+            sql`${tasks.postponedToDate} IS NOT NULL`,
+            sql`${tasks.postponedToDate} <= ${istDate}::date`,
+          ),
+        ),
+      db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.execUserId, execUserId),
+            eq(tasks.status, 'completed'),
+            eq(tasks.taskDate, istDate),
+          ),
+        ),
+    ]);
 
-  let pending = 0;
-  let postponed = 0;
-  let completed = 0;
-  for (const r of todayRows) {
-    if (r.status === 'pending') pending += r.count;
-    else if (r.status === 'postponed') postponed += r.count;
-    else if (r.status === 'completed') completed += r.count;
-  }
-  pending += rolledRow[0]?.count ?? 0;
-  return { pending, postponed, completed };
+  return {
+    pending: (todayPendingRow[0]?.count ?? 0) + (rolledPendingRow[0]?.count ?? 0),
+    postponed: postponedRow[0]?.count ?? 0,
+    completed: completedRow[0]?.count ?? 0,
+  };
 }
 
 // =============================================================================

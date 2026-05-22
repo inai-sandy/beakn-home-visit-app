@@ -18,6 +18,7 @@ import {
 import { getServerSession } from '@/lib/auth-server';
 import type { DateFilter } from '@/lib/captain/dashboard-queries';
 import {
+  loadExecDayClose,
   loadExecLeadsBreakdown,
   loadExecWeeklyReport,
 } from '@/lib/captain/exec-drill-queries';
@@ -26,7 +27,7 @@ import {
   loadExecDashboardSummary,
   loadExecPendingTasks,
   loadExecPerformance,
-  loadExecPostponedTasksToday,
+  loadExecPostponedTasksOpen,
 } from '@/lib/exec/dashboard-queries';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { loadDayCloseMetrics } from '@/lib/today/metrics';
@@ -126,9 +127,9 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   const filter = parseDateFilter(raw);
   const istDate = getIstDateString();
 
-  // The DayCloseMetricTiles need a real day_plan to scope against. When
-  // the exec has not submitted today's plan we render an EMPTY metrics
-  // surface (zero counts) — handled inline below.
+  // HVA-171: today's plan ONLY drives HeroMetrics (always-today snapshot).
+  // The Day Closure tiles consume `dayCloseData` from loadExecDayClose
+  // below, which respects the calendar filter (single + range).
   const [todayPlan] = await db
     .select({ id: dayPlans.id, submittedAt: dayPlans.submittedAt })
     .from(dayPlans)
@@ -140,7 +141,8 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     pending,
     postponed,
     completed,
-    dayCloseMetrics,
+    todayMetrics,
+    dayCloseData,
     weekly,
     performance,
     leadsBreakdown,
@@ -149,8 +151,11 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   ] = await Promise.all([
     loadExecDashboardSummary(user.id),
     loadExecPendingTasks(user.id),
-    loadExecPostponedTasksToday(user.id),
+    loadExecPostponedTasksOpen(user.id),
     loadExecCompletedTasksToday(user.id),
+    // HVA-171 Fix 5: Hero is locked to TODAY regardless of calendar pick.
+    // Skip the helper call when no plan today; HeroMetrics gracefully
+    // renders zeros via the empty shape.
     todayPlan
       ? loadDayCloseMetrics({
           execUserId: user.id,
@@ -158,7 +163,11 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
           dayPlanSubmittedAt: todayPlan.submittedAt,
           istDateStr: istDate,
         })
-      : Promise.resolve(emptyDayCloseMetrics()),
+      : Promise.resolve(EMPTY_HERO_METRICS),
+    // HVA-171 Fix 2: Day Closure tracks the calendar via the same helper
+    // the captain drill-down uses. Single-mode + no-plan returns
+    // `metrics: null`; range-mode always returns aggregated metrics.
+    loadExecDayClose(user.id, filter),
     loadExecWeeklyReport(user.id),
     loadExecPerformance(user.id, filter),
     loadExecLeadsBreakdown(user.id),
@@ -212,11 +221,15 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
           .limit(50),
   ]);
 
+  const selectedSingleDate =
+    filter.mode === 'single' ? filter.date : filter.from;
+  const dayCloseLabel = formatSelectedDateLabel(selectedSingleDate);
+
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
       <ExecDashboardHeader filter={filter} />
       <StatusBanner state={summary.banner} />
-      <HeroMetrics metrics={dayCloseMetrics} />
+      <HeroMetrics metrics={todayMetrics} />
       <TasksAccordion
         pending={pending}
         postponed={postponed}
@@ -229,16 +242,24 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-muted-foreground">
           Calendar scopes Performance + Day Closure. Weekly Report is always
-          last 7 vs previous 7.
+          last 7 vs previous 7. Hero tiles always show today.
         </p>
         <DateRangePicker filter={filter} pathname="/dashboard" />
       </div>
-      <section aria-label="Today's day closure" className="space-y-2">
+      <section aria-label="Day closure" className="space-y-2">
         <h2 className="text-base font-semibold tracking-tight">Day Closure</h2>
-        <DayCloseMetricTiles
-          metrics={dayCloseMetrics}
-          mode={filter.mode === 'range' ? 'range' : 'single'}
-        />
+        {dayCloseData.metrics === null ? (
+          // HVA-171 Fix 4: single-mode + no plan submitted on the selected
+          // past date. Range mode never returns null (aggregates zeros).
+          <div className="rounded-2xl border bg-card p-6 text-center text-sm text-muted-foreground">
+            No day plan submitted on {dayCloseLabel}.
+          </div>
+        ) : (
+          <DayCloseMetricTiles
+            metrics={dayCloseData.metrics}
+            mode={filter.mode === 'range' ? 'range' : 'single'}
+          />
+        )}
       </section>
       <WeeklyReportCard data={weekly} />
       <PerformanceCard performance={performance} />
@@ -247,30 +268,38 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   );
 }
 
-// Empty/zero DayCloseMetrics shape used when there's no day plan today.
-// Mirrors EMPTY_METRICS in lib/captain/exec-drill-queries.ts — keeping a
-// local copy so the dashboard doesn't import private internals.
-function emptyDayCloseMetrics() {
-  const noTarget = { actual: 0, target: null, status: 'no_target' as const };
-  return {
-    taskCounts: {
-      done: 0,
-      postponed: 0,
-      pending: 0,
-      totalAtSubmission: 0,
-      addedDuringDay: 0,
-      fastCompletionCount: 0,
-    },
-    amountCollectedPaise: 0,
-    inboundPaymentCount: 0,
-    quotationsCount: 0,
-    targets: {
-      revenue: { ...noTarget },
-      visits: { ...noTarget },
-      quotations: { ...noTarget },
-      orders: { ...noTarget },
-      conversionPct: { actual: null, target: null, status: 'no_target' as const },
-      taskCompletionPct: { actual: null, target: null, status: 'no_target' as const },
-    },
-  };
+// HVA-171: HeroMetrics needs a non-null shape even when the exec hasn't
+// submitted today's plan yet. Inline empty value (small enough — and the
+// canonical EMPTY_METRICS in lib/captain/exec-drill-queries.ts is module-
+// private). Kept local to avoid a cross-module export just for this case.
+const EMPTY_HERO_METRICS = {
+  taskCounts: {
+    done: 0,
+    postponed: 0,
+    pending: 0,
+    totalAtSubmission: 0,
+    addedDuringDay: 0,
+    fastCompletionCount: 0,
+  },
+  amountCollectedPaise: 0,
+  inboundPaymentCount: 0,
+  quotationsCount: 0,
+  targets: {
+    revenue: { actual: 0, target: null, status: 'no_target' as const },
+    visits: { actual: 0, target: null, status: 'no_target' as const },
+    quotations: { actual: 0, target: null, status: 'no_target' as const },
+    orders: { actual: 0, target: null, status: 'no_target' as const },
+    conversionPct: { actual: null, target: null, status: 'no_target' as const },
+    taskCompletionPct: { actual: null, target: null, status: 'no_target' as const },
+  },
+};
+
+function formatSelectedDateLabel(istDate: string): string {
+  const [y, m, d] = istDate.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }

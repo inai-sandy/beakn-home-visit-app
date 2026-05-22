@@ -545,10 +545,12 @@ export async function markTaskDoneAction(
   if (plan === null) return { ok: false, error: 'Start your day first' };
   if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
 
-  // Load the task with ownership check. The exec_user_id eq + day_plan_id
-  // eq pair prevents tampering with another exec's task or a previous-day
-  // task that happens to share an id collision (UUIDv7 makes that
-  // collision-prone, but defence in depth).
+  // Ownership check via exec_user_id. HVA-171 walk fix: the previous
+  // `eq(tasks.dayPlanId, plan.id)` predicate coupled the action to TODAY'S
+  // plan, which broke Mark-as-Done on rolled-over tasks (whose dayPlanId
+  // points to the originating day's plan). Ownership is fully established
+  // by exec_user_id; the dayPlanId clause was "defence in depth" against
+  // a non-real UUIDv7 collision risk.
   const [task] = await db
     .select({
       id: tasks.id,
@@ -562,18 +564,16 @@ export async function markTaskDoneAction(
       and(
         eq(tasks.id, input.taskId),
         eq(tasks.execUserId, auth.actor.id),
-        eq(tasks.dayPlanId, plan.id),
       ),
     )
     .limit(1);
   if (!task) return { ok: false, error: 'Task not found' };
 
-  // Task-calendar-picker guard: a future-dated task cannot be marked
-  // done before its scheduled day arrives. Today's /today task list
-  // can't surface a future task because the dayPlanId filter above
-  // restricts to today's plan, so this is redundant *today*. It becomes
-  // load-bearing when HVA-155 Part B's Pending Tasks view ships and may
-  // mutate tasks across plans.
+  // Future-task guard is now load-bearing — without the dayPlanId filter
+  // above, rolled-over tasks from past plans can flow through this action
+  // legitimately, but a future-dated task still must not be marked done
+  // before its day. The /dashboard Pending accordion (HVA-169) is the
+  // entry point that surfaces non-today tasks.
   const todayIstForGuard = getIstDateString();
   if (task.taskDate > todayIstForGuard) {
     return {
@@ -642,6 +642,8 @@ export async function undoMarkDoneAction(taskId: string): Promise<ActionResult> 
   if (plan === null) return { ok: false, error: 'Start your day first' };
   if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
 
+  // HVA-171 walk fix: drop the `eq(tasks.dayPlanId, plan.id)` predicate
+  // so undo works on rolled-over tasks too. Ownership stays via exec_user_id.
   await db
     .update(tasks)
     .set({
@@ -655,7 +657,6 @@ export async function undoMarkDoneAction(taskId: string): Promise<ActionResult> 
       and(
         eq(tasks.id, taskId),
         eq(tasks.execUserId, auth.actor.id),
-        eq(tasks.dayPlanId, plan.id),
       ),
     );
 
@@ -684,6 +685,8 @@ export async function undoPostponeAction(taskId: string): Promise<ActionResult> 
   if (plan === null) return { ok: false, error: 'Start your day first' };
   if (plan.closedAt !== null) return { ok: false, error: 'Day is closed' };
 
+  // HVA-171 walk fix: drop the `eq(tasks.dayPlanId, plan.id)` predicate
+  // so undo works on rolled-over postponed tasks too.
   await db
     .update(tasks)
     .set({
@@ -696,7 +699,6 @@ export async function undoPostponeAction(taskId: string): Promise<ActionResult> 
       and(
         eq(tasks.id, taskId),
         eq(tasks.execUserId, auth.actor.id),
-        eq(tasks.dayPlanId, plan.id),
       ),
     );
 
@@ -744,6 +746,8 @@ export async function postponeTaskAction(input: PostponeTaskInput): Promise<Acti
   // Soft 30-day window (UI also enforces). Allow today (effectively a no-op
   // postpone) for now; the UI defaults to tomorrow.
 
+  // HVA-171 walk fix: drop the `eq(tasks.dayPlanId, plan.id)` predicate
+  // so Postpone works on rolled-over tasks too.
   const updated = await db
     .update(tasks)
     .set({
@@ -756,7 +760,6 @@ export async function postponeTaskAction(input: PostponeTaskInput): Promise<Acti
       and(
         eq(tasks.id, input.taskId),
         eq(tasks.execUserId, auth.actor.id),
-        eq(tasks.dayPlanId, plan.id),
       ),
     )
     .returning({ id: tasks.id });

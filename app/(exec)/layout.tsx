@@ -8,6 +8,7 @@ import { getServerSession } from "@/lib/auth-server";
 import { decideExecAccess } from "@/lib/exec-authz";
 
 import { ExecBottomNav } from "./_components/exec-bottom-nav";
+import { ExecMobileTopbar } from "./_components/ExecMobileTopbar";
 import { ExecSidebar } from "./_components/exec-sidebar";
 import { ExecTopbar } from "./_components/exec-topbar";
 
@@ -83,6 +84,15 @@ export default async function ExecLayout({
         cities={cityRows}
       />
       <div className="flex-1 flex flex-col min-w-0">
+        {/*
+          HVA-51 mobile topbar — only renders below lg. Hamburger
+          drawer trigger + page title + avatar dropdown.
+        */}
+        <ExecMobileTopbar
+          fullName={fullName}
+          captainName={execRow?.captainName ?? null}
+          cities={cityRows}
+        />
         <ExecTopbar fullName={fullName} />
         {/*
           Content area is a plain <div>: each child page renders its own

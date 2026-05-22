@@ -136,6 +136,14 @@ function canAccess(pathname: string, role: string): boolean {
   if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }
+  // HVA-51 + HVA-170: drawer-only routes inherit the exec-only gate.
+  if (
+    pathname === '/tasks' || pathname.startsWith('/tasks/') ||
+    pathname === '/resources' || pathname.startsWith('/resources/') ||
+    pathname === '/announcements' || pathname.startsWith('/announcements/')
+  ) {
+    return role === USER_ROLES.SALES_EXECUTIVE;
+  }
   if (pathname.startsWith('/captain/')) return role === USER_ROLES.CAPTAIN;
   if (pathname.startsWith('/admin/')) return role === USER_ROLES.SUPER_ADMIN;
   // /set-password is accessible to any authenticated user (gated by

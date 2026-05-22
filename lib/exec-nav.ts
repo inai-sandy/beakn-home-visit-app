@@ -37,6 +37,36 @@ export const EXEC_NAV: ExecNavItem[] = [
 ];
 
 // =============================================================================
+// HVA-51: drawer-only nav (mobile hamburger)
+// =============================================================================
+//
+// Superset of EXEC_NAV with three drawer-only destinations: Tasks, Resources
+// (stub), Announcements (stub). The bottom nav stays at 5 items (D10) —
+// Tasks is reachable only via the drawer or by direct URL.
+//
+// Order is locked (D2): Dashboard / Today / Tasks / Contacts / Requests /
+// Resources / Announcements / Profile.
+//
+// `isStub: true` flags routes that render a "coming soon" placeholder.
+// The drawer renders a small "Soon" badge next to those items.
+// =============================================================================
+
+export interface ExecDrawerNavItem extends ExecNavItem {
+  isStub?: boolean;
+}
+
+export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
+  { label: 'Dashboard', icon: 'dashboard', href: '/dashboard' },
+  { label: 'Today', icon: 'today', href: '/today' },
+  { label: 'Tasks', icon: 'checklist', href: '/tasks' },
+  { label: 'Contacts', icon: 'person_add', href: '/leads' },
+  { label: 'Requests', icon: 'list_alt', href: '/requests' },
+  { label: 'Resources', icon: 'menu_book', href: '/resources', isStub: true },
+  { label: 'Announcements', icon: 'campaign', href: '/announcements', isStub: true },
+  { label: 'Profile', icon: 'person', href: '/profile' },
+];
+
+// =============================================================================
 // Active-state detection
 // =============================================================================
 //

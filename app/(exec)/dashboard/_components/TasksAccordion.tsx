@@ -9,6 +9,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 
+import { getIstDateString } from '@/lib/today/time';
+
 import { TaskItem } from '../../today/_components/TaskItem';
 
 import type { ExecDashboardTaskRow } from '@/lib/exec/dashboard-queries';
@@ -48,6 +50,14 @@ function formatRolledOverDate(istDate: string): string {
     month: 'short',
     timeZone: 'UTC',
   });
+}
+
+// HVA-171: a postponed task is "overdue" when its target date is strictly
+// before today IST. Rows postponed TO today render the normal section but
+// without the overdue badge (still actionable on their own terms).
+function isOverduePostponed(postponedToDate: string | null): boolean {
+  if (postponedToDate === null) return false;
+  return postponedToDate < getIstDateString();
 }
 
 export function TasksAccordion({
@@ -112,11 +122,21 @@ export function TasksAccordion({
           </AccordionTrigger>
           <AccordionContent>
             {postponed.length === 0 ? (
-              <EmptyRow text="No postponed tasks today." />
+              <EmptyRow text="Nothing postponed. Nice." />
             ) : (
               <ul className="space-y-3">
                 {postponed.map((t) => (
-                  <li key={t.id}>
+                  <li key={t.id} className="space-y-1.5">
+                    {isOverduePostponed(t.postponedToDate) && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] gap-1 border-destructive/50 text-destructive"
+                      >
+                        <Icon name="event_busy" size="xs" aria-hidden />
+                        Overdue · postponed to{' '}
+                        {formatRolledOverDate(t.postponedToDate!)}
+                      </Badge>
+                    )}
                     <TaskItem
                       task={t}
                       outcomeOptionsForType={outcomeOptionsByType[t.taskType] ?? []}

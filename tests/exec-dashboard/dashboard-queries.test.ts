@@ -8,6 +8,7 @@ import {
   loadExecDashboardSummary,
   loadExecPendingTasks,
   loadExecPerformance,
+  loadExecPostponedTasksOpen,
   loadExecTodayTaskCounts,
 } from '@/lib/exec/dashboard-queries';
 import { getIstDateString } from '@/lib/today/time';
@@ -58,6 +59,7 @@ async function seedTask(input: {
   taskDate: string;
   description?: string;
   rolledOverAt?: Date | null;
+  postponedToDate?: string | null;
 }) {
   const [row] = await db
     .insert(tasks)
@@ -70,6 +72,7 @@ async function seedTask(input: {
       status: input.status,
       taskDate: input.taskDate,
       rolledOverAt: input.rolledOverAt ?? null,
+      postponedToDate: input.postponedToDate ?? null,
     })
     .returning();
   return row;
@@ -211,27 +214,47 @@ describe('loadExecPendingTasks', () => {
 // -----------------------------------------------------------------------------
 
 describe('loadExecTodayTaskCounts', () => {
-  it('counts pending (incl. rolled-over), postponed, completed scoped to today', async () => {
+  it('counts pending (incl. rolled-over), postponed (today + overdue), completed', async () => {
     const { exec } = await captainExecPair();
     const planId = await seedDayPlan(exec.id, istToday);
+    // pending today
     await seedTask({
       execUserId: exec.id,
       dayPlanId: planId,
       status: 'pending',
       taskDate: istToday,
     });
+    // pending rolled-over from yesterday
     await seedTask({
       execUserId: exec.id,
       status: 'pending',
       taskDate: yesterday,
       rolledOverAt: new Date(),
     });
+    // postponed TO today (still actionable, today's target)
     await seedTask({
       execUserId: exec.id,
       dayPlanId: planId,
       status: 'postponed',
       taskDate: istToday,
+      postponedToDate: istToday,
     });
+    // HVA-171: postponed TO a past date — overdue — must now count.
+    await seedTask({
+      execUserId: exec.id,
+      status: 'postponed',
+      taskDate: offsetIstDate(istToday, -5),
+      postponedToDate: yesterday,
+    });
+    // HVA-171: postponed TO a future date — hidden by design, must NOT count.
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'postponed',
+      taskDate: istToday,
+      postponedToDate: offsetIstDate(istToday, 3),
+    });
+    // completed today × 2
     await seedTask({
       execUserId: exec.id,
       dayPlanId: planId,
@@ -245,7 +268,129 @@ describe('loadExecTodayTaskCounts', () => {
       taskDate: istToday,
     });
     const counts = await loadExecTodayTaskCounts(exec.id);
-    expect(counts).toEqual({ pending: 2, postponed: 1, completed: 2 });
+    expect(counts).toEqual({ pending: 2, postponed: 2, completed: 2 });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// loadExecPostponedTasksOpen (HVA-171 — was loadExecPostponedTasksToday)
+// -----------------------------------------------------------------------------
+
+describe('loadExecPostponedTasksOpen', () => {
+  it('returns a task postponed TO today', async () => {
+    const { exec } = await captainExecPair();
+    const planId = await seedDayPlan(exec.id, istToday);
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'postponed',
+      taskDate: istToday,
+      postponedToDate: istToday,
+      description: 'Today target',
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out).toHaveLength(1);
+    expect(out[0].description).toBe('Today target');
+  });
+
+  it('returns an overdue task (postponed TO a past date) — original Sandeep bug', async () => {
+    const { exec } = await captainExecPair();
+    // Task enrolled 5 days ago, postponed to 2 days ago, today is now today.
+    await seedTask({
+      execUserId: exec.id,
+      status: 'postponed',
+      taskDate: offsetIstDate(istToday, -5),
+      postponedToDate: offsetIstDate(istToday, -2),
+      description: 'Abandoned task',
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out).toHaveLength(1);
+    expect(out[0].description).toBe('Abandoned task');
+    expect(out[0].postponedToDate).toBe(offsetIstDate(istToday, -2));
+  });
+
+  it('does NOT return a task postponed TO a future date', async () => {
+    const { exec } = await captainExecPair();
+    const planId = await seedDayPlan(exec.id, istToday);
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'postponed',
+      taskDate: istToday,
+      postponedToDate: offsetIstDate(istToday, 3),
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out).toEqual([]);
+  });
+
+  it('does NOT return tasks with non-postponed statuses', async () => {
+    const { exec } = await captainExecPair();
+    const planId = await seedDayPlan(exec.id, istToday);
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'pending',
+      taskDate: istToday,
+      postponedToDate: istToday, // contrived; pending shouldn't carry one but defensive check
+    });
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'completed',
+      taskDate: istToday,
+      postponedToDate: istToday,
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out).toEqual([]);
+  });
+
+  it('orders overdue rows by oldest target date first, then today', async () => {
+    const { exec } = await captainExecPair();
+    const planId = await seedDayPlan(exec.id, istToday);
+    await seedTask({
+      execUserId: exec.id,
+      dayPlanId: planId,
+      status: 'postponed',
+      taskDate: istToday,
+      postponedToDate: istToday,
+      description: 'Today',
+    });
+    await seedTask({
+      execUserId: exec.id,
+      status: 'postponed',
+      taskDate: offsetIstDate(istToday, -10),
+      postponedToDate: offsetIstDate(istToday, -7),
+      description: 'Very overdue',
+    });
+    await seedTask({
+      execUserId: exec.id,
+      status: 'postponed',
+      taskDate: offsetIstDate(istToday, -3),
+      postponedToDate: offsetIstDate(istToday, -1),
+      description: 'Slightly overdue',
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out.map((r) => r.description)).toEqual([
+      'Very overdue',
+      'Slightly overdue',
+      'Today',
+    ]);
+  });
+
+  it('does NOT return another exec\'s postponed tasks', async () => {
+    const { captain, exec } = await captainExecPair();
+    const otherExec = await seedExecutive(captain.id, {
+      phone: '+919200800001',
+      fullName: 'Other Exec',
+    });
+    await seedTask({
+      execUserId: otherExec.id,
+      status: 'postponed',
+      taskDate: istToday,
+      postponedToDate: istToday,
+    });
+    const out = await loadExecPostponedTasksOpen(exec.id);
+    expect(out).toEqual([]);
   });
 });
 

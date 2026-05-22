@@ -10,25 +10,26 @@ import {
 } from '@/components/ui/accordion';
 import { Icon } from '@/components/ui/icon';
 
-import { TaskRowWithClone } from '../../tasks/_components/TaskRowWithClone';
 import {
-  AddTaskSheet,
-  type CloneFromTask,
-  type LinkableLead,
-  type LinkableRequest,
-} from './AddTaskSheet';
+  MoveTaskSheet,
+  type MoveTarget,
+} from '../../tasks/_components/MoveTaskSheet';
+import { TaskRowWithAction } from '../../tasks/_components/TaskRowWithAction';
+
 import { StartMyDayButton } from './StartMyDayButton';
 
 import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
 // =============================================================================
-// HVA-170 D6: PreSubmissionView + last-7-days open-tasks accordion
+// HVA-170 D6 / HVA-170-FIX1: PreSubmissionView + last-7-days open-tasks accordion
 // =============================================================================
 //
 // Pre-submission surface (no day_plans row for today). Replaces the plain
-// PreSubmissionView when the exec has any open work from the past 7 days
-// — gives them a one-tap path to re-add yesterday's unfinished work
-// before committing today.
+// PreSubmissionView when the exec has open work from the past 7 days —
+// the row's "+" button opens MoveTaskSheet (move for pending,
+// reschedule for postponed). This accordion ONLY surfaces
+// pending/postponed work, so clone is never the right action here
+// (HVA-170-FIX1).
 //
 // When `lastWeekOpenTasks.length === 0` we collapse to the plain Start
 // My Day CTA (no clutter for brand-new execs).
@@ -36,26 +37,24 @@ import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
 interface Props {
   lastWeekOpenTasks: ExecTaskRow[];
-  linkableRequests: LinkableRequest[];
-  linkableLeads: LinkableLead[];
 }
 
-function buildCloneSource(task: ExecTaskRow): CloneFromTask {
-  return {
-    taskType: task.taskType,
-    description: task.description,
-    estimatedTime: task.estimatedTime,
-    linkRequestId: task.linkRequestId,
-    linkLeadId: task.linkLeadId,
-  };
-}
+export function StartMyDayWithRecentTasks({ lastWeekOpenTasks }: Props) {
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
 
-export function StartMyDayWithRecentTasks({
-  lastWeekOpenTasks,
-  linkableRequests,
-  linkableLeads,
-}: Props) {
-  const [cloneSource, setCloneSource] = useState<CloneFromTask | null>(null);
+  function openMove(task: ExecTaskRow) {
+    const status = task.status === 'postponed' ? 'postponed' : 'pending';
+    const currentDate =
+      status === 'postponed'
+        ? task.postponedToDate ?? task.taskDate
+        : task.taskDate;
+    setMoveTarget({
+      taskId: task.id,
+      status,
+      currentDate,
+      description: task.description,
+    });
+  }
 
   return (
     <main className="min-h-[60svh] flex flex-col items-center justify-start gap-6 p-6">
@@ -97,21 +96,23 @@ export function StartMyDayWithRecentTasks({
               <AccordionContent>
                 <p className="text-[11px] text-muted-foreground mb-3">
                   Pending and postponed work from the last 7 days. Tap{' '}
-                  <span className="font-medium">+</span> to re-add a row to
-                  today.
+                  <span className="font-medium">+</span> to move it to a
+                  new date.
                 </p>
                 <ul className="space-y-2">
-                  {lastWeekOpenTasks.map((t) => (
-                    <li key={t.id}>
-                      <TaskRowWithClone
-                        task={t}
-                        showPostponedPill={t.status === 'postponed'}
-                        onCloneClick={() =>
-                          setCloneSource(buildCloneSource(t))
-                        }
-                      />
-                    </li>
-                  ))}
+                  {lastWeekOpenTasks.map((t) => {
+                    const isPostponed = t.status === 'postponed';
+                    return (
+                      <li key={t.id}>
+                        <TaskRowWithAction
+                          task={t}
+                          showPostponedPill={isPostponed}
+                          actionLabel={isPostponed ? 'Reschedule' : 'Move'}
+                          onActionClick={() => openMove(t)}
+                        />
+                      </li>
+                    );
+                  })}
                 </ul>
               </AccordionContent>
             </AccordionItem>
@@ -119,12 +120,10 @@ export function StartMyDayWithRecentTasks({
         </section>
       )}
 
-      {cloneSource !== null && (
-        <AddTaskSheet
-          linkableRequests={linkableRequests}
-          linkableLeads={linkableLeads}
-          cloneFromTask={cloneSource}
-          onClose={() => setCloneSource(null)}
+      {moveTarget !== null && (
+        <MoveTaskSheet
+          target={moveTarget}
+          onClose={() => setMoveTarget(null)}
         />
       )}
     </main>

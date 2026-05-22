@@ -8,13 +8,15 @@ import { cn } from '@/lib/utils';
 import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
 // =============================================================================
-// HVA-170: task row with re-add (clone) button
+// HVA-170 / HVA-170-FIX1: task row with an action button (move / reschedule / re-add)
 // =============================================================================
 //
 // Single-row presentation used inside the Pending / Postponed / Completed
-// accordion sections on /tasks. The "Add +" button on the right calls the
-// parent's onCloneClick which opens AddTaskSheet pre-filled via the
-// cloneFromTask prop (HVA-170 D5).
+// accordion sections on /tasks plus the Start-My-Day recent-tasks accordion.
+// The "+" button on the right calls the parent's onActionClick. Parents
+// choose whether this opens MoveTaskSheet (pending/postponed → move /
+// reschedule) or AddTaskSheet (completed → re-add) and supply the
+// `actionLabel` ("Move" / "Reschedule" / "Re-add") for the aria-label.
 //
 // `showPostponedPill` causes a "Scheduled for <date>" badge to render when
 // `postponed_to_date` is set — that's the future-postponed signal on the
@@ -25,7 +27,9 @@ interface Props {
   task: ExecTaskRow;
   showPostponedPill?: boolean;
   showCompletedTimestamp?: boolean;
-  onCloneClick: () => void;
+  /** "Move" / "Reschedule" / "Re-add" — drives the aria-label only. */
+  actionLabel: string;
+  onActionClick: () => void;
 }
 
 function formatIstDate(istDate: string): string {
@@ -46,14 +50,14 @@ function formatCompletedAt(iso: string): string {
   }).format(new Date(iso));
 }
 
-export function TaskRowWithClone({
+export function TaskRowWithAction({
   task,
   showPostponedPill = false,
   showCompletedTimestamp = false,
-  onCloneClick,
+  actionLabel,
+  onActionClick,
 }: Props) {
-  const showPill =
-    showPostponedPill && task.postponedToDate !== null;
+  const showPill = showPostponedPill && task.postponedToDate !== null;
   return (
     <div
       className={cn(
@@ -63,7 +67,10 @@ export function TaskRowWithClone({
     >
       <div className="flex-1 min-w-0 space-y-1.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+          <Badge
+            variant="secondary"
+            className="text-[10px] uppercase tracking-wide"
+          >
             {task.taskType}
           </Badge>
           {showPill && (
@@ -92,8 +99,8 @@ export function TaskRowWithClone({
         type="button"
         variant="ghost"
         size="icon"
-        aria-label={`Re-add task: ${task.description}`}
-        onClick={onCloneClick}
+        aria-label={`${actionLabel}: ${task.description}`}
+        onClick={onActionClick}
         className="shrink-0 h-9 w-9"
       >
         <Icon name="add" size="sm" />

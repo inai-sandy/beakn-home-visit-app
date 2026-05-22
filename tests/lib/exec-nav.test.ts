@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  EXEC_DRAWER_NAV,
   EXEC_NAV,
   isExecNavItemActive,
   resolveExecPageTitle,
@@ -67,6 +68,49 @@ describe('isExecNavItemActive', () => {
     for (const item of EXEC_NAV) {
       expect(isExecNavItemActive(item, '/login')).toBe(false);
       expect(isExecNavItemActive(item, '/admin/dashboard')).toBe(false);
+    }
+  });
+});
+
+// =============================================================================
+// HVA-51: EXEC_DRAWER_NAV (mobile hamburger superset)
+// =============================================================================
+
+describe('EXEC_DRAWER_NAV', () => {
+  it('exposes drawer destinations in locked order (D2)', () => {
+    expect(EXEC_DRAWER_NAV.map((i) => i.label)).toEqual([
+      'Dashboard',
+      'Today',
+      'Tasks',
+      'Contacts',
+      'Requests',
+      'Resources',
+      'Announcements',
+      'Profile',
+    ]);
+  });
+
+  it('marks Resources and Announcements as stubs', () => {
+    const resources = EXEC_DRAWER_NAV.find((i) => i.href === '/resources');
+    const announcements = EXEC_DRAWER_NAV.find(
+      (i) => i.href === '/announcements',
+    );
+    expect(resources?.isStub).toBe(true);
+    expect(announcements?.isStub).toBe(true);
+  });
+
+  it('does NOT mark functional routes as stubs', () => {
+    const functional = EXEC_DRAWER_NAV.filter(
+      (i) => i.href !== '/resources' && i.href !== '/announcements',
+    );
+    for (const item of functional) {
+      expect(item.isStub).toBeUndefined();
+    }
+  });
+
+  it('superset of EXEC_NAV (bottom-nav stays unchanged per D10)', () => {
+    for (const item of EXEC_NAV) {
+      expect(EXEC_DRAWER_NAV.some((d) => d.href === item.href)).toBe(true);
     }
   });
 });

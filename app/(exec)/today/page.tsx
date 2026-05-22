@@ -13,11 +13,12 @@ import {
 } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { getConfig } from '@/lib/config';
+import { loadExecLastWeekOpenTasks } from '@/lib/exec/tasks-page-queries';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { getIstDateString, isAtOrAfterIstTime } from '@/lib/today/time';
 
-import { PreSubmissionView } from './_components/PreSubmissionView';
 import { PostSubmissionView } from './_components/PostSubmissionView';
+import { StartMyDayWithRecentTasks } from './_components/StartMyDayWithRecentTasks';
 
 // =============================================================================
 // HVA-60: /today — daily exec loop entry point
@@ -69,7 +70,45 @@ export default async function TodayPage() {
     .limit(1);
 
   if (!plan) {
-    return <PreSubmissionView />;
+    // HVA-170 D6: pre-submission surface includes the last-7-days
+    // open-tasks accordion. Loads in parallel with the linkable pools
+    // so the clone flow's AddTaskSheet has its suggestion data ready.
+    const visibleContactIds = await loadExecVisibleContactIds(user.id);
+    const [lastWeekOpenTasks, linkableRequests, linkableLeads] = await Promise.all([
+      loadExecLastWeekOpenTasks(user.id),
+      db
+        .select({
+          id: visitRequests.id,
+          customerName: visitRequests.customerName,
+          customerPhone: visitRequests.customerPhone,
+        })
+        .from(visitRequests)
+        .where(eq(visitRequests.assignedExecUserId, user.id))
+        .orderBy(asc(visitRequests.createdAt))
+        .limit(50),
+      visibleContactIds.length === 0
+        ? Promise.resolve(
+            [] as Array<{ id: string; name: string; phone: string }>,
+          )
+        : db
+            .select({ id: leads.id, name: leads.name, phone: leads.phone })
+            .from(leads)
+            .where(
+              and(
+                inArray(leads.id, visibleContactIds),
+                isNull(leads.convertedToRequestId),
+              ),
+            )
+            .orderBy(asc(leads.createdAt))
+            .limit(50),
+    ]);
+    return (
+      <StartMyDayWithRecentTasks
+        lastWeekOpenTasks={lastWeekOpenTasks}
+        linkableRequests={linkableRequests}
+        linkableLeads={linkableLeads}
+      />
+    );
   }
 
   // Day already closed → redirect to the close-screen so /today is never

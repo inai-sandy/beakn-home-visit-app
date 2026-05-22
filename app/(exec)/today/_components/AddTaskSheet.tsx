@@ -112,6 +112,22 @@ export interface TaskToEdit {
   linkLeadId: string | null;
 }
 
+/**
+ * HVA-170 D5: when supplied (and `taskToEdit` is absent), AddTaskSheet
+ * renders in clone mode — same form fields as add mode pre-filled from
+ * the source task, but submits a NEW row via addTaskAction. taskDate
+ * intentionally NOT in this shape — clone always defaults to today
+ * per D7. Task type chip stays editable; user may want to log a
+ * follow-up of a different type.
+ */
+export interface CloneFromTask {
+  taskType: string;
+  description: string;
+  estimatedTime: string;
+  linkRequestId: string | null;
+  linkLeadId: string | null;
+}
+
 interface Props {
   trigger?: React.ReactNode;
   linkableRequests: LinkableRequest[];
@@ -163,6 +179,7 @@ export function AddTaskSheet({
   linkableLeads = [],
   preselectedLink,
   taskToEdit,
+  cloneFromTask,
   onClose,
 }: {
   linkableRequests: LinkableRequest[];
@@ -170,26 +187,34 @@ export function AddTaskSheet({
   preselectedLink?: PreselectedLink;
   /** HVA-159: when present, renders in edit mode and calls editTaskAction. */
   taskToEdit?: TaskToEdit;
+  /** HVA-170 D5: when present (and taskToEdit absent), renders in clone
+   *  mode — prefills from source but submits a NEW row via addTaskAction. */
+  cloneFromTask?: CloneFromTask;
   onClose: () => void;
 }) {
   const router = useRouter();
   const editMode = Boolean(taskToEdit);
+  const cloneMode = !editMode && Boolean(cloneFromTask);
   const [taskType, setTaskType] = useState<string | null>(
-    taskToEdit?.taskType ?? null,
+    taskToEdit?.taskType ?? cloneFromTask?.taskType ?? null,
   );
+  // taskDate: edit mode keeps the row's date; clone mode + add mode default
+  // to today (D7 — clone never inherits source's date).
   const [taskDate, setTaskDate] = useState<string>(
     taskToEdit?.taskDate ?? todayLocalIso(),
   );
-  const [description, setDescription] = useState(taskToEdit?.description ?? '');
+  const [description, setDescription] = useState(
+    taskToEdit?.description ?? cloneFromTask?.description ?? '',
+  );
   const [estimatedTime, setEstimatedTime] = useState<string>(
-    taskToEdit?.estimatedTime ?? '30min',
+    taskToEdit?.estimatedTime ?? cloneFromTask?.estimatedTime ?? '30min',
   );
   const [linkSearch, setLinkSearch] = useState('');
   const [linkRequestId, setLinkRequestId] = useState<string | null>(
-    taskToEdit?.linkRequestId ?? null,
+    taskToEdit?.linkRequestId ?? cloneFromTask?.linkRequestId ?? null,
   );
   const [linkLeadId, setLinkLeadId] = useState<string | null>(
-    taskToEdit?.linkLeadId ?? null,
+    taskToEdit?.linkLeadId ?? cloneFromTask?.linkLeadId ?? null,
   );
 
   // Memoised so the min/max stay stable for the lifetime of an open sheet.
@@ -263,7 +288,9 @@ export function AddTaskSheet({
         toast.error(result.error);
         return;
       }
-      toast.success(editMode ? 'Task updated' : 'Task added');
+      toast.success(
+        editMode ? 'Task updated' : cloneMode ? 'Task re-added' : 'Task added',
+      );
       onClose();
       startTransition(() => {
         router.refresh();
@@ -283,11 +310,19 @@ export function AddTaskSheet({
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="bottom" className="max-h-[90svh] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{editMode ? 'Edit task' : 'Add a task'}</SheetTitle>
+          <SheetTitle>
+            {editMode
+              ? 'Edit task'
+              : cloneMode
+                ? 'Re-add task'
+                : 'Add a task'}
+          </SheetTitle>
           <SheetDescription>
             {editMode
               ? 'Update the description, date, or link. Task type stays the same.'
-              : "Anything you want to do today that wasn't already on the plan."}
+              : cloneMode
+                ? 'Pre-filled from the original. Date defaults to today.'
+                : "Anything you want to do today that wasn't already on the plan."}
           </SheetDescription>
         </SheetHeader>
 

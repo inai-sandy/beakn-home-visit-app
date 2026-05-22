@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { DateRangePicker } from '@/app/(captain)/captain/dashboard/_components/DateRangePicker';
 import { PerformanceCard } from '@/app/(captain)/captain/dashboard/_components/PerformanceCard';
 import { DayCloseMetricTiles } from '@/components/today/DayCloseMetricTiles';
 import { LeadsEnrolledCard } from '@/components/dashboard/LeadsEnrolledCard';
@@ -239,13 +238,10 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
         linkableRequests={linkableRequests}
         linkableLeads={linkableLeads}
       />
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-xs text-muted-foreground">
-          Calendar scopes Performance + Day Closure. Weekly Report is always
-          last 7 vs previous 7. Hero tiles always show today.
-        </p>
-        <DateRangePicker filter={filter} pathname="/dashboard" />
-      </div>
+      <p className="text-xs text-muted-foreground">
+        Calendar scopes Performance + Day Closure. Weekly Report is always last
+        7 vs previous 7. Hero tiles always show today.
+      </p>
       <section aria-label="Day closure" className="space-y-2">
         <h2 className="text-base font-semibold tracking-tight">Day Closure</h2>
         {dayCloseData.metrics === null ? (

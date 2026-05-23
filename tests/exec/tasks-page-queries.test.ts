@@ -192,6 +192,19 @@ describe('loadExecCompletedTasksPaginated', () => {
       dateTo: twoDaysAgo,
     });
     expect(onlyOld.tasks.map((t) => t.description)).toEqual(['Two days ago']);
+
+    // HVA-170-FIX2: exact same-day boundary [twoDaysAgo, twoDaysAgo].
+    // Pre-fix this collapsed window returned 0 rows because the IST
+    // timestamptz upper bound math was off by a day. Standardised on
+    // (completed_at AT TIME ZONE 'Asia/Kolkata')::date date-arithmetic.
+    const exactBoundary = await loadExecCompletedTasksPaginated(exec.id, {
+      page: 1,
+      dateFrom: twoDaysAgo,
+      dateTo: twoDaysAgo,
+    });
+    expect(exactBoundary.tasks.map((t) => t.description)).toEqual([
+      'Two days ago',
+    ]);
   });
 
   it('groups by IST completed date, newest first', async () => {

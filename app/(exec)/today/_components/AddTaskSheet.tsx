@@ -210,7 +210,6 @@ export function AddTaskSheet({
   const [estimatedTime, setEstimatedTime] = useState<string>(
     taskToEdit?.estimatedTime ?? cloneFromTask?.estimatedTime ?? '30min',
   );
-  const [linkSearch, setLinkSearch] = useState('');
   // HVA-170-FIX1 D14: clone mode does NOT inherit the source's link.
   // The exec re-links manually in the sheet (the original assignment
   // may have moved on). Only edit mode inherits the existing link.
@@ -220,6 +219,47 @@ export function AddTaskSheet({
   const [linkLeadId, setLinkLeadId] = useState<string | null>(
     taskToEdit?.linkLeadId ?? null,
   );
+  // HVA-170-FIX2: seed linkSearch with the linked customer's name when
+  // opening in edit mode. Pre-fix, the search input rendered empty even
+  // when linkRequestId/linkLeadId were hydrated — only a tiny "Linked."
+  // indicator surfaced the link state, so the customer field looked
+  // empty (Sandeep's walk repro). The lookup uses the pools the page
+  // already loaded; if the linked entity has fallen out of the current
+  // pool (e.g., request reassigned away), `linkedFallbackLabel` below
+  // surfaces a "Linked customer (not in your current list)" pill so the
+  // exec still sees that the link exists.
+  const [linkSearch, setLinkSearch] = useState<string>(() => {
+    if (taskToEdit?.linkRequestId) {
+      const r = linkableRequests.find(
+        (x) => x.id === taskToEdit.linkRequestId,
+      );
+      return r?.customerName ?? '';
+    }
+    if (taskToEdit?.linkLeadId) {
+      const l = linkableLeads.find((x) => x.id === taskToEdit.linkLeadId);
+      return l?.name ?? '';
+    }
+    return '';
+  });
+  // True when the task has a link that ISN'T in the current linkable
+  // pool — surfaces a defensive pill so the exec doesn't think the
+  // link is broken.
+  const linkedFallbackLabel = (() => {
+    if (linkSearch !== '') return null;
+    if (taskToEdit?.linkRequestId) {
+      const inPool = linkableRequests.some(
+        (x) => x.id === taskToEdit.linkRequestId,
+      );
+      return inPool ? null : 'Linked customer (not in your current list)';
+    }
+    if (taskToEdit?.linkLeadId) {
+      const inPool = linkableLeads.some(
+        (x) => x.id === taskToEdit.linkLeadId,
+      );
+      return inPool ? null : 'Linked contact (not in your current list)';
+    }
+    return null;
+  })();
 
   // Memoised so the min/max stay stable for the lifetime of an open sheet.
   // Long enough to be irrelevant in practice; right thing to do anyway.
@@ -531,7 +571,21 @@ export function AddTaskSheet({
                     )}
                   </ul>
                 )}
-                {(linkRequestId || linkLeadId) && (
+                {linkedFallbackLabel !== null && (
+                  <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                    {linkedFallbackLabel}. Tap{' '}
+                    <button
+                      type="button"
+                      className="underline text-foreground"
+                      onClick={clearLink}
+                      disabled={busy}
+                    >
+                      Clear
+                    </button>{' '}
+                    to re-link to someone in your current list.
+                  </div>
+                )}
+                {(linkRequestId || linkLeadId) && linkedFallbackLabel === null && (
                   <div className="flex items-center gap-2 text-[11px]">
                     <span className="text-primary">Linked.</span>
                     <button

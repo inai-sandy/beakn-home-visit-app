@@ -177,20 +177,26 @@ export async function loadExecCompletedTasksPaginated(
   const from = validIsoDate(opts.dateFrom) ? opts.dateFrom : null;
   const to = validIsoDate(opts.dateTo) ? opts.dateTo : null;
 
-  // Window filter: completed_at AT TIME ZONE 'Asia/Kolkata' between
-  // <from 00:00 IST> and <to+1 00:00 IST exclusive>. Computed by casting
-  // the YYYY-MM-DD literal to date and adding +05:30 — keeps the math in
-  // SQL so the planner can use the completed_at index.
+  // Window filter: compare on the IST calendar date of completed_at.
+  // `completed_at AT TIME ZONE 'Asia/Kolkata'` reinterprets the
+  // timestamptz as wall-clock in IST (returns timestamp without tz),
+  // then ::date truncates. Result: plain date math against the
+  // YYYY-MM-DD bounds. Simpler + more robust than building IST-anchored
+  // timestamptz boundaries (HVA-170 ship gate hit a boundary edge case
+  // with the previous form; HVA-170-FIX2 standardises on this).
   const whereClauses = [
     eq(tasks.execUserId, execUserId),
     eq(tasks.status, 'completed'),
   ];
   if (from !== null) {
-    whereClauses.push(sql`${tasks.completedAt} >= (${from}::date AT TIME ZONE 'Asia/Kolkata')`);
+    whereClauses.push(
+      sql`(${tasks.completedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${from}::date`,
+    );
   }
   if (to !== null) {
-    // exclusive upper: (to + 1 day) 00:00 IST.
-    whereClauses.push(sql`${tasks.completedAt} < ((${to}::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')`);
+    whereClauses.push(
+      sql`(${tasks.completedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${to}::date`,
+    );
   }
   const whereExpr = and(...whereClauses);
 

@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-23 (after CLAUDE.md auto-merge-policy ship)
+**Last updated:** 2026-05-23 (after STATE.md correction — shipped tickets stale in Queued)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -79,6 +79,8 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 | 2026-05-17 | HVA-137 | Captain approval gate (closes exec bypass to Order Executed) |
 | 2026-05-16 | HVA-66 | Request detail screen with customer info + status timeline |
 | 2026-05-18 | HVA-65 | Exec Requests tab (5 buckets) |
+| 2026-05-19 | HVA-73 PR2 + PR3 | Notes UI on request detail + both contact detail surfaces (append-only timeline + optimistic write area, commit 6d37f12) |
+| 2026-05-19 | HVA-161 | Broaden exec contact visibility to assignment trail (commit 73a7b18 — landed under the HVA-73 PR3 commit message) |
 | 2026-05-19 | HVA-73 | Leads section (unified form) |
 
 For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 — MVP Launch).
@@ -87,13 +89,10 @@ For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 �
 
 ## Queued (not yet started)
 
-- **HVA-73 PR2** — Notes UI on request detail + banner refactor
-- **HVA-73 PR3** — Notes UI on contact detail
 - **HVA-149** — Mutation wrapper + ESLint enforcement (architectural)
 - **HVA-150** — Optimistic UI + success/error toasts (Phase 2 candidate)
 - **HVA-151** — Playwright visual regression (Phase 2 candidate)
 - **HVA-156** — Resources + Announcements content (scope undefined; stub pages already shipped in HVA-51 bundle)
-- **HVA-161** — Broaden exec contact visibility to assignment trail (reassignment keeps prior exec visible)
 - **HVA-165** — Contact merge flow (deferred from HVA-159)
 
 ---

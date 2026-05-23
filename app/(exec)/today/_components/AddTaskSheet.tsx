@@ -459,11 +459,18 @@ export function AddTaskSheet({
             </Select>
           </div>
 
-          {/* Link to request OR lead */}
+          {/* Link to request OR lead. HVA-170-FIX3: when a link is set
+              (either inherited from taskToEdit or just picked from the
+              suggestion list), render a chip card with the customer's
+              name + phone + "Change" button instead of leaving the
+              customer name living as plain text inside the search
+              input. Clicking Change clears the link and brings the
+              search input back. Out-of-pool links surface a defensive
+              "not in your current list" sub-label. */}
           <div className="space-y-2">
             <Label htmlFor="add-task-link" className="text-sm">
               Link to a customer{' '}
-              {preselectedLink ? null : (
+              {preselectedLink || linkRequestId || linkLeadId ? null : (
                 <span className="text-muted-foreground">(optional)</span>
               )}
             </Label>
@@ -484,6 +491,21 @@ export function AddTaskSheet({
                   {preselectedLink.type}
                 </span>
               </div>
+            ) : (linkRequestId || linkLeadId) ? (
+              <LinkedCustomerChip
+                isLead={Boolean(linkLeadId)}
+                name={linkSearch}
+                phone={
+                  linkRequestId
+                    ? linkableRequests.find((r) => r.id === linkRequestId)
+                        ?.customerPhone ?? null
+                    : linkableLeads.find((l) => l.id === linkLeadId)?.phone ??
+                      null
+                }
+                fallbackLabel={linkedFallbackLabel}
+                disabled={busy}
+                onChange={clearLink}
+              />
             ) : (
               <>
                 <Input
@@ -491,11 +513,7 @@ export function AddTaskSheet({
                   type="search"
                   placeholder="Search your assigned customers…"
                   value={linkSearch}
-                  onChange={(e) => {
-                    setLinkSearch(e.target.value);
-                    setLinkRequestId(null);
-                    setLinkLeadId(null);
-                  }}
+                  onChange={(e) => setLinkSearch(e.target.value)}
                   disabled={busy}
                   className="h-11"
                 />
@@ -571,33 +589,6 @@ export function AddTaskSheet({
                     )}
                   </ul>
                 )}
-                {linkedFallbackLabel !== null && (
-                  <div className="rounded-md border border-dashed bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-                    {linkedFallbackLabel}. Tap{' '}
-                    <button
-                      type="button"
-                      className="underline text-foreground"
-                      onClick={clearLink}
-                      disabled={busy}
-                    >
-                      Clear
-                    </button>{' '}
-                    to re-link to someone in your current list.
-                  </div>
-                )}
-                {(linkRequestId || linkLeadId) && linkedFallbackLabel === null && (
-                  <div className="flex items-center gap-2 text-[11px]">
-                    <span className="text-primary">Linked.</span>
-                    <button
-                      type="button"
-                      className="underline text-muted-foreground"
-                      onClick={clearLink}
-                      disabled={busy}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -622,5 +613,67 @@ export function AddTaskSheet({
         </SheetFooter>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// =============================================================================
+// HVA-170-FIX3: linked-customer chip
+// =============================================================================
+//
+// Rendered in the AddTaskSheet's link slot when a link is set. Surfaces
+// the customer name + phone + type pill prominently — not as plain text
+// inside a search input. "Change" clears the link and brings the search
+// input back; the user can then re-link or leave the task unlinked.
+//
+// `fallbackLabel` covers the defensive case where the link points at a
+// request/lead that's no longer in the exec's current pool (e.g.,
+// request reassigned away after the task was created). Name + phone
+// can't be resolved, but the chip still signals "this task is linked"
+// so the exec understands the state.
+// =============================================================================
+
+function LinkedCustomerChip({
+  isLead,
+  name,
+  phone,
+  fallbackLabel,
+  disabled,
+  onChange,
+}: {
+  isLead: boolean;
+  name: string;
+  phone: string | null;
+  fallbackLabel: string | null;
+  disabled: boolean;
+  onChange: () => void;
+}) {
+  const resolvedName = name.trim() !== '' ? name : fallbackLabel;
+  return (
+    <div className="rounded-xl border bg-card p-3 flex items-start gap-3 shadow-sm">
+      <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+        <Icon name={isLead ? 'person_add' : 'person'} size="sm" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold truncate">
+          {resolvedName ?? 'Linked customer'}
+        </p>
+        {phone && (
+          <p className="text-xs text-muted-foreground font-mono">{phone}</p>
+        )}
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground mt-1">
+          {isLead ? 'Lead' : 'Customer'}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onChange}
+        disabled={disabled}
+        className="shrink-0"
+      >
+        Change
+      </Button>
+    </div>
   );
 }

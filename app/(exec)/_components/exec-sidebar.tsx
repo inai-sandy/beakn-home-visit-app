@@ -9,7 +9,7 @@ import { logoutAction } from "@/app/dev/logout-test/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { EXEC_NAV, isExecNavItemActive } from "@/lib/exec-nav";
+import { EXEC_DRAWER_NAV, isExecNavItemActive } from "@/lib/exec-nav";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -94,10 +94,13 @@ export function ExecSidebar({ fullName, captainName, cities }: ExecSidebarProps)
         )}
       </div>
 
-      {/* Nav */}
+      {/* Nav — HVA-170-FIX3: reads EXEC_DRAWER_NAV so the desktop sidebar
+          surfaces Tasks / Resources / Announcements alongside the
+          bottom-nav set. Bottom-nav stays bounded at 5 items via EXEC_NAV
+          (mobile screen width). */}
       <nav className="flex-1 overflow-y-auto p-2" aria-label="Sections">
         <ul className="space-y-0.5">
-          {EXEC_NAV.map((item) => {
+          {EXEC_DRAWER_NAV.map((item) => {
             const active = isExecNavItemActive(item, pathname);
             return (
               <li key={item.href}>
@@ -105,19 +108,31 @@ export function ExecSidebar({ fullName, captainName, cities }: ExecSidebarProps)
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex items-center gap-3 h-10 px-3 rounded-md text-sm transition-colors",
+                    "flex items-center justify-between gap-3 h-10 px-3 rounded-md text-sm transition-colors",
                     active
                       ? "bg-primary/10 text-primary font-semibold"
                       : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
                   )}
                 >
-                  <Icon
-                    name={item.icon}
-                    size="sm"
-                    fill={active}
-                    className={active ? "text-primary" : "text-muted-foreground"}
-                  />
-                  <span className="truncate">{item.label}</span>
+                  <span className="inline-flex items-center gap-3 min-w-0">
+                    <Icon
+                      name={item.icon}
+                      size="sm"
+                      fill={active}
+                      className={
+                        active ? "text-primary" : "text-muted-foreground"
+                      }
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  {item.isStub && (
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] uppercase tracking-wide"
+                    >
+                      Soon
+                    </Badge>
+                  )}
                 </Link>
               </li>
             );

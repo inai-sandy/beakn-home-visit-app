@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { outcomeOptions, tasks } from '@/db/schema';
+import { leads, outcomeOptions, tasks, visitRequests } from '@/db/schema';
 import { DEFAULT_PAGE_SIZE, computePageRange } from '@/lib/pagination';
 import { getIstDateString } from '@/lib/today/time';
 
@@ -41,6 +41,10 @@ export interface ExecTaskRow {
   rolledOverAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  /** HVA-170-FIX3: surfaced from visit_requests.customer_name or leads.name
+   *  via LEFT JOIN. Null when the task has neither link or when the link
+   *  target row has been deleted. */
+  linkedCustomerName: string | null;
 }
 
 interface RawTaskRow {
@@ -60,6 +64,8 @@ interface RawTaskRow {
   rolledOverAt: Date | null;
   completedAt: Date | null;
   createdAt: Date;
+  requestCustomerName: string | null;
+  leadName: string | null;
 }
 
 function mapTaskRow(t: RawTaskRow): ExecTaskRow {
@@ -80,6 +86,9 @@ function mapTaskRow(t: RawTaskRow): ExecTaskRow {
     rolledOverAt: t.rolledOverAt ? t.rolledOverAt.toISOString() : null,
     completedAt: t.completedAt ? t.completedAt.toISOString() : null,
     createdAt: t.createdAt.toISOString(),
+    // visit_request.customer_name takes precedence — a task can only carry
+    // one of the two link ids (XOR enforced app-side at write time).
+    linkedCustomerName: t.requestCustomerName ?? t.leadName ?? null,
   };
 }
 
@@ -100,7 +109,15 @@ const ROW_COLUMNS = {
   rolledOverAt: tasks.rolledOverAt,
   completedAt: tasks.completedAt,
   createdAt: tasks.createdAt,
+  requestCustomerName: visitRequests.customerName,
+  leadName: leads.name,
 };
+
+// HVA-170-FIX3: every list helper LEFT JOINs visit_requests + leads on
+// tasks.link_request_id / tasks.link_lead_id so each row carries the
+// linked customer's name in `linkedCustomerName`. The triple LEFT JOIN
+// is small and predictable — both columns are nullable, both joins are
+// O(1) per row via PK lookup.
 
 // -----------------------------------------------------------------------------
 // Pending — all open work (today + future + rolled-over). No date filter.
@@ -113,6 +130,8 @@ export async function loadExecAllPendingTasks(
     .select(ROW_COLUMNS)
     .from(tasks)
     .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
     .where(and(eq(tasks.execUserId, execUserId), eq(tasks.status, 'pending')))
     // Oldest first so rolled-over and overdue surface above future-dated work.
     .orderBy(asc(tasks.taskDate), asc(tasks.createdAt));
@@ -131,6 +150,8 @@ export async function loadExecAllPostponedTasks(
     .select(ROW_COLUMNS)
     .from(tasks)
     .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
     .where(and(eq(tasks.execUserId, execUserId), eq(tasks.status, 'postponed')))
     // Oldest target first — overdue floats up. NULL postponed_to_date is
     // unusual but sorts last by default in Postgres ASC.
@@ -209,6 +230,8 @@ export async function loadExecCompletedTasksPaginated(
       .select(ROW_COLUMNS)
       .from(tasks)
       .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
       .where(whereExpr)
       .orderBy(desc(tasks.completedAt))
       .limit(pageSize)
@@ -272,6 +295,8 @@ export async function loadExecLastWeekOpenTasks(
     .select(ROW_COLUMNS)
     .from(tasks)
     .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
     .where(
       and(
         eq(tasks.execUserId, execUserId),

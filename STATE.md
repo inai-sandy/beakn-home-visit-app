@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-23 (after HVA-170-FIX3 ship)
+**Last updated:** 2026-05-23 (after CLAUDE.md STATE.md-maintenance-rule ship)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -60,6 +60,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-23 | docs | Add STATE.md maintenance rule to CLAUDE.md — every feature PR must update STATE.md in the same PR |
 | 2026-05-23 | HVA-170-FIX3 | UI polish: customer name on task rows + EXEC_DRAWER_NAV in desktop sidebar + LinkedCustomerChip (PR #109) |
 | 2026-05-22 | HVA-170-FIX2 | Customer link display fix on edit/clone (linkSearch state init was empty) + SQL same-day filter fix |
 | 2026-05-22 | HVA-170-FIX1 | Move semantics for Pending/Postponed, drop link auto-copy on Clone, double-submit guard |

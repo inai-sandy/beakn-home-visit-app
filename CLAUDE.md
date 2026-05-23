@@ -160,30 +160,63 @@ pnpm test
 **Not just `tsc`** — `next build` catches narrowing-induced `never` errors. Past bugs were missed because only tsc ran.
 
 ### Ship process (Claude Code owns end-to-end)
-```
-# After Sandeep approves the implementation:
-git push origin <branch>
-gh pr create --title "HVA-XXX: <description>" --body "..."
-gh pr merge <PR> --squash --delete-branch
 
-ssh root@31.97.226.201
-su -l beakn
-cd /opt/beakn-home-visit-app
-git pull --ff-only origin main
-bash scripts/deploy.sh
-curl -sf http://localhost:3001/api/health
-```
+Claude Code executes the full ship pipeline automatically for auto-mergeable PRs. No waiting for Sandeep approval between PR open and prod. For review-required PRs, Claude Code stops after opening the PR and waits.
 
-**Expected deploy output:**
-- Build-arg validation: NEXT_PUBLIC_TURNSTILE_SITE_KEY present + non-placeholder
-- Bundle grep: `.next/static/**` contains the real Turnstile key
-- Migrations: `applied=N skipped=M`
-- Container healthy within 30s polling window
-- `/api/health` returns 200 `{"status":"ok","db":"connected"}`
+#### PR classification
 
-**Branch naming:** `sandypublic/hva-XXX-<kebab-slug>` (Linear's `gitBranchName` field auto-suggests).
+**Auto-merge PRs** (Claude Code merges immediately after the pre-PR gate passes, then deploys, then health-checks, then reports the ship summary):
 
-**Commit co-author tag:** include `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` in every commit.
+- Documentation changes: `CLAUDE.md`, `STATE.md`, anything under `docs/`, `README.md`, code comments
+- Single-file refactors with no behavior change (renames, extracts to `lib/*`, type-only changes)
+- Cleanup tickets (delete stale files, remove dead code, fix typos)
+- Dependency version bumps when all tests still pass
+
+**Review-required PRs** (Claude Code stops after PR opens, waits for Sandeep approval, then resumes the rest):
+
+- Schema changes or new database migrations
+- New server actions, or modifications to existing ones
+- New routes, modifications to `proxy.ts`, modifications to layouts
+- Anything touching `lib/auth`, `lib/exec-authz`, `lib/admin-authz`, or `lib/status-transition.ts`
+- Multi-file feature changes (more than 3 files modified, excluding tests)
+- Any ticket whose title contains "FIX" (walk-bug fixes — Sandeep walks the original ship before the fix lands)
+- Anything Claude Code is unsure how to classify (default to review-required)
+
+#### Auto-merge pipeline (executes without prompting)
+
+**Step 1**: Run pre-PR gate. Execute `pnpm tsc --noEmit`, then `pnpm next build`, then `pnpm test`. If any of the three fails, STOP and report the failure to Sandeep. Do not proceed.
+
+**Step 2**: Push the branch to origin (`git push -u origin BRANCH_NAME`).
+
+**Step 3**: Open PR via `gh pr create` with title and body.
+
+**Step 4**: Immediately merge the PR (`gh pr merge PR_NUMBER --squash --delete-branch`).
+
+**Step 5**: Switch to main and pull. Execute `git checkout main`, then `git pull --ff-only origin main`. No SSH. Claude Code is already on the VPS as the `beakn` user with direct repo access.
+
+**Step 6**: Run `bash scripts/deploy.sh` from `/opt/beakn-home-visit-app`. No need to switch users — Claude Code already runs as `beakn`.
+
+**Step 7**: Health check. Execute `curl -sf http://localhost:3001/api/health`. Expect HTTP 200 with body containing `status:ok` and `db:connected`.
+
+**Step 8**: Report ship summary to Sandeep in chat: PR number, merge SHA, migration count (applied/skipped), container health status, tests passing count, files changed count.
+
+If any step from 2 to 7 fails, STOP and report what failed. Do not attempt automatic recovery — Sandeep will diagnose.
+
+#### Review-required pipeline (executes only the open-PR step, then waits)
+
+**Step 1**: Run pre-PR gate. If any fails, STOP and report.
+
+**Step 2**: Push the branch to origin.
+
+**Step 3**: Open PR via `gh pr create`.
+
+**Step 4**: Report to Sandeep in chat: PR number, classification reason ("schema change" / "new server action" / "auth touch" / "FIX ticket" / etc.), link to PR. State explicitly: "Waiting for approval before merge."
+
+**Step 5**: Wait. Do not merge. Do not deploy. Resume only when Sandeep replies with explicit approval (a message like "merge", "ship it", "go ahead", "approved", "proceed").
+
+**Step 6**: Once approved, resume with steps 4 through 8 of the auto-merge pipeline (merge, pull, deploy, health check, ship summary).
+
+When in doubt about classification, treat the PR as review-required. Better to wait unnecessarily than to ship something risky without review.
 
 ### Walk discipline (Sandeep's job, not Claude Code's)
 - Walk every shipped feature on a **real phone** (not DevTools emulator).
@@ -236,6 +269,9 @@ Every feature PR must include a STATE.md update in the same PR. No separate micr
 - DO NOT propose creating local `.md` deliverables. All Beakn project docs go to Notion. CLAUDE.md / STATE.md / docs/CONTEXT.md are the only exceptions.
 - DO NOT add columns to tables that overlap with HVA-14 deferrals (see MEMORY → hva-14-deferrals).
 - DO NOT ship a feature PR without also updating STATE.md in the same PR.
+- DO NOT auto-merge a PR classified as review-required. When uncertain about classification, default to review-required and ask Sandeep.
+- DO NOT pause between merge and deploy on auto-merge PRs. The deploy is part of the auto-merge pipeline, not a separate step requiring Sandeep approval.
+- DO NOT add `ssh` or `su -l` steps to the ship pipeline. Claude Code runs on the VPS as the `beakn` user already and has direct repo access. SSH from beakn-to-self fails (no key). User switching to root fails (no sudo). The pipeline runs locally.
 
 ---
 

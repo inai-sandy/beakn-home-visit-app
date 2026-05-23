@@ -58,6 +58,21 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     ],
   },
   {
+    label: 'Content',
+    items: [
+      {
+        label: 'Resources',
+        icon: 'menu_book',
+        href: '/admin/content/resources',
+      },
+      {
+        label: 'Announcements',
+        icon: 'campaign',
+        href: '/admin/content/announcements',
+      },
+    ],
+  },
+  {
     label: 'Settings',
     items: [
       {

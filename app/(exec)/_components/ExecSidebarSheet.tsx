@@ -42,9 +42,16 @@ interface Props {
   fullName: string;
   captainName: string | null;
   cities: SidebarCity[];
+  /** HVA-156: unread-count badge next to the Announcements item. */
+  unreadAnnouncementsCount?: number;
 }
 
-export function ExecSidebarSheet({ fullName, captainName, cities }: Props) {
+export function ExecSidebarSheet({
+  fullName,
+  captainName,
+  cities,
+  unreadAnnouncementsCount = 0,
+}: Props) {
   const pathname = usePathname() ?? '';
   const [open, setOpen] = useState(false);
   const [pendingLogout, startLogout] = useTransition();
@@ -153,6 +160,18 @@ export function ExecSidebarSheet({ fullName, captainName, cities }: Props) {
                         Soon
                       </Badge>
                     )}
+                    {item.href === '/announcements' &&
+                      unreadAnnouncementsCount > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] tabular-nums border-primary/50 text-primary"
+                          aria-label={`${unreadAnnouncementsCount} unread announcements`}
+                        >
+                          {unreadAnnouncementsCount > 99
+                            ? '99+'
+                            : unreadAnnouncementsCount}
+                        </Badge>
+                      )}
                   </Link>
                 </li>
               );

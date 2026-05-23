@@ -90,20 +90,17 @@ describe('EXEC_DRAWER_NAV', () => {
     ]);
   });
 
-  it('marks Resources and Announcements as stubs', () => {
+  it('HVA-156: Resources and Announcements are no longer stubs (real surfaces)', () => {
     const resources = EXEC_DRAWER_NAV.find((i) => i.href === '/resources');
     const announcements = EXEC_DRAWER_NAV.find(
       (i) => i.href === '/announcements',
     );
-    expect(resources?.isStub).toBe(true);
-    expect(announcements?.isStub).toBe(true);
+    expect(resources?.isStub).toBeUndefined();
+    expect(announcements?.isStub).toBeUndefined();
   });
 
-  it('does NOT mark functional routes as stubs', () => {
-    const functional = EXEC_DRAWER_NAV.filter(
-      (i) => i.href !== '/resources' && i.href !== '/announcements',
-    );
-    for (const item of functional) {
+  it('no drawer items are flagged as stubs after HVA-156', () => {
+    for (const item of EXEC_DRAWER_NAV) {
       expect(item.isStub).toBeUndefined();
     }
   });

@@ -1,35 +1,42 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
-import { Icon } from '@/components/ui/icon';
+import { AnnouncementsView } from '@/components/content/AnnouncementsView';
+import { getServerSession } from '@/lib/auth-server';
+import { loadPublishedAnnouncementsForUser } from '@/lib/content/queries';
 
 // =============================================================================
-// HVA-51 stub: /announcements — team announcements placeholder
+// HVA-156: /announcements — exec read surface for team broadcasts
 // =============================================================================
 //
-// Reachable from the exec hamburger drawer. HVA-156 will replace this stub
-// with real team announcements (admin broadcasts, captain pinned notes).
+// Server-rendered with per-user `isRead` state joined in. The client
+// component fires markAllAnnouncementsReadAction on mount so the
+// drawer's unread badge drops on the next nav.
 // =============================================================================
+
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Announcements — Beakn',
 };
 
-export default function ExecAnnouncementsStubPage() {
+export default async function ExecAnnouncementsPage() {
+  const session = await getServerSession();
+  if (!session) redirect('/login?next=/announcements');
+  const user = session.user as { id: string };
+
+  const announcements = await loadPublishedAnnouncementsForUser(user.id);
   return (
-    <main className="min-h-[60svh] flex items-center justify-center p-6">
-      <div className="text-center space-y-3 max-w-sm">
-        <Icon
-          name="campaign"
-          size="lg"
-          className="text-muted-foreground/70 mx-auto"
-        />
-        <h2 className="text-lg font-semibold tracking-tight">
-          Announcements — coming soon
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          HVA-156 will replace this stub with team announcements.
+    <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Announcements
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Broadcasts from admin to the team. Newest first.
         </p>
-      </div>
+      </header>
+      <AnnouncementsView announcements={announcements} />
     </main>
   );
 }

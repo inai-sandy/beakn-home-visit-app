@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db/client";
 import { cities, salesExecutives, users } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
+import { countUnreadAnnouncementsForUser } from "@/lib/content/queries";
 import { decideExecAccess } from "@/lib/exec-authz";
 
 import { ExecBottomNav } from "./_components/exec-bottom-nav";
@@ -76,12 +77,19 @@ export default async function ExecLayout({
       .orderBy(asc(cities.name));
   }
 
+  // HVA-156: drives the unread-count badge on the Announcements item in
+  // both the mobile drawer + desktop sidebar.
+  const unreadAnnouncementsCount = await countUnreadAnnouncementsForUser(
+    user.id,
+  );
+
   return (
     <div className="min-h-svh flex bg-background">
       <ExecSidebar
         fullName={fullName}
         captainName={execRow?.captainName ?? null}
         cities={cityRows}
+        unreadAnnouncementsCount={unreadAnnouncementsCount}
       />
       <div className="flex-1 flex flex-col min-w-0">
         {/*
@@ -92,6 +100,7 @@ export default async function ExecLayout({
           fullName={fullName}
           captainName={execRow?.captainName ?? null}
           cities={cityRows}
+          unreadAnnouncementsCount={unreadAnnouncementsCount}
         />
         <ExecTopbar fullName={fullName} />
         {/*

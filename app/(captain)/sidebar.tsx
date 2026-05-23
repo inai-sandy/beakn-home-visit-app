@@ -36,6 +36,8 @@ export interface SidebarCity {
 interface SidebarProps {
   captainName: string;
   cities: SidebarCity[];
+  /** HVA-156: unread-count badge next to the Announcements item. */
+  unreadAnnouncementsCount?: number;
 }
 
 // HVA-152: NAV_ITEMS extracted to lib/captain/nav.ts so the mobile drawer
@@ -44,7 +46,11 @@ interface SidebarProps {
 // render output byte-identical.
 const NAV_ITEMS = CAPTAIN_NAV_ITEMS;
 
-export function CaptainSidebar({ captainName, cities }: SidebarProps) {
+export function CaptainSidebar({
+  captainName,
+  cities,
+  unreadAnnouncementsCount = 0,
+}: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
 
@@ -119,19 +125,33 @@ export function CaptainSidebar({ captainName, cities }: SidebarProps) {
                 <Link
                   href={item.href}
                   className={cn(
-                    "group flex items-center gap-3 h-10 px-3 rounded-md text-sm transition-colors",
+                    "group flex items-center justify-between gap-3 h-10 px-3 rounded-md text-sm transition-colors",
                     active
                       ? "bg-primary/10 text-primary font-semibold"
                       : "text-foreground/80 hover:bg-muted/60 hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
                 >
-                  <Icon
-                    name={item.icon}
-                    size="sm"
-                    className={active ? "text-primary" : "text-muted-foreground"}
-                  />
-                  <span className="truncate">{item.label}</span>
+                  <span className="inline-flex items-center gap-3 min-w-0">
+                    <Icon
+                      name={item.icon}
+                      size="sm"
+                      className={active ? "text-primary" : "text-muted-foreground"}
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </span>
+                  {item.href === "/captain/announcements" &&
+                    unreadAnnouncementsCount > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] tabular-nums border-primary/50 text-primary"
+                        aria-label={`${unreadAnnouncementsCount} unread announcements`}
+                      >
+                        {unreadAnnouncementsCount > 99
+                          ? "99+"
+                          : unreadAnnouncementsCount}
+                      </Badge>
+                    )}
                 </Link>
               </li>
             );

@@ -67,6 +67,12 @@ export function getTestDb() {
 const SAFE_TRUNCATE_TABLES = [
   'accounts',
   'admin_help_messages',
+  // HVA-156: resources/announcements/announcement_reads all FK to users
+  // with ON DELETE RESTRICT or CASCADE. Truncating them before the
+  // DELETE FROM users step keeps both the cascade graph and the unique
+  // phone constraint clean between tests.
+  'announcement_reads',
+  'announcements',
   'audit_log',
   'business_types',
   'captains',
@@ -87,6 +93,7 @@ const SAFE_TRUNCATE_TABLES = [
   'rate_limits',
   'request_reschedule_history',
   'request_status_history',
+  'resources',
   'sales_executives',
   'sessions',
   'tasks',

@@ -29,7 +29,9 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Requests tab with 5 buckets, mirrors captain pattern (HVA-65)
 - Request detail with customer info + status timeline (HVA-66)
 - Contacts/Leads with unified form (Customer/Business toggle) (HVA-73)
-- Mobile hamburger drawer mirrors captain pattern; 8 items: Dashboard / Today / Tasks / Contacts / Requests / Resources [stub] / Announcements [stub] / Profile (HVA-51)
+- Mobile hamburger drawer mirrors captain pattern; 8 items: Dashboard / Today / Tasks / Contacts / Requests / Resources / Announcements / Profile (HVA-51, HVA-156)
+- Resources surface (admin-published sales scripts / pricing / brand assets / training, grouped by category) (HVA-156)
+- Announcements surface (admin broadcasts with severity badges + per-user unread badge on drawer) (HVA-156)
 - Edit access on contacts, requests, tasks (HVA-159; no delete anywhere)
 - Calendar picker for future-dated tasks (HVA-157)
 - Auto-task creation on captain assignment (HVA-158)
@@ -60,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-23 | HVA-156 | Resources + Announcements: schema (3 tables, 2 enums), super_admin CRUD UI, exec + captain read surfaces, per-user read-tracking, drawer unread badge |
 | 2026-05-23 | docs | Claude Code owns full ship pipeline (auto-merge + auto-deploy for low-risk PRs); remove broken SSH/su steps from ship process |
 | 2026-05-23 | docs | Add STATE.md maintenance rule to CLAUDE.md — every feature PR must update STATE.md in the same PR |
 | 2026-05-23 | HVA-170-FIX3 | UI polish: customer name on task rows + EXEC_DRAWER_NAV in desktop sidebar + LinkedCustomerChip (PR #109) |
@@ -93,7 +96,6 @@ For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 �
 - **HVA-149** — Mutation wrapper + ESLint enforcement (architectural)
 - **HVA-150** — Optimistic UI + success/error toasts (Phase 2 candidate)
 - **HVA-151** — Playwright visual regression (Phase 2 candidate)
-- **HVA-156** — Resources + Announcements content (scope undefined; stub pages already shipped in HVA-51 bundle)
 
 ---
 
@@ -135,8 +137,6 @@ Until WhatsApp provider activates, stub mode is the default. Code paths exist at
 - WhatsApp via Interakt (env vars exist, not wired)
 - Multi-language
 - AI report cards (Phase 1 spec §11 — no ticket yet)
-- Resources content (Phase 1 spec §12 — HVA-156 stub only)
-- Announcements content (Phase 1 spec §13 — HVA-156 stub only)
 - Advanced analytics (forecasting, predictive)
 - Mark Exec Unavailable toggle (HVA-85) — may lift if operationally needed
 - Rolling-deploy / zero-downtime cutover (current rebuild has a few-second gap)

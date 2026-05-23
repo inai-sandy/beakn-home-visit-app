@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db/client";
 import { cities } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
+import { countUnreadAnnouncementsForUser } from "@/lib/content/queries";
 
 import { CaptainMobileTopbar } from "./_components/CaptainMobileTopbar";
 import { CaptainSidebar } from "./sidebar";
@@ -70,6 +71,12 @@ export default async function CaptainLayout({
     .where(eq(cities.captainUserId, user.id))
     .orderBy(asc(cities.name));
 
+  // HVA-156: drives the unread-count badge on the Announcements item in
+  // both the mobile drawer + desktop sidebar.
+  const unreadAnnouncementsCount = await countUnreadAnnouncementsForUser(
+    user.id,
+  );
+
   return (
     <div className="flex min-h-svh bg-background">
       {/*
@@ -82,7 +89,11 @@ export default async function CaptainLayout({
         proves it).
       */}
       <div className="hidden lg:contents">
-        <CaptainSidebar captainName={captainName} cities={myCities} />
+        <CaptainSidebar
+          captainName={captainName}
+          cities={myCities}
+          unreadAnnouncementsCount={unreadAnnouncementsCount}
+        />
       </div>
 
       {/* Right-side column: top bar + main content */}
@@ -92,7 +103,11 @@ export default async function CaptainLayout({
           hamburger trigger for the CaptainSidebarSheet drawer + page
           title + bell stub.
         */}
-        <CaptainMobileTopbar captainName={captainName} cities={myCities} />
+        <CaptainMobileTopbar
+          captainName={captainName}
+          cities={myCities}
+          unreadAnnouncementsCount={unreadAnnouncementsCount}
+        />
 
         {/*
           Desktop top bar — 56dp. Empty title slot today; pages will fill

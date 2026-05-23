@@ -40,15 +40,15 @@ export const EXEC_NAV: ExecNavItem[] = [
 // HVA-51: drawer-only nav (mobile hamburger)
 // =============================================================================
 //
-// Superset of EXEC_NAV with three drawer-only destinations: Tasks, Resources
-// (stub), Announcements (stub). The bottom nav stays at 5 items (D10) —
-// Tasks is reachable only via the drawer or by direct URL.
+// Superset of EXEC_NAV with three drawer-only destinations: Tasks, Resources,
+// Announcements. The bottom nav stays at 5 items (D10) — Tasks is reachable
+// only via the drawer or by direct URL.
 //
 // Order is locked (D2): Dashboard / Today / Tasks / Contacts / Requests /
 // Resources / Announcements / Profile.
 //
-// `isStub: true` flags routes that render a "coming soon" placeholder.
-// The drawer renders a small "Soon" badge next to those items.
+// HVA-156 dropped the `isStub` flags on Resources + Announcements when those
+// surfaces shipped. `isStub` is kept on the type for future drawer-only stubs.
 // =============================================================================
 
 export interface ExecDrawerNavItem extends ExecNavItem {
@@ -61,8 +61,8 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Tasks', icon: 'checklist', href: '/tasks' },
   { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
-  { label: 'Resources', icon: 'menu_book', href: '/resources', isStub: true },
-  { label: 'Announcements', icon: 'campaign', href: '/announcements', isStub: true },
+  { label: 'Resources', icon: 'menu_book', href: '/resources' },
+  { label: 'Announcements', icon: 'campaign', href: '/announcements' },
   { label: 'Profile', icon: 'person', href: '/profile' },
 ];
 

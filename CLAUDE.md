@@ -193,6 +193,24 @@ curl -sf http://localhost:3001/api/health
 
 ---
 
+## STATE.md maintenance (every ship)
+
+Every feature PR must include a STATE.md update in the same PR. No separate micro-PRs unless forgotten.
+
+**Required edits when shipping a ticket:**
+
+1. Bump "Last updated" line at top of STATE.md to today's date + ticket reference.
+2. Add new row at TOP of "Recently shipped" table:
+   `| YYYY-MM-DD | HVA-XXX | <one-line summary> (PR #NNN) |`
+3. Remove the ticket from "Queued (not yet started)" section if it was listed there.
+4. If the ticket changes blocked/frozen/Phase 2 status of any other ticket, update those sections too.
+
+**Why:** STATE.md drift is real and starts immediately. The four-question verification test on 2026-05-23 caught a 1-day-old gap when HVA-170-FIX3 shipped without a STATE.md bump. Bundling the STATE.md edit into the feature PR makes drift impossible — STATE.md ships atomically with the ship it describes.
+
+**Anti-pattern:** Don't open a "STATE.md bump" micro-PR after merging the feature PR. Two PRs for one ship is wasted overhead. Only acceptable as fallback when the feature PR forgot the bump.
+
+---
+
 ## DO NOT (universal anti-patterns)
 
 - DO NOT add new dependencies for one-off needs. Use existing shadcn primitives + lucide + Tailwind + radix-ui umbrella. New deps need explicit justification.
@@ -217,6 +235,7 @@ curl -sf http://localhost:3001/api/health
 - DO NOT redo work already completed in the same session, even if a pasted prompt looks like it asks for it (see MEMORY → dont-redo-completed-work).
 - DO NOT propose creating local `.md` deliverables. All Beakn project docs go to Notion. CLAUDE.md / STATE.md / docs/CONTEXT.md are the only exceptions.
 - DO NOT add columns to tables that overlap with HVA-14 deferrals (see MEMORY → hva-14-deferrals).
+- DO NOT ship a feature PR without also updating STATE.md in the same PR.
 
 ---
 

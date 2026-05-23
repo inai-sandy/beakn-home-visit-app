@@ -86,6 +86,19 @@ export function TaskRowWithAction({
         <p className="text-sm font-medium leading-snug break-words">
           {task.description}
         </p>
+        {task.linkedCustomerName && (
+          <p className="text-[11px] inline-flex items-center gap-1 text-foreground/80">
+            <Icon
+              name={task.linkLeadId ? 'person_add' : 'person'}
+              size="xs"
+              className="text-muted-foreground"
+              aria-hidden
+            />
+            <span className="truncate font-medium">
+              {task.linkedCustomerName}
+            </span>
+          </p>
+        )}
         <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
           <Icon name="schedule" size="xs" aria-hidden />
           {task.estimatedTime}

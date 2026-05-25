@@ -58,6 +58,7 @@ export interface ExecDrawerNavItem extends ExecNavItem {
 export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Dashboard', icon: 'dashboard', href: '/dashboard' },
   { label: 'Today', icon: 'today', href: '/today' },
+  { label: 'Calendar', icon: 'calendar_month', href: '/calendar' },
   { label: 'Tasks', icon: 'checklist', href: '/tasks' },
   { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },

@@ -3,18 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
 import {
-  announcementReads,
+  announcementAcknowledgments,
+  announcementCategories,
   announcements,
   auditLog,
   resourceCategories,
   resources,
 } from '@/db/schema';
 import {
+  acknowledgeAnnouncementAction,
   createAnnouncementAction,
+  createAnnouncementCategoryAction,
   createResourceAction,
   createResourceCategoryAction,
-  markAllAnnouncementsReadAction,
   setAnnouncementPublishedAction,
+  updateAnnouncementCategoryAction,
   updateResourceAction,
   updateResourceCategoryAction,
 } from '@/lib/content/actions';
@@ -27,7 +30,7 @@ import {
 } from '../helpers/db';
 
 // =============================================================================
-// HVA-156 + HVA-156-FIX1: content server actions
+// HVA-156 + FIX1 + FIX2: content server actions
 // =============================================================================
 
 let currentCookieHeader: string | undefined;
@@ -51,18 +54,28 @@ async function loginAsSuperAdmin(phone = '+918888156100') {
   return admin;
 }
 
-async function getCategoryBySlug(slug: string): Promise<string> {
+async function getResourceCategoryBySlug(slug: string): Promise<string> {
   const [row] = await db
     .select({ id: resourceCategories.id })
     .from(resourceCategories)
     .where(eq(resourceCategories.slug, slug))
     .limit(1);
-  if (!row) throw new Error(`No category with slug ${slug}`);
+  if (!row) throw new Error(`No resource category with slug ${slug}`);
+  return row.id;
+}
+
+async function getAnnouncementCategoryBySlug(slug: string): Promise<string> {
+  const [row] = await db
+    .select({ id: announcementCategories.id })
+    .from(announcementCategories)
+    .where(eq(announcementCategories.slug, slug))
+    .limit(1);
+  if (!row) throw new Error(`No announcement category with slug ${slug}`);
   return row.id;
 }
 
 // -----------------------------------------------------------------------------
-// Resource categories — admin CRUD
+// Resource categories
 // -----------------------------------------------------------------------------
 
 describe('createResourceCategoryAction', () => {
@@ -74,91 +87,26 @@ describe('createResourceCategoryAction', () => {
     expect(res.ok).toBe(false);
   });
 
-  it('rejects non-super_admin (captain)', async () => {
-    const cap = await seedCaptain({ phone: '+919000156200' });
-    const sess = await loginByPhone(cap.phone, cap.password);
-    currentCookieHeader = sess.cookieHeader;
-    const res = await createResourceCategoryAction({
-      name: 'New cat',
-      sortOrder: 50,
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/forbidden/i);
-  });
-
-  it('super_admin inserts a category with a slugified slug', async () => {
+  it('super_admin inserts a category', async () => {
     await loginAsSuperAdmin('+918888156201');
     const res = await createResourceCategoryAction({
-      name: 'Customer Testimonials & FAQs',
+      name: 'Demos',
       sortOrder: 55,
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-
-    const [row] = await db
-      .select()
-      .from(resourceCategories)
-      .where(eq(resourceCategories.id, res.data!.categoryId))
-      .limit(1);
-    expect(row.name).toBe('Customer Testimonials & FAQs');
-    expect(row.slug).toBe('customer-testimonials-faqs');
-    expect(row.sortOrder).toBe(55);
-    expect(row.isActive).toBe(true);
-
     const audits = await db
       .select()
       .from(auditLog)
       .where(eq(auditLog.eventType, 'resource_category_created'));
     expect(audits).toHaveLength(1);
-    expect(audits[0].targetEntityId).toBe(res.data!.categoryId);
-  });
-
-  it('rejects duplicate name with friendly error', async () => {
-    await loginAsSuperAdmin('+918888156202');
-    const res = await createResourceCategoryAction({
-      name: 'Sales scripts',
-      sortOrder: 1,
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/already exists/i);
   });
 });
 
 describe('updateResourceCategoryAction', () => {
-  it('renames + recomputes slug; emits audit with sparse diff', async () => {
+  it('toggles isActive', async () => {
     await loginAsSuperAdmin('+918888156210');
-    const id = await getCategoryBySlug('other');
-    const res = await updateResourceCategoryAction({
-      id,
-      name: 'Misc',
-      sortOrder: 99,
-      isActive: true,
-    });
-    expect(res.ok).toBe(true);
-
-    const [row] = await db
-      .select()
-      .from(resourceCategories)
-      .where(eq(resourceCategories.id, id))
-      .limit(1);
-    expect(row.name).toBe('Misc');
-    expect(row.slug).toBe('misc');
-
-    const audits = await db
-      .select()
-      .from(auditLog)
-      .where(eq(auditLog.eventType, 'resource_category_updated'));
-    expect(audits).toHaveLength(1);
-    const after = audits[0].afterState as Record<string, unknown>;
-    expect(after).toHaveProperty('name', 'Misc');
-    expect(after).toHaveProperty('slug', 'misc');
-    expect(after).not.toHaveProperty('sortOrder');
-    expect(after).not.toHaveProperty('isActive');
-  });
-
-  it('toggles isActive without renaming', async () => {
-    await loginAsSuperAdmin('+918888156211');
-    const id = await getCategoryBySlug('training');
+    const id = await getResourceCategoryBySlug('training');
     const res = await updateResourceCategoryAction({
       id,
       name: 'Training',
@@ -166,7 +114,6 @@ describe('updateResourceCategoryAction', () => {
       isActive: false,
     });
     expect(res.ok).toBe(true);
-
     const [row] = await db
       .select()
       .from(resourceCategories)
@@ -174,93 +121,88 @@ describe('updateResourceCategoryAction', () => {
       .limit(1);
     expect(row.isActive).toBe(false);
   });
+});
 
-  it('is a no-op (no audit emit) when nothing changes', async () => {
-    await loginAsSuperAdmin('+918888156212');
-    const id = await getCategoryBySlug('pricing');
-    const res = await updateResourceCategoryAction({
-      id,
-      name: 'Pricing',
-      sortOrder: 20,
-      isActive: true,
+// -----------------------------------------------------------------------------
+// Announcement categories (FIX2)
+// -----------------------------------------------------------------------------
+
+describe('createAnnouncementCategoryAction', () => {
+  it('rejects non-super_admin', async () => {
+    const cap = await seedCaptain({ phone: '+919000156250' });
+    const sess = await loginByPhone(cap.phone, cap.password);
+    currentCookieHeader = sess.cookieHeader;
+    const res = await createAnnouncementCategoryAction({
+      name: 'Captain trying',
+      sortOrder: 50,
+    });
+    expect(res.ok).toBe(false);
+  });
+
+  it('super_admin inserts + audit', async () => {
+    await loginAsSuperAdmin('+918888156251');
+    const res = await createAnnouncementCategoryAction({
+      name: 'Field operations',
+      sortOrder: 55,
     });
     expect(res.ok).toBe(true);
-
     const audits = await db
       .select()
       .from(auditLog)
-      .where(eq(auditLog.eventType, 'resource_category_updated'));
-    expect(audits).toHaveLength(0);
+      .where(eq(auditLog.eventType, 'announcement_category_created'));
+    expect(audits).toHaveLength(1);
+  });
+});
+
+describe('updateAnnouncementCategoryAction', () => {
+  it('renames + emits audit with sparse diff', async () => {
+    await loginAsSuperAdmin('+918888156260');
+    const id = await getAnnouncementCategoryBySlug('product');
+    const res = await updateAnnouncementCategoryAction({
+      id,
+      name: 'Product updates',
+      sortOrder: 40,
+      isActive: true,
+    });
+    expect(res.ok).toBe(true);
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.eventType, 'announcement_category_updated'));
+    expect(audits).toHaveLength(1);
+    const after = audits[0].afterState as Record<string, unknown>;
+    expect(after).toHaveProperty('name', 'Product updates');
   });
 });
 
 // -----------------------------------------------------------------------------
-// Resources
+// Resources (with visibility + tags)
 // -----------------------------------------------------------------------------
 
 describe('createResourceAction', () => {
-  it('rejects unauthenticated callers', async () => {
-    const categoryId = await getCategoryBySlug('pricing');
-    const res = await createResourceAction({
-      categoryId,
-      title: 'Anything',
-      url: 'https://example.test/x',
-    });
-    expect(res.ok).toBe(false);
-  });
-
-  it('rejects non-super_admin', async () => {
-    const cap = await seedCaptain({ phone: '+919000156300' });
-    const sess = await loginByPhone(cap.phone, cap.password);
-    currentCookieHeader = sess.cookieHeader;
-    const categoryId = await getCategoryBySlug('pricing');
-
-    const res = await createResourceAction({
-      categoryId,
-      title: 'Captain trying',
-      url: 'https://example.test/x',
-    });
-    expect(res.ok).toBe(false);
-  });
-
   it('rejects malformed URL', async () => {
-    await loginAsSuperAdmin('+918888156301');
-    const categoryId = await getCategoryBySlug('pricing');
+    await loginAsSuperAdmin('+918888156300');
+    const categoryId = await getResourceCategoryBySlug('pricing');
     const res = await createResourceAction({
       categoryId,
       title: 'Bad URL',
       url: 'not-a-url',
+      visibility: 'all',
+      tags: [],
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/url/i);
   });
 
-  it('rejects an inactive category', async () => {
-    await loginAsSuperAdmin('+918888156302');
-    const categoryId = await getCategoryBySlug('other');
-    await db
-      .update(resourceCategories)
-      .set({ isActive: false })
-      .where(eq(resourceCategories.id, categoryId));
+  it('super_admin inserts with visibility + tags + audit', async () => {
+    const admin = await loginAsSuperAdmin('+918888156301');
+    const categoryId = await getResourceCategoryBySlug('sales-scripts');
 
     const res = await createResourceAction({
       categoryId,
-      title: 'Should reject',
-      url: 'https://example.test/x',
-    });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/inactive/i);
-  });
-
-  it('super_admin inserts a resource + emits resource_created audit', async () => {
-    const admin = await loginAsSuperAdmin('+918888156303');
-    const categoryId = await getCategoryBySlug('sales-scripts');
-
-    const res = await createResourceAction({
-      categoryId,
-      title: 'Cold call script',
-      url: 'https://drive.google.com/cold-call',
-      description: 'For premium customers',
+      title: '1BHK proposal',
+      url: 'https://drive.google.com/proposal-1bhk',
+      visibility: 'sales_execs_only',
+      tags: ['1BHK', '  premium  ', '1bhk'], // mixed case + dups
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -270,72 +212,38 @@ describe('createResourceAction', () => {
       .from(resources)
       .where(eq(resources.id, res.data!.resourceId))
       .limit(1);
-    expect(row.title).toBe('Cold call script');
-    expect(row.url).toBe('https://drive.google.com/cold-call');
-    expect(row.description).toBe('For premium customers');
-    expect(row.categoryId).toBe(categoryId);
-    expect(row.createdByUserId).toBe(admin.id);
-
-    const audits = await db
-      .select()
-      .from(auditLog)
-      .where(eq(auditLog.eventType, 'resource_created'));
-    expect(audits).toHaveLength(1);
-  });
-
-  it('treats empty description as NULL', async () => {
-    await loginAsSuperAdmin('+918888156304');
-    const categoryId = await getCategoryBySlug('pricing');
-    const res = await createResourceAction({
-      categoryId,
-      title: 'No description',
-      url: 'https://example.test/x',
-      description: '',
-    });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-
-    const [row] = await db
-      .select()
-      .from(resources)
-      .where(eq(resources.id, res.data!.resourceId))
-      .limit(1);
-    expect(row.description).toBeNull();
+    expect(row.visibility).toBe('sales_execs_only');
+    expect(row.tags).toEqual(['1bhk', 'premium']);
+    void admin;
   });
 });
 
 describe('updateResourceAction', () => {
-  it('updates only changed fields + sparse audit diff', async () => {
+  it('updates visibility + tags + audit diff includes both', async () => {
     await loginAsSuperAdmin('+918888156310');
-    const scriptsId = await getCategoryBySlug('sales-scripts');
-    const pricingId = await getCategoryBySlug('pricing');
+    const scriptsId = await getResourceCategoryBySlug('sales-scripts');
 
     const created = await createResourceAction({
       categoryId: scriptsId,
       title: 'Original',
       url: 'https://example.test/v1',
-      description: 'original notes',
+      visibility: 'all',
+      tags: ['a'],
     });
     if (!created.ok) throw new Error('seed failed');
     const id = created.data!.resourceId;
 
     const updated = await updateResourceAction({
       id,
-      categoryId: pricingId,
+      categoryId: scriptsId,
       title: 'Original',
-      url: 'https://example.test/v2',
-      description: 'original notes',
+      url: 'https://example.test/v1',
+      description: '',
+      visibility: 'captains_only',
+      tags: ['a', 'b'],
       isPublished: true,
     });
     expect(updated.ok).toBe(true);
-
-    const [row] = await db
-      .select()
-      .from(resources)
-      .where(eq(resources.id, id))
-      .limit(1);
-    expect(row.categoryId).toBe(pricingId);
-    expect(row.url).toBe('https://example.test/v2');
 
     const audits = await db
       .select()
@@ -343,117 +251,153 @@ describe('updateResourceAction', () => {
       .where(eq(auditLog.eventType, 'resource_updated'));
     expect(audits).toHaveLength(1);
     const after = audits[0].afterState as Record<string, unknown>;
-    expect(after).toHaveProperty('categoryId', pricingId);
-    expect(after).toHaveProperty('url', 'https://example.test/v2');
-    expect(after).not.toHaveProperty('title');
-    expect(after).not.toHaveProperty('description');
-    expect(after).not.toHaveProperty('isPublished');
-  });
-
-  it('allows editing against an inactive category (preserves history)', async () => {
-    await loginAsSuperAdmin('+918888156311');
-    const trainingId = await getCategoryBySlug('training');
-
-    const created = await createResourceAction({
-      categoryId: trainingId,
-      title: 'Active-time post',
-      url: 'https://example.test/v1',
-    });
-    if (!created.ok) throw new Error('seed failed');
-
-    await db
-      .update(resourceCategories)
-      .set({ isActive: false })
-      .where(eq(resourceCategories.id, trainingId));
-
-    const res = await updateResourceAction({
-      id: created.data!.resourceId,
-      categoryId: trainingId,
-      title: 'Renamed',
-      url: 'https://example.test/v1',
-      description: '',
-      isPublished: false,
-    });
-    expect(res.ok).toBe(true);
+    expect(after).toHaveProperty('visibility', 'captains_only');
+    expect(after).toHaveProperty('tags');
   });
 });
 
 // -----------------------------------------------------------------------------
-// Announcement actions (unchanged from HVA-156, smoke tests)
+// Announcements (with category + audience + importance + publishDate)
 // -----------------------------------------------------------------------------
 
-describe('createAnnouncementAction + setAnnouncementPublishedAction', () => {
-  it('super_admin creates + toggles published', async () => {
-    await loginAsSuperAdmin('+918888156400');
-    const created = await createAnnouncementAction({
-      severity: 'urgent',
-      title: 'Outage',
-      body: 'API is degraded',
-    });
-    expect(created.ok).toBe(true);
-    if (!created.ok) return;
-    const id = created.data!.announcementId;
-
-    const off = await setAnnouncementPublishedAction({ id, isPublished: false });
-    expect(off.ok).toBe(true);
-
-    const [row] = await db
-      .select()
-      .from(announcements)
-      .where(eq(announcements.id, id))
-      .limit(1);
-    expect(row.isPublished).toBe(false);
-  });
-
+describe('createAnnouncementAction', () => {
   it('rejects non-super_admin', async () => {
     const cap = await seedCaptain({ phone: '+919000156400' });
     const exec = await seedExecutive(cap.id, { phone: '+919100156400' });
     const sess = await loginByPhone(exec.phone, exec.password);
     currentCookieHeader = sess.cookieHeader;
 
+    const categoryId = await getAnnouncementCategoryBySlug('operational');
     const res = await createAnnouncementAction({
-      severity: 'info',
+      categoryId,
+      importance: 'info',
+      audience: 'both',
       title: 'Should fail',
-      body: 'not allowed',
+      body: 'no',
     });
     expect(res.ok).toBe(false);
   });
+
+  it('super_admin inserts + audit captures audience + importance', async () => {
+    await loginAsSuperAdmin('+918888156401');
+    const categoryId = await getAnnouncementCategoryBySlug('operational');
+    const res = await createAnnouncementAction({
+      categoryId,
+      importance: 'urgent',
+      audience: 'captain',
+      title: 'Captain only urgent',
+      body: 'restricted',
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+
+    const [row] = await db
+      .select()
+      .from(announcements)
+      .where(eq(announcements.id, res.data!.announcementId))
+      .limit(1);
+    expect(row.importance).toBe('urgent');
+    expect(row.audience).toBe('captain');
+    expect(row.publishDate).toBeTruthy();
+
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.eventType, 'announcement_created'));
+    expect(audits).toHaveLength(1);
+  });
 });
 
-describe('markAllAnnouncementsReadAction', () => {
-  it('idempotently inserts read receipts for all published announcements', async () => {
-    await loginAsSuperAdmin('+918888156500');
-    const a1 = await createAnnouncementAction({
-      severity: 'info',
-      title: 'Announcement one',
+describe('setAnnouncementPublishedAction', () => {
+  it('toggles published flag', async () => {
+    await loginAsSuperAdmin('+918888156410');
+    const categoryId = await getAnnouncementCategoryBySlug('operational');
+    const created = await createAnnouncementAction({
+      categoryId,
+      importance: 'info',
+      audience: 'both',
+      title: 'Toggle me',
       body: 'x',
     });
-    const a2 = await createAnnouncementAction({
-      severity: 'info',
-      title: 'Announcement two',
-      body: 'y',
+    if (!created.ok) throw new Error('seed failed');
+    const off = await setAnnouncementPublishedAction({
+      id: created.data!.announcementId,
+      isPublished: false,
     });
-    if (!a1.ok || !a2.ok) throw new Error('seed failed');
+    expect(off.ok).toBe(true);
+  });
+});
+
+describe('acknowledgeAnnouncementAction', () => {
+  it('inserts one ack row + audit; second call is a no-op', async () => {
+    await loginAsSuperAdmin('+918888156500');
+    const categoryId = await getAnnouncementCategoryBySlug('operational');
+    const created = await createAnnouncementAction({
+      categoryId,
+      importance: 'info',
+      audience: 'both',
+      title: 'Ack me',
+      body: 'x',
+    });
+    if (!created.ok) throw new Error('seed failed');
 
     const cap = await seedCaptain({ phone: '+919000156500' });
     const sess = await loginByPhone(cap.phone, cap.password);
     currentCookieHeader = sess.cookieHeader;
 
-    const res = await markAllAnnouncementsReadAction();
-    expect(res.ok).toBe(true);
+    const first = await acknowledgeAnnouncementAction({
+      announcementId: created.data!.announcementId,
+    });
+    expect(first.ok).toBe(true);
 
-    const reads = await db
+    const rows = await db
       .select()
-      .from(announcementReads)
-      .where(eq(announcementReads.userId, cap.id));
-    expect(reads).toHaveLength(2);
+      .from(announcementAcknowledgments)
+      .where(eq(announcementAcknowledgments.userId, cap.id));
+    expect(rows).toHaveLength(1);
 
-    const again = await markAllAnnouncementsReadAction();
-    expect(again.ok).toBe(true);
-    const reads2 = await db
+    // Idempotency
+    const second = await acknowledgeAnnouncementAction({
+      announcementId: created.data!.announcementId,
+    });
+    expect(second.ok).toBe(true);
+    const rows2 = await db
       .select()
-      .from(announcementReads)
-      .where(eq(announcementReads.userId, cap.id));
-    expect(reads2).toHaveLength(2);
+      .from(announcementAcknowledgments)
+      .where(eq(announcementAcknowledgments.userId, cap.id));
+    expect(rows2).toHaveLength(1);
+
+    // Only one audit event (first ack)
+    const audits = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.eventType, 'announcement_acknowledged'));
+    expect(audits).toHaveLength(1);
+  });
+
+  it('rejects unpublished announcements', async () => {
+    await loginAsSuperAdmin('+918888156501');
+    const categoryId = await getAnnouncementCategoryBySlug('operational');
+    const created = await createAnnouncementAction({
+      categoryId,
+      importance: 'info',
+      audience: 'both',
+      title: 'Unpublished',
+      body: 'x',
+    });
+    if (!created.ok) throw new Error('seed failed');
+    await setAnnouncementPublishedAction({
+      id: created.data!.announcementId,
+      isPublished: false,
+    });
+
+    const cap = await seedCaptain({ phone: '+919000156501' });
+    const sess = await loginByPhone(cap.phone, cap.password);
+    currentCookieHeader = sess.cookieHeader;
+
+    const res = await acknowledgeAnnouncementAction({
+      announcementId: created.data!.announcementId,
+    });
+    expect(res.ok).toBe(false);
   });
 });

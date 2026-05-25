@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { getServerSession } from '@/lib/auth-server';
-import { loadAllAnnouncementsForAdmin } from '@/lib/content/queries';
+import {
+  loadAllAnnouncementCategoriesForAdmin,
+  loadAllAnnouncementsForAdmin,
+} from '@/lib/content/queries';
 
 import { AnnouncementsClient } from './announcements-client';
 
@@ -24,11 +27,15 @@ export const metadata: Metadata = {
 
 export default async function AdminAnnouncementsPage() {
   const session = await getServerSession();
-  if (!session) redirect('/login?next=/admin/content/announcements');
+  if (!session)
+    redirect('/login?next=/admin/settings/audit-content/announcements');
   const user = session.user as { id: string; role?: string };
   if (user.role !== 'super_admin') redirect('/admin/dashboard');
 
-  const announcements = await loadAllAnnouncementsForAdmin();
+  const [announcements, categories] = await Promise.all([
+    loadAllAnnouncementsForAdmin(),
+    loadAllAnnouncementCategoriesForAdmin(),
+  ]);
 
   return (
     <main className="min-h-svh bg-background">
@@ -44,7 +51,10 @@ export default async function AdminAnnouncementsPage() {
             </p>
           </div>
         </header>
-        <AnnouncementsClient announcements={announcements} />
+        <AnnouncementsClient
+          announcements={announcements}
+          categories={categories}
+        />
       </div>
     </main>
   );

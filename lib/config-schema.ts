@@ -260,6 +260,8 @@ export const CONFIG_SCHEMA = {
       'announcement_category_created',
       'announcement_category_updated',
       'announcement_acknowledged',
+      // HVA-39 — customer-initiated cancellation from /track/[token].
+      'request_cancelled_by_customer',
     ],
     editable: true,
   },

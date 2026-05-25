@@ -35,6 +35,12 @@ export interface AdminNavGroup {
   items: AdminNavItem[];
 }
 
+// HVA-89: All configuration surfaces now live under /admin/settings/<group>/<page>
+// per the Settings Hub spec. The sidebar collapses to two top-level groups
+// ('Operations' and 'Settings') so non-config pages (dashboard, requests, help)
+// remain at the root and every config-y page sits under one Settings header.
+// URL hierarchy reflects the HVA-89 6-card grouping (organization /
+// audit-content / notifications / etc.); the sidebar flattens those leaves.
 export const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Operations',
@@ -51,33 +57,6 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     ],
   },
   {
-    label: 'People',
-    items: [
-      { label: 'Captains', icon: 'shield_person', href: '/admin/captains' },
-      { label: 'Executives', icon: 'badge', href: '/admin/executives' },
-    ],
-  },
-  {
-    label: 'Content',
-    items: [
-      {
-        label: 'Resources',
-        icon: 'menu_book',
-        href: '/admin/content/resources',
-      },
-      {
-        label: 'Categories',
-        icon: 'label',
-        href: '/admin/content/categories',
-      },
-      {
-        label: 'Announcements',
-        icon: 'campaign',
-        href: '/admin/content/announcements',
-      },
-    ],
-  },
-  {
     label: 'Settings',
     items: [
       {
@@ -86,9 +65,34 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         href: '/admin/settings/organization/cities',
       },
       {
-        label: 'System',
-        icon: 'tune',
-        href: '/admin/settings/system/customer-support-phone',
+        label: 'Captains',
+        icon: 'shield_person',
+        href: '/admin/settings/organization/captains',
+      },
+      {
+        label: 'Executives',
+        icon: 'badge',
+        href: '/admin/settings/organization/executives',
+      },
+      {
+        label: 'Resources',
+        icon: 'menu_book',
+        href: '/admin/settings/audit-content/resources',
+      },
+      {
+        label: 'Categories',
+        icon: 'label',
+        href: '/admin/settings/audit-content/categories',
+      },
+      {
+        label: 'Announcements',
+        icon: 'campaign',
+        href: '/admin/settings/audit-content/announcements',
+      },
+      {
+        label: 'Customer Support Phone',
+        icon: 'support_agent',
+        href: '/admin/settings/notifications/customer-support-phone',
       },
     ],
   },
@@ -112,7 +116,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
 //      present in the current URL with the expected value.
 //   3. Otherwise: exact pathname match, OR the current pathname is nested
 //      under the item's href (prefix + '/'). This lets a nested
-//      /admin/captains/[id] page still highlight the parent "Captains" link
+//      /admin/settings/organization/captains/[id] page still highlight the parent "Captains" link
 //      when those detail pages ship.
 //   4. /admin/requests special case: when ?city=other is on the URL, the
 //      "Other-city Queue" item wins instead of "All Requests". This matters

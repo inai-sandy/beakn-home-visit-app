@@ -31,39 +31,41 @@ import {
   type CreateResourceInput,
   type UpdateResourceInput,
 } from '@/lib/content/actions';
-import {
-  RESOURCE_CATEGORY_LABELS,
-  type ResourceCategory,
-  type ResourceRow,
+import type {
+  ResourceCategoryRow,
+  ResourceRow,
 } from '@/lib/content/types';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
-// HVA-156: ResourcesClient — admin list + create/edit modal
+// HVA-156-FIX1: ResourcesClient — admin list + create/edit modal
 // =============================================================================
-
-const CATEGORY_OPTIONS: ResourceCategory[] = [
-  'sales_scripts',
-  'pricing',
-  'brand_assets',
-  'training',
-  'other',
-];
+//
+// Resources are URL bookmarks. Each row has a title, a URL (required), and
+// an optional short description. Category is a single FK pick from the
+// active admin-managed `resource_categories` list.
+//
+// Edit modal exposes the publish toggle; new resources are published by
+// default. Unpublishing hides a row from the read surface without
+// deleting the row (no deletes anywhere in the app).
+// =============================================================================
 
 interface FormState {
   mode: 'create' | { mode: 'edit'; id: string };
-  category: ResourceCategory;
+  categoryId: string;
   title: string;
-  body: string;
+  url: string;
+  description: string;
   isPublished: boolean;
 }
 
-function emptyForm(): FormState {
+function emptyForm(defaultCategoryId: string): FormState {
   return {
     mode: 'create',
-    category: 'sales_scripts',
+    categoryId: defaultCategoryId,
     title: '',
-    body: '',
+    url: '',
+    description: '',
     isPublished: true,
   };
 }
@@ -71,23 +73,38 @@ function emptyForm(): FormState {
 function formFromRow(row: ResourceRow): FormState {
   return {
     mode: { mode: 'edit', id: row.id },
-    category: row.category,
+    categoryId: row.categoryId,
     title: row.title,
-    body: row.body,
+    url: row.url,
+    description: row.description ?? '',
     isPublished: row.isPublished,
   };
 }
 
-export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
+export function ResourcesClient({
+  resources,
+  categories,
+}: {
+  resources: ResourceRow[];
+  /** All categories incl. inactive, for the dropdown. We list active ones
+   *  for new resources; existing resources may reference inactive ones, so
+   *  the dropdown shows everything but the inactive ones are visually marked. */
+  categories: ResourceCategoryRow[];
+}) {
   const router = useRouter();
+  const activeCategories = categories.filter((c) => c.isActive);
+  const defaultCategoryId = activeCategories[0]?.id ?? categories[0]?.id ?? '';
+
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<FormState>(emptyForm());
+  const [form, setForm] = useState<FormState>(() =>
+    emptyForm(defaultCategoryId),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 
   function openCreate() {
-    setForm(emptyForm());
+    setForm(emptyForm(defaultCategoryId));
     setOpen(true);
   }
 
@@ -102,8 +119,12 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
       toast.error('Title must be at least 3 characters');
       return;
     }
-    if (form.body.trim().length < 1) {
-      toast.error('Body cannot be empty');
+    if (form.url.trim().length === 0) {
+      toast.error('URL is required');
+      return;
+    }
+    if (!form.categoryId) {
+      toast.error('Pick a category');
       return;
     }
     setSubmitting(true);
@@ -111,15 +132,17 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
       const result =
         form.mode === 'create'
           ? await createResourceAction({
-              category: form.category,
+              categoryId: form.categoryId,
               title: form.title.trim(),
-              body: form.body.trim(),
+              url: form.url.trim(),
+              description: form.description.trim(),
             } satisfies CreateResourceInput)
           : await updateResourceAction({
               id: form.mode.id,
-              category: form.category,
+              categoryId: form.categoryId,
               title: form.title.trim(),
-              body: form.body.trim(),
+              url: form.url.trim(),
+              description: form.description.trim(),
               isPublished: form.isPublished,
             } satisfies UpdateResourceInput);
       if (!result.ok) {
@@ -134,17 +157,41 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
     }
   }
 
+  const noActiveCategories = activeCategories.length === 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {resources.length} resource{resources.length === 1 ? '' : 's'}
         </p>
-        <Button type="button" onClick={openCreate}>
+        <Button
+          type="button"
+          onClick={openCreate}
+          disabled={noActiveCategories}
+          title={
+            noActiveCategories
+              ? 'Add a category first before creating resources'
+              : undefined
+          }
+        >
           <Icon name="add" size="sm" />
           Add resource
         </Button>
       </div>
+
+      {noActiveCategories && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          No active categories yet — go to{' '}
+          <a
+            href="/admin/content/categories"
+            className="font-semibold underline"
+          >
+            Categories
+          </a>{' '}
+          and add one before creating resources.
+        </p>
+      )}
 
       {resources.length === 0 ? (
         <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
@@ -171,7 +218,7 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
                     variant="secondary"
                     className="text-[10px] uppercase tracking-wide"
                   >
-                    {RESOURCE_CATEGORY_LABELS[r.category]}
+                    {r.categoryName}
                   </Badge>
                   {!r.isPublished && (
                     <Badge variant="outline" className="text-[10px]">
@@ -182,8 +229,20 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
                 <p className="text-base font-semibold tracking-tight">
                   {r.title}
                 </p>
-                <p className="text-xs text-muted-foreground whitespace-pre-line line-clamp-2">
-                  {r.body}
+                {r.description && (
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {r.description}
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground truncate">
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-primary hover:underline"
+                  >
+                    {r.url || '(no URL)'}
+                  </a>
                 </p>
                 <p className="text-[11px] text-muted-foreground">
                   {r.authorName ?? '—'} · updated{' '}
@@ -215,7 +274,8 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
               {form.mode === 'create' ? 'Add a resource' : 'Edit resource'}
             </DialogTitle>
             <DialogDescription>
-              Visible to every captain and executive when published.
+              Resources are URL bookmarks. Sales execs and captains can open
+              the link or share it with customers from their phone.
             </DialogDescription>
           </DialogHeader>
 
@@ -225,19 +285,28 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
                 Category <span className="text-destructive">*</span>
               </Label>
               <Select
-                value={form.category}
+                value={form.categoryId}
                 onValueChange={(v) =>
-                  setForm((s) => ({ ...s, category: v as ResourceCategory }))
+                  setForm((s) => ({ ...s, categoryId: v }))
                 }
                 disabled={busy}
               >
                 <SelectTrigger id="resource-category" className="h-11">
-                  <SelectValue />
+                  <SelectValue placeholder="Pick a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORY_OPTIONS.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {RESOURCE_CATEGORY_LABELS[c]}
+                  {categories.map((c) => (
+                    <SelectItem
+                      key={c.id}
+                      value={c.id}
+                      disabled={!c.isActive && form.categoryId !== c.id}
+                    >
+                      {c.name}
+                      {!c.isActive && (
+                        <span className="ml-2 text-[10px] uppercase text-muted-foreground">
+                          inactive
+                        </span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -257,35 +326,58 @@ export function ResourcesClient({ resources }: { resources: ResourceRow[] }) {
                 maxLength={200}
                 disabled={busy}
                 className="h-11"
+                placeholder="e.g. Q2 Brochure"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="resource-body">
-                Body <span className="text-destructive">*</span>
+              <Label htmlFor="resource-url">
+                URL <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="resource-url"
+                type="url"
+                value={form.url}
+                onChange={(e) =>
+                  setForm((s) => ({ ...s, url: e.target.value.slice(0, 2000) }))
+                }
+                maxLength={2000}
+                disabled={busy}
+                className="h-11"
+                placeholder="https://drive.google.com/…"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Paste a Google Drive / Dropbox / Notion / direct download link.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="resource-description">
+                Description <span className="text-muted-foreground">(optional)</span>
               </Label>
               <Textarea
-                id="resource-body"
-                value={form.body}
+                id="resource-description"
+                value={form.description}
                 onChange={(e) =>
                   setForm((s) => ({
                     ...s,
-                    body: e.target.value.slice(0, 20_000),
+                    description: e.target.value.slice(0, 500),
                   }))
                 }
-                rows={8}
-                maxLength={20_000}
+                rows={3}
+                maxLength={500}
                 disabled={busy}
+                placeholder="One-line context: PDF / 12 pages / use for premium customers"
               />
               <p
                 className={cn(
                   'text-[11px]',
-                  form.body.length >= 19_500
+                  form.description.length >= 450
                     ? 'text-amber-600'
                     : 'text-muted-foreground',
                 )}
               >
-                {form.body.length} / 20000
+                {form.description.length} / 500
               </p>
             </div>
 

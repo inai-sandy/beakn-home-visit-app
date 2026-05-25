@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-23 (after deferring HVA-165 — wait for real-world duplicate patterns)
+**Last updated:** 2026-05-25 (HVA-156-FIX1 — Resources rework: URL bookmarks + admin-managed categories + share)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-25 | HVA-156-FIX1 | Resources rework: URL bookmarks + admin-managed categories CRUD + dropdown/search filter + Open/Share buttons (Web Share API + copy-link fallback) |
 | 2026-05-23 | HVA-156 | Resources + Announcements: schema (3 tables, 2 enums), super_admin CRUD UI, exec + captain read surfaces, per-user read-tracking, drawer unread badge |
 | 2026-05-23 | docs | Claude Code owns full ship pipeline (auto-merge + auto-deploy for low-risk PRs); remove broken SSH/su steps from ship process |
 | 2026-05-23 | docs | Add STATE.md maintenance rule to CLAUDE.md — every feature PR must update STATE.md in the same PR |

@@ -184,7 +184,7 @@ export function ResourcesClient({
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           No active categories yet — go to{' '}
           <a
-            href="/admin/content/categories"
+            href="/admin/settings/audit-content/categories"
             className="font-semibold underline"
           >
             Categories

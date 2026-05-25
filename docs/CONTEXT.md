@@ -1,6 +1,6 @@
 # Beakn HVA — Product Context
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-25
 
 This file gives Claude Code the *what* and *why* of HVA. Update monthly.
 
@@ -90,6 +90,21 @@ Field operations require a sales team to visit customer homes for site assessmen
 - Attached to a request or a contact.
 - NOT attached to tasks (schema constraint per `note_target_type` enum).
 - No DB FK on `target_id` (polymorphic, validated app-side via `lib/notes/queries.ts:canWriteNoteForEntity`).
+
+### Resources (`resources` + `resource_categories`, HVA-156 + HVA-156-FIX1)
+- Admin-published URL bookmarks visible to every captain + every sales exec (broadcast, no per-row scoping).
+- Each resource = title + URL (required) + optional 500-char description + category FK.
+- Categories live in an admin-managed `resource_categories` table (name + slug + sort_order + is_active). No deletes — deactivate to hide from filter + new uploads while preserving FK references.
+- super_admin authors. Captain + exec both read at `/resources` and `/captain/resources` (same component, same query).
+- Read surface filters by category dropdown + free-text search. Per row: Open (target=_blank) + Share (Web Share API → WhatsApp/Gmail/anywhere; copy-link fallback on desktop).
+- Phase 2 (HVA-121 full spec, planned in HVA-156-FIX2): visibility enum (all / captains-only / execs-only), free-form tags[] for filtering, drag-reorder on categories.
+
+### Announcements (`announcements` + `announcement_reads`, HVA-156)
+- Admin broadcasts to staff (sales exec + captain). super_admin authors. Append-only — no edit. Unpublish toggles `is_published`.
+- Severity enum (info / important / urgent). Mapped to display badge.
+- Per-user read-tracking via `announcement_reads` composite-PK join table. Powers the unread-count badge on the exec + captain drawers.
+- Surface: `/announcements` + `/captain/announcements`. Mount-effect fires `markAllAnnouncementsReadAction` (idempotent via ON CONFLICT DO NOTHING).
+- Phase 2 (HVA-120 full spec, planned in HVA-156-FIX2): admin-managed announcement categories, audience enum (sales_executive / captain / both), importance enum rename, scheduled `publish_date` with 06:00 IST cron fan-out, one-way "I've read this" acknowledgment with per-announcement ack rate visible to admin + captain.
 
 ### Auto-roll-over (HVA-169)
 - Nightly cron at 21:31 IST (`/api/cron/roll-over-tasks` with CRON_SECRET bearer auth).

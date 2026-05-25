@@ -63,6 +63,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 | Date | Ticket | Summary |
 |---|---|---|
 | 2026-05-25 | docs sync | docs/CONTEXT.md Resources + Announcements paragraphs rewritten to reflect FIX2 (announcement_acknowledgments rename, audience/publish_date/importance, visibility/tags, pure helpers) |
+| 2026-05-25 | HVA-95 (5B) | Other-city Queue at /admin/operations/other-city. Lists out-of-area Submitted requests. Manually Route modal picks a captain + records reason; SUBMITTED → ASSIGNED + history + audit. Sidebar Other-city Queue link updated; All Requests marked placeholder until built. |
 | 2026-05-25 | HVA-93 (7A) | Holidays config — admin CRUD at /admin/settings/workflow/holidays (single-date, all-cities). Flipped Workflow & Status subgroup from "Coming soon" to active. Audit events holiday_created / holiday_updated wired (migration 0038) |
 | 2026-05-25 | Settings accordion | Admin Settings sidebar group restructured into 6 collapsible accordions per HVA-89 (Organization / Audit & Content / Notifications shipped; Workflow & Status / Targets / AI & Report Cards rendered as "Coming soon" placeholders). Active subgroup auto-expands based on URL. |
 | 2026-05-25 | UI unification | Admin Resources/Announcements lists now render the same ResourcesView/AnnouncementsView the team sees, with an overlay ✏️ icon-button per card. Append-only semantics preserved (announcements Manage dialog only toggles published) |

@@ -265,6 +265,8 @@ export const CONFIG_SCHEMA = {
       // HVA-93 — admin-managed holidays config.
       'holiday_created',
       'holiday_updated',
+      // HVA-95 — manual routing of Other-city queue requests.
+      'request_routed_from_other_queue',
     ],
     editable: true,
   },

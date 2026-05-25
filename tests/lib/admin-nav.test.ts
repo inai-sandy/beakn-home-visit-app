@@ -51,37 +51,20 @@ describe('isAdminNavItemActive', () => {
     ).toBe(true);
   });
 
-  it('"All Requests" lights on bare /admin/requests, NOT on ?city=other', () => {
+  it('HVA-95: "All Requests" is a placeholder until that page ships — never active', () => {
     const all = flatAdminNavItems().find((i) => i.label === 'All Requests')!;
-    expect(isAdminNavItemActive(all, '/admin/requests', null)).toBe(true);
-    expect(
-      isAdminNavItemActive(
-        all,
-        '/admin/requests',
-        new URLSearchParams('city=other'),
-      ),
-    ).toBe(false);
+    expect(all.placeholder).toBe(true);
+    expect(isAdminNavItemActive(all, '/admin/requests', null)).toBe(false);
   });
 
-  it('"Other-city Queue" lights only when ?city=other is on /admin/requests', () => {
+  it('HVA-95: "Other-city Queue" lights at /admin/operations/other-city', () => {
     const other = flatAdminNavItems().find(
       (i) => i.label === 'Other-city Queue',
     )!;
-    expect(isAdminNavItemActive(other, '/admin/requests', null)).toBe(false);
     expect(
-      isAdminNavItemActive(
-        other,
-        '/admin/requests',
-        new URLSearchParams('city=other'),
-      ),
+      isAdminNavItemActive(other, '/admin/operations/other-city', null),
     ).toBe(true);
-    expect(
-      isAdminNavItemActive(
-        other,
-        '/admin/requests',
-        new URLSearchParams('city=blr'),
-      ),
-    ).toBe(false);
+    expect(isAdminNavItemActive(other, '/admin/requests', null)).toBe(false);
   });
 
   it('Customer Support Phone (under notifications) matches exactly', () => {
@@ -232,12 +215,9 @@ describe('resolveAdminPageTitle', () => {
     ).toBe('Resources');
   });
 
-  it('"Other-city Queue" wins the title with ?city=other', () => {
+  it('HVA-95: "Other-city Queue" title resolves at the new route', () => {
     expect(
-      resolveAdminPageTitle(
-        '/admin/requests',
-        new URLSearchParams('city=other'),
-      ),
+      resolveAdminPageTitle('/admin/operations/other-city', null),
     ).toBe('Other-city Queue');
   });
 

@@ -91,20 +91,22 @@ Field operations require a sales team to visit customer homes for site assessmen
 - NOT attached to tasks (schema constraint per `note_target_type` enum).
 - No DB FK on `target_id` (polymorphic, validated app-side via `lib/notes/queries.ts:canWriteNoteForEntity`).
 
-### Resources (`resources` + `resource_categories`, HVA-156 + HVA-156-FIX1)
-- Admin-published URL bookmarks visible to every captain + every sales exec (broadcast, no per-row scoping).
-- Each resource = title + URL (required) + optional 500-char description + category FK.
-- Categories live in an admin-managed `resource_categories` table (name + slug + sort_order + is_active). No deletes — deactivate to hide from filter + new uploads while preserving FK references.
-- super_admin authors. Captain + exec both read at `/resources` and `/captain/resources` (same component, same query).
-- Read surface filters by category dropdown + free-text search. Per row: Open (target=_blank) + Share (Web Share API → WhatsApp/Gmail/anywhere; copy-link fallback on desktop).
-- Phase 2 (HVA-121 full spec, planned in HVA-156-FIX2): visibility enum (all / captains-only / execs-only), free-form tags[] for filtering, drag-reorder on categories.
+### Resources (`resources` + `resource_categories`, HVA-156 → FIX1 → FIX2)
+- Admin-published URL bookmarks. Each resource = title + URL (required) + optional 500-char description + category FK + visibility + free-form tags.
+- Categories live in an admin-managed `resource_categories` table (name + slug + sort_order + display_order + is_active). No deletes — deactivate to hide from filter + new uploads while preserving FK references.
+- **Visibility** enum (`all` / `captains_only` / `sales_execs_only`) scopes who can see each resource — captain never sees sales-exec-only, exec never sees captain-only. super_admin sees everything via the admin surface.
+- **Tags** are free-form lowercased strings used for filtering (chip row on read surface) and for the BHK→tag lookup that powers customer-facing proposal downloads (HVA-37).
+- Read surface (`/resources`, `/captain/resources`): category dropdown + tag chips + text search. Per row: Open (target=_blank) + Share (Web Share API → WhatsApp/Gmail; copy-link fallback on desktop).
+- Pure helpers: `lib/resources/visibility.ts` (`canSeeResource`, `allowedVisibilitiesForRole`) and `lib/resources/filter.ts` (`filterResources`).
 
-### Announcements (`announcements` + `announcement_reads`, HVA-156)
-- Admin broadcasts to staff (sales exec + captain). super_admin authors. Append-only — no edit. Unpublish toggles `is_published`.
-- Severity enum (info / important / urgent). Mapped to display badge.
-- Per-user read-tracking via `announcement_reads` composite-PK join table. Powers the unread-count badge on the exec + captain drawers.
-- Surface: `/announcements` + `/captain/announcements`. Mount-effect fires `markAllAnnouncementsReadAction` (idempotent via ON CONFLICT DO NOTHING).
-- Phase 2 (HVA-120 full spec, planned in HVA-156-FIX2): admin-managed announcement categories, audience enum (sales_executive / captain / both), importance enum rename, scheduled `publish_date` with 06:00 IST cron fan-out, one-way "I've read this" acknowledgment with per-announcement ack rate visible to admin + captain.
+### Announcements (`announcements` + `announcement_categories` + `announcement_acknowledgments`, HVA-156 → FIX2)
+- Admin broadcasts to staff. super_admin authors. Append-only — no edit; unpublish toggles `is_published`.
+- Each announcement = title + body + admin-managed category FK + **importance** enum (info / important / urgent) + **audience** enum (sales_executive / captain / both) + **publish_date** (admin-picked, can be future — row hidden from read surface until that date arrives).
+- Categories live in an admin-managed `announcement_categories` table (mirrors `resource_categories` shape).
+- **Acknowledgment** (`announcement_acknowledgments` composite-PK join, replaces FIX1's `announcement_reads`): explicit "I've read this" tap per HVA-120 §13.1. One-way — cannot be undone. Drives both the drawer unread badge and the admin/captain ack-rate display ("12/26 acknowledged 46%").
+- Surface: `/announcements`, `/captain/announcements`. Per-row Acknowledge button replaces the FIX1 mount-effect mark-all-read.
+- Pure helpers: `lib/announcements/audience.ts` (`canSeeAnnouncement`, `allowedAudiencesForRole`).
+- Scheduled fan-out (cron at 06:00 IST writing in-app notifications for `publish_date = today`) is gated on HVA-119 + HVA-50 (notification rules + delivery infrastructure); the date filter alone handles "scheduled visibility" today.
 
 ### Auto-roll-over (HVA-169)
 - Nightly cron at 21:31 IST (`/api/cron/roll-over-tasks` with CRON_SECRET bearer auth).

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -43,9 +43,17 @@ const ALL_CATEGORIES = '__all__';
 interface Props {
   resources: ResourceRow[];
   categories: ResourceCategoryRow[];
+  /** Optional per-card overlay rendered in the top-right corner. Admin
+   *  uses this to surface an Edit icon-button so the admin list and the
+   *  team's read surface share the same card shape. */
+  renderRowOverlay?: (resource: ResourceRow) => ReactNode;
 }
 
-export function ResourcesView({ resources, categories }: Props) {
+export function ResourcesView({
+  resources,
+  categories,
+  renderRowOverlay,
+}: Props) {
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
   const [search, setSearch] = useState('');
   const [activeTags, setActiveTags] = useState<string[]>([]);
@@ -194,9 +202,14 @@ export function ResourcesView({ resources, categories }: Props) {
           {filtered.map((r) => (
             <li
               key={r.id}
-              className="rounded-2xl border bg-card p-4 shadow-sm space-y-3"
+              className="rounded-2xl border bg-card p-4 shadow-sm space-y-3 relative"
             >
-              <div className="space-y-1.5">
+              {renderRowOverlay && (
+                <div className="absolute top-3 right-3">
+                  {renderRowOverlay(r)}
+                </div>
+              )}
+              <div className="space-y-1.5 pr-10">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Badge
                     variant="secondary"
@@ -204,6 +217,11 @@ export function ResourcesView({ resources, categories }: Props) {
                   >
                     {r.categoryName}
                   </Badge>
+                  {!r.isPublished && (
+                    <Badge variant="outline" className="text-[10px]">
+                      Unpublished
+                    </Badge>
+                  )}
                   {r.tags.map((t) => (
                     <Badge
                       key={t}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useState, useTransition, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -43,6 +43,12 @@ const ALL = '__all__';
 interface Props {
   announcements: AnnouncementRow[];
   categories: AnnouncementCategoryRow[];
+  /** Optional per-card overlay rendered in the top-right corner. Admin
+   *  passes an Edit/Manage icon-button so the admin list and the team's
+   *  read surface share the same card shape. When set, the per-row
+   *  Acknowledge button is suppressed (admin manages, doesn't ack) and
+   *  the ack rate "X/Y acknowledged" is appended to the metadata line. */
+  renderRowOverlay?: (a: AnnouncementRow) => ReactNode;
 }
 
 const importanceBadgeClass: Record<AnnouncementImportance, string> = {
@@ -63,7 +69,12 @@ const importanceCardAccent: Record<AnnouncementImportance, string> = {
   urgent: 'border-l-4 border-l-destructive',
 };
 
-export function AnnouncementsView({ announcements, categories }: Props) {
+export function AnnouncementsView({
+  announcements,
+  categories,
+  renderRowOverlay,
+}: Props) {
+  const adminMode = renderRowOverlay !== undefined;
   const router = useRouter();
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
   const [importanceFilter, setImportanceFilter] = useState<string>(ALL);
@@ -191,11 +202,16 @@ export function AnnouncementsView({ announcements, categories }: Props) {
               <li
                 key={a.id}
                 className={cn(
-                  'rounded-2xl border bg-card p-4 shadow-sm space-y-2',
+                  'rounded-2xl border bg-card p-4 shadow-sm space-y-2 relative',
                   importanceCardAccent[a.importance],
                 )}
               >
-                <div className="flex items-center gap-2 flex-wrap">
+                {renderRowOverlay && (
+                  <div className="absolute top-3 right-3">
+                    {renderRowOverlay(a)}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 flex-wrap pr-10">
                   <Badge
                     variant="outline"
                     className={cn(
@@ -211,6 +227,11 @@ export function AnnouncementsView({ announcements, categories }: Props) {
                   >
                     {a.categoryName}
                   </Badge>
+                  {!a.isPublished && (
+                    <Badge variant="outline" className="text-[10px]">
+                      Unpublished
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-base font-semibold tracking-tight">
                   {a.title}
@@ -226,41 +247,54 @@ export function AnnouncementsView({ announcements, categories }: Props) {
                       month: 'short',
                       year: 'numeric',
                     })}
-                  </p>
-                  {a.isAcknowledged ? (
-                    <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
-                      <Icon
-                        name="check_circle"
-                        size="xs"
-                        className="text-emerald-600"
-                      />
-                      Acknowledged
-                    </span>
-                  ) : (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => onAck(a)}
-                      disabled={ackBusy}
-                      className="h-9"
-                    >
-                      {ackBusy ? (
+                    {adminMode &&
+                      a.ackTotal !== null &&
+                      a.ackTotal > 0 && (
                         <>
-                          <Icon
-                            name="progress_activity"
-                            size="xs"
-                            className="animate-spin"
-                          />
-                          Saving…
-                        </>
-                      ) : (
-                        <>
-                          <Icon name="done_all" size="xs" />
-                          I've read this
+                          {' · '}
+                          {a.ackCount ?? 0}/{a.ackTotal} acknowledged
+                          {a.ackTotal > 0 &&
+                            ` (${Math.round(((a.ackCount ?? 0) / a.ackTotal) * 100)}%)`}
                         </>
                       )}
-                    </Button>
-                  )}
+                  </p>
+                  {/* Acknowledge button suppressed in admin context — admin
+                      manages from the overlay icon, the team acknowledges. */}
+                  {!adminMode &&
+                    (a.isAcknowledged ? (
+                      <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+                        <Icon
+                          name="check_circle"
+                          size="xs"
+                          className="text-emerald-600"
+                        />
+                        Acknowledged
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => onAck(a)}
+                        disabled={ackBusy}
+                        className="h-9"
+                      >
+                        {ackBusy ? (
+                          <>
+                            <Icon
+                              name="progress_activity"
+                              size="xs"
+                              className="animate-spin"
+                            />
+                            Saving…
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="done_all" size="xs" />
+                            I've read this
+                          </>
+                        )}
+                      </Button>
+                    ))}
                 </div>
               </li>
             );

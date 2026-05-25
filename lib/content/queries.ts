@@ -253,6 +253,36 @@ export async function loadPublishedResources(): Promise<ResourceRow[]> {
   return loadPublishedResourcesForRole('super_admin');
 }
 
+/**
+ * HVA-37 customer tracking page: tag lookup restricted to visibility='all'.
+ * The customer is unauthenticated so we cannot map them to an internal
+ * role; staff-only resources (captains_only / sales_execs_only) must never
+ * leak onto a public token-protected URL.
+ */
+export async function loadCustomerVisibleResourcesByTag(
+  tag: string,
+): Promise<ResourceRow[]> {
+  const lc = tag.trim().toLowerCase();
+  if (lc.length === 0) return [];
+  const rows = await db
+    .select(RESOURCE_SELECT)
+    .from(resources)
+    .innerJoin(users, eq(users.id, resources.createdByUserId))
+    .innerJoin(
+      resourceCategories,
+      eq(resourceCategories.id, resources.categoryId),
+    )
+    .where(
+      and(
+        eq(resources.isPublished, true),
+        eq(resources.visibility, 'all'),
+        sql`EXISTS (SELECT 1 FROM unnest(${resources.tags}) AS t WHERE lower(t) = ${lc})`,
+      ),
+    )
+    .orderBy(desc(resources.createdAt));
+  return rows.map(rowToResource);
+}
+
 export async function loadAllResourcesForAdmin(): Promise<ResourceRow[]> {
   const rows = await db
     .select(RESOURCE_SELECT)

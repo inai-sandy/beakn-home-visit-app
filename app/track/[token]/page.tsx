@@ -16,6 +16,8 @@ import {
 } from "@/db/schema";
 import { getCustomerFacingReason } from "@/lib/cancellation-reasons";
 import { getConfig } from "@/lib/config";
+import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
+import type { ResourceRow } from "@/lib/content/types";
 import { log } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +105,8 @@ export default async function TrackPage({ params }: PageProps) {
   //    HVA-142: cancelledAt + cancellationReasonCode pulled so the page
   //    can swap the Current Status centerpiece + Timeline tail when the
   //    request has been closed.
+  //    HVA-37: bhk pulled so the Documents section can resolve the
+  //    BHK-matched proposal(s) via tagged Resources.
   const [reqRow] = await db
     .select({
       customerName: visitRequests.customerName,
@@ -113,6 +117,7 @@ export default async function TrackPage({ params }: PageProps) {
       currentStageSeq: statusStages.sequenceNumber,
       cancelledAt: visitRequests.cancelledAt,
       cancellationReasonCode: visitRequests.cancellationReasonCode,
+      bhk: visitRequests.bhk,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -219,6 +224,21 @@ export default async function TrackPage({ params }: PageProps) {
       newExecName: r.newExecName ?? 'a new sales executive',
     })),
   ].sort((a, b) => a.when.getTime() - b.when.getTime());
+
+  // HVA-37: BHK-matched proposal + standard catalogues, resolved against
+  // the Resources system via tags. Admin uploads each proposal PDF as a
+  // Resource tagged with the BHK slug ('1bhk' / '2bhk' / etc.). For
+  // bhk='Others' we surface both 3BHK and 4BHK proposals per spec §1.4.
+  // Standard catalogues live as Resources tagged 'catalogue'.
+  //
+  // Deduplicated by resource id so a single Resource tagged with both
+  // '3bhk' AND 'catalogue' doesn't appear in both sections.
+  const bhkTags = bhkTagsFor(reqRow.bhk);
+  const [proposalRowsArray, catalogueRows] = await Promise.all([
+    Promise.all(bhkTags.map((t) => loadCustomerVisibleResourcesByTag(t))),
+    loadCustomerVisibleResourcesByTag('catalogue'),
+  ]);
+  const proposalRows = dedupeById(proposalRowsArray.flat());
 
   const futureStages = await db
     .select({
@@ -437,6 +457,43 @@ export default async function TrackPage({ params }: PageProps) {
           </ol>
         </section>
 
+        {/* HVA-37: Documents — BHK-matched proposal(s) + standard catalogues.
+            Renders nothing if admin hasn't uploaded any matching Resources
+            yet (graceful absence — no scary "Coming soon" placeholders). */}
+        {(proposalRows.length > 0 || catalogueRows.length > 0) && (
+          <section aria-label="Documents" className="space-y-4">
+            <h3 className="text-sm font-semibold tracking-tight uppercase text-muted-foreground">
+              Documents
+            </h3>
+            {proposalRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {proposalRows.length > 1
+                    ? 'Proposals for your home size'
+                    : 'Your proposal'}
+                </p>
+                <ul className="space-y-2">
+                  {proposalRows.map((r) => (
+                    <DocumentCard key={r.id} resource={r} />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {catalogueRows.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Standard catalogues
+                </p>
+                <ul className="space-y-2">
+                  {catalogueRows.map((r) => (
+                    <DocumentCard key={r.id} resource={r} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
+
         {/* Footer — WhatsApp support */}
         <footer className="pt-6 border-t text-center text-sm text-muted-foreground space-y-1">
           {waLink ? (
@@ -468,6 +525,67 @@ export default async function TrackPage({ params }: PageProps) {
         </footer>
       </div>
     </main>
+  );
+}
+
+// HVA-37: BHK → resource-tag mapping. Per spec §1.4, bhk='Others' shows
+// BOTH the 3BHK and 4BHK proposals (premium customers commonly have
+// custom layouts that match one of those two).
+function bhkTagsFor(bhk: string): string[] {
+  switch (bhk) {
+    case '1BHK':
+      return ['1bhk'];
+    case '2BHK':
+      return ['2bhk'];
+    case '3BHK':
+      return ['3bhk'];
+    case '4BHK':
+      return ['4bhk'];
+    case 'Others':
+      return ['3bhk', '4bhk'];
+    default:
+      return [];
+  }
+}
+
+function dedupeById(rows: ResourceRow[]): ResourceRow[] {
+  const seen = new Set<string>();
+  const out: ResourceRow[] = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+  }
+  return out;
+}
+
+// HVA-37: one document card. Opens the Resource URL in a new tab — the
+// admin uploads PDFs to Google Drive / Dropbox and pastes the link, so
+// "download" is whatever the host site does on the URL.
+function DocumentCard({ resource }: { resource: ResourceRow }) {
+  return (
+    <li className="rounded-2xl border bg-card p-4 flex items-center gap-3">
+      <Icon name="picture_as_pdf" className="text-primary" style={{ fontSize: '32px' }} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold tracking-tight truncate">
+          {resource.title}
+        </p>
+        {resource.description && (
+          <p className="text-xs text-muted-foreground line-clamp-1">
+            {resource.description}
+          </p>
+        )}
+      </div>
+      <a
+        href={resource.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Icon name="download" size="xs" />
+        Download
+      </a>
+    </li>
   );
 }
 

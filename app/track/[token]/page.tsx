@@ -6,6 +6,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 
 import { CancelRequestButton } from "@/components/track/CancelRequestButton";
+import { RescheduleRequestButton } from "@/components/track/RescheduleRequestButton";
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import {
@@ -119,6 +120,10 @@ export default async function TrackPage({ params }: PageProps) {
       cancelledAt: visitRequests.cancelledAt,
       cancellationReasonCode: visitRequests.cancellationReasonCode,
       bhk: visitRequests.bhk,
+      // HVA-72: drives the customer Reschedule button's default
+      // datetime + the visibility gate (no point rescheduling a request
+      // that doesn't have a scheduled visit yet).
+      visitScheduledAt: visitRequests.visitScheduledAt,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -458,15 +463,21 @@ export default async function TrackPage({ params }: PageProps) {
           </ol>
         </section>
 
-        {/* HVA-39: customer-initiated cancellation. Hidden when the
-            request is already cancelled or already complete. Renders as
-            a discreet outlined button so it doesn't compete with the
-            status centerpiece. */}
+        {/* HVA-39 + HVA-72: customer-initiated actions. Hidden when the
+            request is already cancelled or already complete. Reschedule
+            additionally requires that there's a scheduled visit to
+            reschedule — pre-VISIT_SCHEDULED requests show only Cancel. */}
         {!isCancelled && !isTerminal && (
           <section
-            aria-label="Cancel request"
-            className="flex justify-center"
+            aria-label="Customer actions"
+            className="flex flex-wrap justify-center gap-2"
           >
+            {reqRow.visitScheduledAt && (
+              <RescheduleRequestButton
+                token={token}
+                currentVisitScheduledAt={reqRow.visitScheduledAt}
+              />
+            )}
             <CancelRequestButton token={token} />
           </section>
         )}

@@ -28,6 +28,7 @@ import {
 
 import { AdminHelpSection } from "@/components/admin-help/AdminHelpSection";
 import { NotesSection } from "@/components/notes/NotesSection";
+import { RescheduleButton } from "@/components/reschedule/RescheduleButton";
 import { loadAdminHelpForRequest } from "@/lib/admin-help/actions";
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
 import {
@@ -791,6 +792,22 @@ export default async function RequestDetailPage({ params }: PageProps) {
                   nextStatus={{ id: nextStage.id, name: nextStage.name }}
                 />
               )}
+            </section>
+          )}
+
+        {/* HVA-72: Reschedule visit — exec (assigned) or super_admin.
+            Hidden if the request hasn't been scheduled yet or is in a
+            terminal state. */}
+        {(role === 'sales_executive' || role === 'super_admin') &&
+          (role === 'super_admin' || reqRow.assignedExecUserId === user.id) &&
+          reqRow.visitScheduledAt &&
+          reqRow.cancelledAt === null &&
+          reqRow.currentStageCode !== 'ORDER_EXECUTED_SUCCESSFULLY' && (
+            <section className="flex justify-end">
+              <RescheduleButton
+                requestId={reqRow.id}
+                currentVisitScheduledAt={reqRow.visitScheduledAt}
+              />
             </section>
           )}
 

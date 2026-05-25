@@ -30,6 +30,7 @@ import {
   setAnnouncementPublishedAction,
   type CreateAnnouncementInput,
 } from '@/lib/content/actions';
+import { AnnouncementsView } from '@/components/content/AnnouncementsView';
 import type {
   AnnouncementAudience,
   AnnouncementCategoryRow,
@@ -105,12 +106,17 @@ export function AnnouncementsClient({
   );
   const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [manageRow, setManageRow] = useState<AnnouncementRow | null>(null);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 
   function openCreate() {
     setForm(emptyForm(defaultCategoryId));
     setCreateOpen(true);
+  }
+
+  function openManage(row: AnnouncementRow) {
+    setManageRow(row);
   }
 
   async function onCreate() {
@@ -205,89 +211,31 @@ export function AnnouncementsClient({
         </p>
       )}
 
-      {announcements.length === 0 ? (
-        <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
-          <Icon
-            name="campaign"
-            size="lg"
-            className="text-muted-foreground/50 mx-auto mb-3"
-            aria-hidden
-          />
-          <p className="text-sm text-muted-foreground">
-            No announcements yet. Post the first one to broadcast to the team.
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {announcements.map((a) => {
-            const ackPct =
-              a.ackTotal && a.ackTotal > 0
-                ? Math.round(((a.ackCount ?? 0) / a.ackTotal) * 100)
-                : null;
-            return (
-              <li
-                key={a.id}
-                className="rounded-2xl border bg-card p-4 shadow-sm flex items-start gap-3"
-              >
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] uppercase tracking-wide ${importanceBadgeClass[a.importance]}`}
-                    >
-                      {IMPORTANCE_LABELS[a.importance]}
-                    </Badge>
-                    <Badge
-                      variant="secondary"
-                      className="text-[10px] uppercase tracking-wide"
-                    >
-                      {a.categoryName}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px]">
-                      {AUDIENCE_LABELS[a.audience]}
-                    </Badge>
-                    {!a.isPublished && (
-                      <Badge variant="outline" className="text-[10px]">
-                        Unpublished
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-base font-semibold tracking-tight">
-                    {a.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground whitespace-pre-line line-clamp-3">
-                    {a.body}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {a.authorName ?? '—'} · publish{' '}
-                    {a.publishDate.toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                    {a.ackTotal !== null && a.ackTotal > 0 && (
-                      <>
-                        {' '}
-                        · {a.ackCount}/{a.ackTotal} acknowledged
-                        {ackPct !== null && ` (${ackPct}%)`}
-                      </>
-                    )}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => togglePublished(a)}
-                  disabled={busy || togglingId === a.id}
-                >
-                  {togglingId === a.id ? '…' : a.isPublished ? 'Unpublish' : 'Republish'}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* HVA-156-UI-unify: render the SAME AnnouncementsView the team sees.
+          The overlay icon opens the Manage dialog (toggle published).
+          Announcements are append-only per HVA-120 §D8 — no fields editable
+          after creation, only the published flag. */}
+      <AnnouncementsView
+        announcements={announcements}
+        categories={categories.filter((c) => c.isActive)}
+        renderRowOverlay={(a) => (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-sm hover:bg-background"
+            onClick={() => openManage(a)}
+            aria-label={`Manage ${a.title}`}
+            disabled={busy || togglingId === a.id}
+          >
+            <Icon
+              name={togglingId === a.id ? 'progress_activity' : 'edit'}
+              size="sm"
+              className={togglingId === a.id ? 'animate-spin' : ''}
+            />
+          </Button>
+        )}
+      />
 
       <Dialog open={createOpen} onOpenChange={(o) => !busy && setCreateOpen(o)}>
         <DialogContent className="sm:max-w-xl">
@@ -466,6 +414,101 @@ export function AnnouncementsClient({
               ) : (
                 'Post announcement'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* HVA-156-UI-unify: Manage dialog. Announcements are append-only
+          per HVA-120 §D8 — the only mutation is the published flag. The
+          dialog shows the announcement detail for context + a single
+          toggle action. */}
+      <Dialog
+        open={manageRow !== null}
+        onOpenChange={(o) => !busy && !o && setManageRow(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manage announcement</DialogTitle>
+            <DialogDescription>
+              Announcements cannot be edited after posting. Toggle published
+              to hide the row from the team's read surface.
+            </DialogDescription>
+          </DialogHeader>
+
+          {manageRow && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border bg-card/50 p-3 space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] uppercase tracking-wide ${importanceBadgeClass[manageRow.importance]}`}
+                  >
+                    {IMPORTANCE_LABELS[manageRow.importance]}
+                  </Badge>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] uppercase tracking-wide"
+                  >
+                    {manageRow.categoryName}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {AUDIENCE_LABELS[manageRow.audience]}
+                  </Badge>
+                </div>
+                <p className="text-sm font-semibold tracking-tight">
+                  {manageRow.title}
+                </p>
+                <p className="text-xs text-muted-foreground whitespace-pre-line line-clamp-4">
+                  {manageRow.body}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+                <label
+                  htmlFor="ann-manage-published"
+                  className="text-sm flex-1 cursor-pointer"
+                >
+                  Published — visible on the team's read surface
+                </label>
+                <input
+                  id="ann-manage-published"
+                  type="checkbox"
+                  checked={manageRow.isPublished}
+                  onChange={async (e) => {
+                    const next = e.target.checked;
+                    setTogglingId(manageRow.id);
+                    try {
+                      const result = await setAnnouncementPublishedAction({
+                        id: manageRow.id,
+                        isPublished: next,
+                      });
+                      if (!result.ok) {
+                        toast.error(result.error);
+                        return;
+                      }
+                      toast.success(next ? 'Republished' : 'Unpublished');
+                      setManageRow({ ...manageRow, isPublished: next });
+                      startTransition(() => router.refresh());
+                    } finally {
+                      setTogglingId(null);
+                    }
+                  }}
+                  disabled={busy || togglingId === manageRow.id}
+                  className="h-4 w-4"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setManageRow(null)}
+              disabled={busy}
+            >
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

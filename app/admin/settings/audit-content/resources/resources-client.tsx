@@ -31,6 +31,7 @@ import {
   type CreateResourceInput,
   type UpdateResourceInput,
 } from '@/lib/content/actions';
+import { ResourcesView } from '@/components/content/ResourcesView';
 import type {
   ResourceCategoryRow,
   ResourceRow,
@@ -220,93 +221,27 @@ export function ResourcesClient({
         </p>
       )}
 
-      {resources.length === 0 ? (
-        <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
-          <Icon
-            name="menu_book"
-            size="lg"
-            className="text-muted-foreground/50 mx-auto mb-3"
-            aria-hidden
-          />
-          <p className="text-sm text-muted-foreground">
-            No resources yet. Add the first one to make it visible to the team.
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-3">
-          {resources.map((r) => (
-            <li
-              key={r.id}
-              className="rounded-2xl border bg-card p-4 shadow-sm flex items-start gap-3"
-            >
-              <div className="flex-1 min-w-0 space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] uppercase tracking-wide"
-                  >
-                    {r.categoryName}
-                  </Badge>
-                  {r.visibility !== 'all' && (
-                    <Badge variant="outline" className="text-[10px]">
-                      {VISIBILITY_LABEL[r.visibility]}
-                    </Badge>
-                  )}
-                  {!r.isPublished && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Unpublished
-                    </Badge>
-                  )}
-                  {r.tags.map((t) => (
-                    <Badge
-                      key={t}
-                      variant="outline"
-                      className="text-[10px] tracking-wide"
-                    >
-                      #{t}
-                    </Badge>
-                  ))}
-                </div>
-                <p className="text-base font-semibold tracking-tight">
-                  {r.title}
-                </p>
-                {r.description && (
-                  <p className="text-xs text-muted-foreground line-clamp-2">
-                    {r.description}
-                  </p>
-                )}
-                <p className="text-[11px] text-muted-foreground truncate">
-                  <a
-                    href={r.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-primary hover:underline"
-                  >
-                    {r.url || '(no URL)'}
-                  </a>
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {r.authorName ?? '—'} · updated{' '}
-                  {r.updatedAt.toLocaleDateString('en-IN', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => openEdit(r)}
-              >
-                <Icon name="edit" size="xs" />
-                Edit
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* HVA-156-UI-unify: render the SAME ResourcesView the team sees on
+          /resources + /captain/resources, with an overlay Edit icon-button
+          per card (admin-only affordance). Admin still sees unpublished
+          rows because the page query is loadAllResourcesForAdmin — the
+          view component auto-shows the Unpublished badge. */}
+      <ResourcesView
+        resources={resources}
+        categories={categories.filter((c) => c.isActive)}
+        renderRowOverlay={(r) => (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full bg-background/80 backdrop-blur shadow-sm hover:bg-background"
+            onClick={() => openEdit(r)}
+            aria-label={`Edit ${r.title}`}
+          >
+            <Icon name="edit" size="sm" />
+          </Button>
+        )}
+      />
 
       <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
         <DialogContent className="sm:max-w-xl">

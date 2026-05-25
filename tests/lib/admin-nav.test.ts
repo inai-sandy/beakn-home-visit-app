@@ -121,11 +121,9 @@ describe('isAdminNavSubgroupActive (HVA-89)', () => {
   });
 
   it('returns false for comingSoon subgroups (never active)', () => {
-    const workflow = getSubgroup('Workflow & Status');
-    expect(workflow.comingSoon).toBe(true);
-    expect(isAdminNavSubgroupActive(workflow, '/admin/anything', null)).toBe(
-      false,
-    );
+    const ai = getSubgroup('AI & Report Cards');
+    expect(ai.comingSoon).toBe(true);
+    expect(isAdminNavSubgroupActive(ai, '/admin/anything', null)).toBe(false);
   });
 });
 
@@ -156,16 +154,15 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
     ]);
   });
 
-  it('Workflow / Targets / AI subgroups are comingSoon (empty items)', () => {
-    for (const label of [
-      'Workflow & Status',
-      'Targets',
-      'AI & Report Cards',
-    ] as const) {
+  it('Targets / AI subgroups are comingSoon (empty items); Workflow & Status now has Holidays', () => {
+    for (const label of ['Targets', 'AI & Report Cards'] as const) {
       const sg = getSubgroup(label);
       expect(sg.comingSoon).toBe(true);
       expect(sg.items).toHaveLength(0);
     }
+    const workflow = getSubgroup('Workflow & Status');
+    expect(workflow.comingSoon).toBeUndefined();
+    expect(workflow.items.map((i) => i.label)).toEqual(['Holidays']);
   });
 
   it('shipped subgroups have their HVA-89 leaves', () => {
@@ -192,6 +189,7 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
       'Organization',
       'Audit & Content',
       'Notifications',
+      'Workflow & Status',
     ] as const) {
       for (const item of getSubgroup(label).items) {
         expect(item.href).toMatch(/^\/admin\/settings\//);

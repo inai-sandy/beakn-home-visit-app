@@ -262,6 +262,9 @@ export const CONFIG_SCHEMA = {
       'announcement_acknowledged',
       // HVA-39 — customer-initiated cancellation from /track/[token].
       'request_cancelled_by_customer',
+      // HVA-93 — admin-managed holidays config.
+      'holiday_created',
+      'holiday_updated',
     ],
     editable: true,
   },

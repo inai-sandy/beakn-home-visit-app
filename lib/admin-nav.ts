@@ -64,13 +64,16 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Operations',
     items: [
       { label: 'Dashboard', icon: 'dashboard', href: '/admin/dashboard' },
-      { label: 'All Requests', icon: 'list_alt', href: '/admin/requests' },
+      // HVA-95-FOLLOWUP: All Requests admin page is still unbuilt; mark
+      // placeholder until that ticket ships so the link stops 404'ing.
+      { label: 'All Requests', icon: 'list_alt', placeholder: true },
       {
         label: 'Other-city Queue',
         icon: 'priority_high',
-        href: '/admin/requests',
-        query: { city: 'other' },
+        href: '/admin/operations/other-city',
       },
+      // HVA-94-FOLLOWUP: Admin Help inbox is built in this batch under
+      // /admin/operations/admin-help; once that ships the href updates.
       { label: 'Admin Help Inbox', icon: 'help_center', href: '/admin/help' },
     ],
   },

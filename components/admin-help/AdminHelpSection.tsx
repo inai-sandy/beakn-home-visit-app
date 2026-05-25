@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
@@ -18,6 +16,8 @@ import { Icon } from '@/components/ui/icon';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { sendAdminHelpAction } from '@/lib/admin-help/actions';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
+import { toast } from 'sonner';
 
 // =============================================================================
 // HVA-77: Admin Help — exec sends a per-appointment message; sees thread
@@ -37,38 +37,31 @@ interface Props {
 }
 
 export function AdminHelpSection({ requestId, messages }: Props) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
+
+  // HVA-149: useServerMutation bundles useTransition + router.refresh() +
+  // toast.error/success so the refresh-required bug class can't recur.
+  const { mutate: send, isPending: busy } = useServerMutation(
+    sendAdminHelpAction,
+    {
+      successMessage: 'Message sent to admin',
+      onSuccess: () => {
+        setText('');
+        setOpen(false);
+      },
+    },
+  );
 
   const pendingCount = messages.filter((m) => m.repliedAt === null).length;
 
-  async function onSend() {
+  function onSend() {
     if (busy) return;
     if (text.trim().length < 10) {
       toast.error('Message must be at least 10 characters');
       return;
     }
-    setSubmitting(true);
-    try {
-      const res = await sendAdminHelpAction({
-        requestId,
-        message: text.trim(),
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success('Message sent to admin');
-      setText('');
-      setOpen(false);
-      startTransition(() => router.refresh());
-    } finally {
-      setSubmitting(false);
-    }
+    void send({ requestId, message: text.trim() });
   }
 
   return (

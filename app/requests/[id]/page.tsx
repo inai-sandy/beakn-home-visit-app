@@ -26,7 +26,9 @@ import {
   loadNotesForEntity,
 } from "@/lib/notes/queries";
 
+import { AdminHelpSection } from "@/components/admin-help/AdminHelpSection";
 import { NotesSection } from "@/components/notes/NotesSection";
+import { loadAdminHelpForRequest } from "@/lib/admin-help/actions";
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
 import {
   computeActionVisibility,
@@ -790,6 +792,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 />
               )}
             </section>
+          )}
+
+        {/* HVA-77: Admin Help — exec sends a per-appointment message to admin. */}
+        {role === 'sales_executive' &&
+          reqRow.assignedExecUserId === user.id && (
+            <AdminHelpSection
+              requestId={reqRow.id}
+              messages={await loadAdminHelpForRequest(reqRow.id)}
+            />
           )}
       </div>
     </main>

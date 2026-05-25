@@ -72,9 +72,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'priority_high',
         href: '/admin/operations/other-city',
       },
-      // HVA-94-FOLLOWUP: Admin Help inbox is built in this batch under
-      // /admin/operations/admin-help; once that ships the href updates.
-      { label: 'Admin Help Inbox', icon: 'help_center', href: '/admin/help' },
+      {
+        label: 'Admin Help Inbox',
+        icon: 'help_center',
+        href: '/admin/operations/admin-help',
+      },
     ],
   },
   {

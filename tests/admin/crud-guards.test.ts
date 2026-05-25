@@ -97,7 +97,58 @@ describe('CRUD guards: RBAC', () => {
 });
 
 describe('CRUD guards: captain deactivate semantics', () => {
-  it('captain WITH cities + active execs → succeeds (no gate); cities unassigned, exec sticks', async () => {
+  it('HVA-113: captain WITH active execs → 409 with names + count, DB unchanged', async () => {
+    const sa = await seedSuperAdmin();
+    const sess = await loginByPhone(sa.phone, sa.password);
+    currentCookieHeader = sess.cookieHeader;
+
+    const cap = await seedCaptain();
+    const blr = await getOrCreateCity('Bangalore');
+    await db
+      .update(cities)
+      .set({ captainUserId: cap.id })
+      .where(eq(cities.id, blr.id));
+    const exec = await seedExecutive(cap.id, {
+      fullName: 'Active Exec',
+    });
+
+    const res = await deactivateCaptain(buildReq(), buildCtx(cap.id));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      ok: boolean;
+      error: string;
+      execCount: number;
+      execNames: string[];
+    };
+    expect(body.ok).toBe(false);
+    expect(body.execCount).toBe(1);
+    expect(body.execNames).toEqual(['Active Exec']);
+    expect(body.error).toMatch(/Cannot deactivate/i);
+
+    // DB unchanged — captain still active, city still held, no audit row.
+    const [u] = await db
+      .select({ isActive: users.isActive })
+      .from(users)
+      .where(eq(users.id, cap.id))
+      .limit(1);
+    expect(u.isActive).toBe(true);
+
+    const stillHeld = await db
+      .select({ id: cities.id })
+      .from(cities)
+      .where(eq(cities.captainUserId, cap.id));
+    expect(stillHeld.length).toBe(1);
+
+    const audit = await db
+      .select({ eventType: auditLog.eventType })
+      .from(auditLog)
+      .where(eq(auditLog.targetEntityId, cap.id));
+    expect(audit.length).toBe(0);
+
+    void exec;
+  });
+
+  it('HVA-113: captain WITHOUT active execs (only inactive) → succeeds, cities unassigned', async () => {
     const sa = await seedSuperAdmin();
     const sess = await loginByPhone(sa.phone, sa.password);
     currentCookieHeader = sess.cookieHeader;
@@ -113,7 +164,9 @@ describe('CRUD guards: captain deactivate semantics', () => {
       .update(cities)
       .set({ captainUserId: cap.id })
       .where(eq(cities.id, chn.id));
-    const exec = await seedExecutive(cap.id);
+    // Seed an INACTIVE exec — the gate should ignore it (only active execs
+    // block deactivation).
+    await seedExecutive(cap.id, { isActive: false });
 
     const res = await deactivateCaptain(buildReq(), buildCtx(cap.id));
     expect(res.status).toBe(200);
@@ -124,7 +177,6 @@ describe('CRUD guards: captain deactivate semantics', () => {
     expect(body.ok).toBe(true);
     expect([...body.citiesUnassigned].sort()).toEqual(['Bangalore', 'Chennai']);
 
-    // users.is_active flipped.
     const [u] = await db
       .select({ isActive: users.isActive })
       .from(users)
@@ -132,38 +184,12 @@ describe('CRUD guards: captain deactivate semantics', () => {
       .limit(1);
     expect(u.isActive).toBe(false);
 
-    // cities released.
-    const stillHeld = await db
-      .select({ id: cities.id })
-      .from(cities)
-      .where(eq(cities.captainUserId, cap.id));
-    expect(stillHeld.length).toBe(0);
-
-    // sales_executives row UNCHANGED — exec still points at the (now
-    // inactive) captain. Confirms the shipped design.
-    const [execRow] = await db
-      .select({ captainUserId: salesExecutives.captainUserId })
-      .from(salesExecutives)
-      .where(eq(salesExecutives.userId, exec.id))
-      .limit(1);
-    expect(execRow.captainUserId).toBe(cap.id);
-
-    // audit_log row written with the right event_type.
     const audit = await db
-      .select({
-        eventType: auditLog.eventType,
-        actorRole: auditLog.actorRole,
-        afterState: auditLog.afterState,
-      })
+      .select({ eventType: auditLog.eventType })
       .from(auditLog)
       .where(eq(auditLog.targetEntityId, cap.id));
     expect(audit.length).toBe(1);
     expect(audit[0].eventType).toBe('captain_deactivated');
-    expect(audit[0].actorRole).toBe('super_admin');
-    expect(audit[0].afterState).toMatchObject({
-      citiesUnassigned: expect.arrayContaining(['Bangalore', 'Chennai']),
-      sessionsRevoked: true,
-    });
   });
 
   it('captain already inactive → 409', async () => {

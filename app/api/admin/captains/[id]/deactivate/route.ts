@@ -1,11 +1,11 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { cities, sessions, users } from '@/db/schema';
+import { cities, salesExecutives, sessions, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
@@ -51,6 +51,44 @@ export async function POST(_req: Request, ctx: Ctx): Promise<NextResponse> {
   }
   if (!target.isActive) {
     return NextResponse.json({ ok: false, error: 'Already inactive' }, { status: 409 });
+  }
+
+  // HVA-113: block deactivation when active sales executives still report
+  // to this captain. Mirrors the HVA-92 exec-deactivation guard (open
+  // requests block exec deactivation). Symmetry across CRUD operations;
+  // forces admin to make explicit decisions about dependents before
+  // tearing down the parent record. No audit row written on rejection.
+  const activeExecs = await db
+    .select({
+      id: salesExecutives.userId,
+      fullName: users.fullName,
+    })
+    .from(salesExecutives)
+    .innerJoin(users, eq(users.id, salesExecutives.userId))
+    .where(
+      and(
+        eq(salesExecutives.captainUserId, userId),
+        eq(users.isActive, true),
+      ),
+    );
+  if (activeExecs.length > 0) {
+    const names = activeExecs
+      .map((e) => e.fullName ?? '(unnamed)')
+      .slice(0, 5);
+    const moreCount = Math.max(0, activeExecs.length - names.length);
+    const namesText =
+      moreCount > 0
+        ? `${names.join(', ')} and ${moreCount} more`
+        : names.join(', ');
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Cannot deactivate — ${activeExecs.length} active executive${activeExecs.length === 1 ? '' : 's'} still report${activeExecs.length === 1 ? 's' : ''} to this captain (${namesText}). Reassign or deactivate them first.`,
+        execCount: activeExecs.length,
+        execNames: names,
+      },
+      { status: 409 },
+    );
   }
 
   const beforeCities = await db

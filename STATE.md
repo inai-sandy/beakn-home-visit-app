@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-25 | HVA-113 (9A) | Captain deactivation blocked when active sales execs still report; action-layer guard returns 409 with exec count + names; closes HVA-91 spec divergence |
 | 2026-05-25 | HVA-39 (7B) | Customer-initiated cancellation: Cancel button + reason picker on /track/[token]; POST /api/track/[token]/cancel; audit + notification fan-out (silent until HVA-50 seeds rules); migration 0037 appends audit event |
 | 2026-05-25 | HVA-37 (8B) | BHK-matched proposal + standard catalogues download on customer tracking page, resolved via tagged Resources (1bhk/2bhk/3bhk/4bhk + catalogue tags); strict visibility='all' filter on the public read query |
 | 2026-05-25 | HVA-156-FIX2 (2C) | Full HVA-120 + HVA-121 spec closure: Resources gain visibility + tags; Announcements gain admin-managed categories + audience + importance rename + scheduled publish_date + explicit ack tracking with admin ack-rate display; captain ack-drilldown query helper added |

@@ -139,11 +139,20 @@ export function TaskItem({
       setShowNotesInput(false);
       setNotes('');
       setFreeText('');
-      // Bug 7 fix: persistent inline Undo button replaces the 5s
-      // sonner toast. The button lives on the completed task card
-      // (rendered when status === 'completed'), so the exec can
-      // revert at their own pace — no race against a timer.
-      toast.success('Marked done');
+      // Bug 7 fix kept the persistent inline Undo button (it lives on the
+      // completed task card, no race against a timer). HVA-61 adds an
+      // action button on the toast too — best of both: the toast catches
+      // execs who are mid-scroll and may not see the card-level button,
+      // and the persistent button catches anyone who missed the toast.
+      toast.success('Marked done', {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void performUndo('done');
+          },
+        },
+        duration: 5_000,
+      });
       startTransition(() => {
         router.refresh();
       });

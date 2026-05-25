@@ -67,12 +67,13 @@ export function getTestDb() {
 const SAFE_TRUNCATE_TABLES = [
   'accounts',
   'admin_help_messages',
-  // HVA-156: resources/announcements/announcement_reads all FK to users
-  // with ON DELETE RESTRICT or CASCADE. Truncating them before the
+  // HVA-156 / FIX1 / FIX2: resources/announcements + their categories +
+  // acknowledgments all FK to users. Truncating them before the
   // DELETE FROM users step keeps both the cascade graph and the unique
   // phone constraint clean between tests.
-  'announcement_reads',
+  'announcement_acknowledgments',
   'announcements',
+  'announcement_categories',
   'audit_log',
   'business_types',
   'captains',
@@ -130,12 +131,25 @@ export async function truncateAll(): Promise<void> {
   // active category to insert resources against, so we re-insert here.
   await db.execute(
     sqlBuilder.raw(`
-      INSERT INTO resource_categories (name, slug, sort_order) VALUES
-        ('Sales scripts', 'sales-scripts', 10),
-        ('Pricing',       'pricing',       20),
-        ('Brand assets',  'brand-assets',  30),
-        ('Training',      'training',      40),
-        ('Other',         'other',         99)
+      INSERT INTO resource_categories (name, slug, sort_order, display_order) VALUES
+        ('Sales scripts', 'sales-scripts', 10, 10),
+        ('Pricing',       'pricing',       20, 20),
+        ('Brand assets',  'brand-assets',  30, 30),
+        ('Training',      'training',      40, 40),
+        ('Other',         'other',         99, 99)
+      ON CONFLICT DO NOTHING;
+    `),
+  );
+  // HVA-156-FIX2: re-seed announcement_categories with starter rows from
+  // migration 0035.
+  await db.execute(
+    sqlBuilder.raw(`
+      INSERT INTO announcement_categories (name, slug, sort_order, display_order) VALUES
+        ('Operational', 'operational', 10, 10),
+        ('Policy',      'policy',      20, 20),
+        ('Pricing',     'pricing',     30, 30),
+        ('Product',     'product',     40, 40),
+        ('Other',       'other',       99, 99)
       ON CONFLICT DO NOTHING;
     `),
   );

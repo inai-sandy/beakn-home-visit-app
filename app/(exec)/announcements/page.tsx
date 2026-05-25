@@ -3,15 +3,13 @@ import { redirect } from 'next/navigation';
 
 import { AnnouncementsView } from '@/components/content/AnnouncementsView';
 import { getServerSession } from '@/lib/auth-server';
-import { loadPublishedAnnouncementsForUser } from '@/lib/content/queries';
+import {
+  loadActiveAnnouncementCategories,
+  loadPublishedAnnouncementsForUser,
+} from '@/lib/content/queries';
 
 // =============================================================================
-// HVA-156: /announcements — exec read surface for team broadcasts
-// =============================================================================
-//
-// Server-rendered with per-user `isRead` state joined in. The client
-// component fires markAllAnnouncementsReadAction on mount so the
-// drawer's unread badge drops on the next nav.
+// HVA-156-FIX2: /announcements — exec read surface
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -23,9 +21,12 @@ export const metadata: Metadata = {
 export default async function ExecAnnouncementsPage() {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/announcements');
-  const user = session.user as { id: string };
+  const user = session.user as { id: string; role?: string };
 
-  const announcements = await loadPublishedAnnouncementsForUser(user.id);
+  const [announcements, categories] = await Promise.all([
+    loadPublishedAnnouncementsForUser(user.id, user.role),
+    loadActiveAnnouncementCategories(),
+  ]);
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
       <header>
@@ -33,10 +34,13 @@ export default async function ExecAnnouncementsPage() {
           Announcements
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Broadcasts from admin to the team. Newest first.
+          Tap "I've read this" once you've reviewed an announcement.
         </p>
       </header>
-      <AnnouncementsView announcements={announcements} />
+      <AnnouncementsView
+        announcements={announcements}
+        categories={categories}
+      />
     </main>
   );
 }

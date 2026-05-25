@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  date,
   index,
   integer,
   pgEnum,
@@ -17,40 +18,46 @@ import { timestamps } from './_helpers';
 import { users } from './auth';
 
 // =============================================================================
-// HVA-156 + HVA-156-FIX1: Resources + Announcements — admin-published content
+// HVA-156 + HVA-156-FIX1 + HVA-156-FIX2: Resources + Announcements
 // =============================================================================
 //
-// Two surfaces, one source of truth, broadcast to all staff (every exec +
-// every captain reads the same rows). super_admin authors.
+// Resources: URL bookmarks with admin-managed categories. Each resource
+// carries a title, URL, optional description, category FK, visibility
+// (all / captains_only / sales_execs_only — HVA-121 spec), and a
+// free-form tags[] array for filtering.
 //
-// Resources (HVA-156-FIX1 rework): URL bookmarks with admin-managed
-// categories. Each resource carries a title, a URL (Google Drive / Dropbox /
-// Notion / etc.), an optional short description, and a category FK. The
-// read surface filters by category + text search and exposes Download
-// (opens URL) + Share (Web Share API) per row.
+// Announcements: admin broadcasts with admin-managed categories, audience
+// (sales_executive / captain / both), importance (low/medium/high mapped
+// to info/important/urgent), publish_date (admin-picked, can be future),
+// and explicit per-user acknowledgment via announcement_acknowledgments.
 //
-// Categories live in `resource_categories` so super_admin can add /
-// rename / reorder / deactivate them at runtime. No deletes — toggling
-// `is_active = false` removes the category from filter dropdowns while
-// preserving FK references on existing resources.
-//
-// Announcements: append-only historical record. No edit; super_admin can
-// only unpublish via the is_published flag.
-//
-// Read-tracking: announcement_reads composite-PK join table powers the
-// unread-count badge on the drawer. (resources have no read state.)
+// FIX2 renamed the announcement_severity enum to announcement_importance
+// per HVA-120 spec wording. The renamed announcement_acknowledgments
+// table replaces announcement_reads — same composite-PK shape, but rows
+// are now inserted only when a user explicitly taps "I've read this"
+// rather than on page-mount.
 // =============================================================================
 
-// announcement_severity stays as a hardcoded enum: severity is a fixed
-// 3-level UX classification, not a runtime knob.
-export const announcementSeverityEnum = pgEnum('announcement_severity', [
+export const announcementImportanceEnum = pgEnum('announcement_importance', [
   'info',
   'important',
   'urgent',
 ]);
 
+export const announcementAudienceEnum = pgEnum('announcement_audience', [
+  'sales_executive',
+  'captain',
+  'both',
+]);
+
+export const resourceVisibilityEnum = pgEnum('resource_visibility', [
+  'all',
+  'captains_only',
+  'sales_execs_only',
+]);
+
 // -----------------------------------------------------------------------------
-// resource_categories — admin-managed filter list
+// resource_categories — admin-managed
 // -----------------------------------------------------------------------------
 export const resourceCategories = pgTable(
   'resource_categories',
@@ -59,13 +66,15 @@ export const resourceCategories = pgTable(
     name: varchar('name', { length: 80 }).notNull(),
     slug: varchar('slug', { length: 80 }).notNull(),
     sortOrder: integer('sort_order').notNull().default(100),
+    /** HVA-156-FIX2: admin-controllable explicit ordering (mirrors sort_order
+     *  for now; eventually drag-handle UI writes to this column). */
+    displayOrder: integer('display_order').notNull().default(100),
     isActive: boolean('is_active').notNull().default(true),
     ...timestamps(),
   },
   (table) => [
     unique('resource_categories_name_unique').on(table.name),
     unique('resource_categories_slug_unique').on(table.slug),
-    // Filter dropdown query: WHERE is_active=true ORDER BY sort_order, name.
     index('resource_categories_active_sort_idx').on(
       table.isActive,
       table.sortOrder,
@@ -85,11 +94,15 @@ export const resources = pgTable(
       .notNull()
       .references(() => resourceCategories.id, { onDelete: 'restrict' }),
     title: varchar('title', { length: 200 }).notNull(),
-    // Required. Validated as a URL by Zod at the action boundary; the DB
-    // accepts any text so failing URLs don't 500 here (the read surface
-    // shows whatever was saved).
     url: text('url').notNull(),
     description: varchar('description', { length: 500 }),
+    /** HVA-156-FIX2 + HVA-121: visibility scoping. 'all' visible to every
+     *  captain + exec; 'captains_only' hides from execs; 'sales_execs_only'
+     *  hides from captains. super_admin sees everything via admin surface. */
+    visibility: resourceVisibilityEnum('visibility').notNull().default('all'),
+    /** HVA-156-FIX2 + HVA-121: free-form tag chips. Used by tag filter on
+     *  read surface + by HVA-37 (BHK proposal lookup via tags like '1bhk'). */
+    tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`),
     isPublished: boolean('is_published').notNull().default(true),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
@@ -97,9 +110,9 @@ export const resources = pgTable(
     ...timestamps(),
   },
   (table) => [
-    // Read query: WHERE is_published=true (+ optional category_id filter).
-    index('resources_published_category_idx').on(
+    index('resources_published_visibility_category_idx').on(
       table.isPublished,
+      table.visibility,
       table.categoryId,
     ),
     index('resources_created_idx').on(table.createdAt),
@@ -107,16 +120,52 @@ export const resources = pgTable(
 );
 
 // -----------------------------------------------------------------------------
-// announcements — admin broadcasts (unchanged from HVA-156)
+// announcement_categories — admin-managed (mirrors resource_categories)
+// -----------------------------------------------------------------------------
+export const announcementCategories = pgTable(
+  'announcement_categories',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    name: varchar('name', { length: 80 }).notNull(),
+    slug: varchar('slug', { length: 80 }).notNull(),
+    sortOrder: integer('sort_order').notNull().default(100),
+    displayOrder: integer('display_order').notNull().default(100),
+    isActive: boolean('is_active').notNull().default(true),
+    ...timestamps(),
+  },
+  (table) => [
+    unique('announcement_categories_name_unique').on(table.name),
+    unique('announcement_categories_slug_unique').on(table.slug),
+    index('announcement_categories_active_sort_idx').on(
+      table.isActive,
+      table.displayOrder,
+      table.name,
+    ),
+  ],
+);
+
+// -----------------------------------------------------------------------------
+// announcements — admin broadcasts
 // -----------------------------------------------------------------------------
 export const announcements = pgTable(
   'announcements',
   {
     id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
-    severity: announcementSeverityEnum('severity').notNull().default('info'),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => announcementCategories.id, { onDelete: 'restrict' }),
+    importance: announcementImportanceEnum('importance')
+      .notNull()
+      .default('info'),
+    audience: announcementAudienceEnum('audience').notNull().default('both'),
     title: varchar('title', { length: 200 }).notNull(),
     body: text('body').notNull(),
     isPublished: boolean('is_published').notNull().default(true),
+    /** Admin-picked date this announcement becomes visible to its audience.
+     *  Future-dated rows are hidden until publish_date <= current_date
+     *  (HVA-120 scheduled publishing — no cron yet, the date filter alone
+     *  handles "scheduled visibility"). */
+    publishDate: date('publish_date').notNull(),
     publishedAt: timestamp('published_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -128,18 +177,24 @@ export const announcements = pgTable(
       .defaultNow(),
   },
   (table) => [
-    index('announcements_published_at_idx').on(
+    // Read query: WHERE is_published=true AND publish_date <= today
+    //   ORDER BY publish_date DESC
+    index('announcements_published_date_idx').on(
       table.isPublished,
-      table.publishedAt.desc(),
+      table.publishDate.desc(),
     ),
   ],
 );
 
-// Composite-PK so a (user, announcement) pair can exist at most once —
-// ON CONFLICT DO NOTHING makes mark-read idempotent without app-side
-// dedup.
-export const announcementReads = pgTable(
-  'announcement_reads',
+// -----------------------------------------------------------------------------
+// announcement_acknowledgments — explicit "I've read this" tap
+// -----------------------------------------------------------------------------
+//
+// Composite-PK so a (user, announcement) pair can exist at most once.
+// One-way operation per HVA-120 §13.1 — acks cannot be undone. Admin
+// uses this table to compute ack rate per announcement ("12/26 acknowledged").
+export const announcementAcknowledgments = pgTable(
+  'announcement_acknowledgments',
   {
     userId: uuid('user_id')
       .notNull()
@@ -147,13 +202,17 @@ export const announcementReads = pgTable(
     announcementId: uuid('announcement_id')
       .notNull()
       .references(() => announcements.id, { onDelete: 'cascade' }),
-    readAt: timestamp('read_at', { withTimezone: true })
+    acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.announcementId] }),
-    // Drives countUnreadAnnouncements — per-user lookup.
-    index('announcement_reads_user_idx').on(table.userId),
+    index('announcement_acknowledgments_user_idx').on(table.userId),
   ],
 );
+
+// Back-compat exports (HVA-156-FIX1 used these names; keep them working until
+// downstream code migrates).
+export const announcementReads = announcementAcknowledgments;
+export const announcementSeverityEnum = announcementImportanceEnum;

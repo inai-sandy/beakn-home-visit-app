@@ -14,25 +14,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { filterResources } from '@/lib/resources/filter';
 import type {
   ResourceCategoryRow,
   ResourceRow,
 } from '@/lib/content/types';
+import { cn } from '@/lib/utils';
 
 // =============================================================================
-// HVA-156-FIX1: ResourcesView — read surface shared by both portals
+// HVA-156-FIX2: ResourcesView — read surface with category + tag filters
 // =============================================================================
 //
-// Client component. Renders the flat list of published resources with a
-// category-dropdown filter + title search box. Each row exposes:
-//   - "Open" — opens the URL in a new tab (target=_blank, noopener+noreferrer)
-//   - "Share" — Web Share API (native phone share sheet → WhatsApp / Gmail /
-//      anything the user has installed); falls back to copy-link with a
-//      toast on browsers that don't expose navigator.share
+// Filter UI:
+//   * category dropdown
+//   * text search (title / description / tags)
+//   * tag chip row (multi-select — OR semantics; matches any selected tag)
 //
-// Filtering + search run client-side over the loaded array. The volume is
-// small enough (one admin posts a handful per week) that an in-memory
-// filter is the right call — no server round-trips per keystroke.
+// Per-row actions:
+//   * Open — opens the URL in a new tab
+//   * Share — Web Share API; copy-to-clipboard fallback on desktop
+//
+// Tag chip row is rendered only when there's at least one tag across all
+// loaded resources, otherwise it's hidden (no UI noise on a tag-free dataset).
 // =============================================================================
 
 const ALL_CATEGORIES = '__all__';
@@ -45,18 +48,30 @@ interface Props {
 export function ResourcesView({ resources, categories }: Props) {
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
   const [search, setSearch] = useState('');
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of resources) {
+      for (const t of r.tags) set.add(t.toLowerCase());
+    }
+    return Array.from(set).sort();
+  }, [resources]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return resources.filter((r) => {
-      if (categoryFilter !== ALL_CATEGORIES && r.categoryId !== categoryFilter) {
-        return false;
-      }
-      if (q.length === 0) return true;
-      const haystack = `${r.title} ${r.description ?? ''} ${r.categoryName}`.toLowerCase();
-      return haystack.includes(q);
+    return filterResources(resources, {
+      categoryId:
+        categoryFilter === ALL_CATEGORIES ? undefined : categoryFilter,
+      tags: activeTags,
+      search,
     });
-  }, [resources, categoryFilter, search]);
+  }, [resources, categoryFilter, search, activeTags]);
+
+  function toggleTag(t: string) {
+    setActiveTags((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+    );
+  }
 
   async function onShare(r: ResourceRow) {
     const shareData = {
@@ -64,20 +79,14 @@ export function ResourcesView({ resources, categories }: Props) {
       text: r.description ? `${r.title} — ${r.description}` : r.title,
       url: r.url,
     };
-    // Web Share API: opens the OS-native share sheet (WhatsApp, Gmail, etc.)
-    // when supported. Mobile browsers on iOS + Android Chrome all expose it.
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
         await navigator.share(shareData);
         return;
       } catch (err) {
-        // AbortError is fired when the user dismisses the sheet — that's
-        // not an error worth surfacing. Anything else falls through to the
-        // copy-link fallback.
         if (err instanceof Error && err.name === 'AbortError') return;
       }
     }
-    // Fallback: copy to clipboard + toast.
     try {
       await navigator.clipboard.writeText(r.url);
       toast.success('Link copied — paste into WhatsApp / Gmail');
@@ -111,10 +120,7 @@ export function ResourcesView({ resources, categories }: Props) {
       {/* Filter + search controls */}
       <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
         <div className="sm:w-48">
-          <Select
-            value={categoryFilter}
-            onValueChange={setCategoryFilter}
-          >
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="h-11" aria-label="Filter by category">
               <SelectValue />
             </SelectTrigger>
@@ -138,12 +144,39 @@ export function ResourcesView({ resources, categories }: Props) {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by title or description"
+            placeholder="Search by title, description, tag"
             className="h-11 pl-9"
             aria-label="Search resources"
           />
         </div>
       </div>
+
+      {allTags.length > 0 && (
+        <div
+          className="flex flex-wrap gap-1.5"
+          aria-label="Filter by tag"
+        >
+          {allTags.map((t) => {
+            const active = activeTags.includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => toggleTag(t)}
+                className={cn(
+                  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] tracking-wide transition-colors',
+                  active
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card hover:bg-muted border-border text-foreground/80',
+                )}
+                aria-pressed={active}
+              >
+                #{t}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <p className="text-[11px] text-muted-foreground">
         {filtered.length} of {resources.length} resource
@@ -164,12 +197,23 @@ export function ResourcesView({ resources, categories }: Props) {
               className="rounded-2xl border bg-card p-4 shadow-sm space-y-3"
             >
               <div className="space-y-1.5">
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] uppercase tracking-wide"
-                >
-                  {r.categoryName}
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] uppercase tracking-wide"
+                  >
+                    {r.categoryName}
+                  </Badge>
+                  {r.tags.map((t) => (
+                    <Badge
+                      key={t}
+                      variant="outline"
+                      className="text-[10px]"
+                    >
+                      #{t}
+                    </Badge>
+                  ))}
+                </div>
                 <p className="text-base font-semibold tracking-tight">
                   {r.title}
                 </p>
@@ -186,11 +230,7 @@ export function ResourcesView({ resources, categories }: Props) {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button
-                  type="button"
-                  asChild
-                  className="flex-1 h-11"
-                >
+                <Button type="button" asChild className="flex-1 h-11">
                   <a
                     href={r.url}
                     target="_blank"

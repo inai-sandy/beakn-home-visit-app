@@ -34,6 +34,7 @@ import {
 import type {
   ResourceCategoryRow,
   ResourceRow,
+  ResourceVisibility,
 } from '@/lib/content/types';
 import { cn } from '@/lib/utils';
 
@@ -56,6 +57,9 @@ interface FormState {
   title: string;
   url: string;
   description: string;
+  visibility: ResourceVisibility;
+  tags: string[];
+  tagDraft: string;
   isPublished: boolean;
 }
 
@@ -66,6 +70,9 @@ function emptyForm(defaultCategoryId: string): FormState {
     title: '',
     url: '',
     description: '',
+    visibility: 'all',
+    tags: [],
+    tagDraft: '',
     isPublished: true,
   };
 }
@@ -77,9 +84,18 @@ function formFromRow(row: ResourceRow): FormState {
     title: row.title,
     url: row.url,
     description: row.description ?? '',
+    visibility: row.visibility,
+    tags: [...row.tags],
+    tagDraft: '',
     isPublished: row.isPublished,
   };
 }
+
+const VISIBILITY_LABEL: Record<ResourceVisibility, string> = {
+  all: 'Everyone (captains + execs)',
+  captains_only: 'Captains only',
+  sales_execs_only: 'Sales execs only',
+};
 
 export function ResourcesClient({
   resources,
@@ -129,6 +145,13 @@ export function ResourcesClient({
     }
     setSubmitting(true);
     try {
+      const cleanedTags = Array.from(
+        new Set(
+          [...form.tags, form.tagDraft]
+            .map((t) => t.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      );
       const result =
         form.mode === 'create'
           ? await createResourceAction({
@@ -136,6 +159,8 @@ export function ResourcesClient({
               title: form.title.trim(),
               url: form.url.trim(),
               description: form.description.trim(),
+              visibility: form.visibility,
+              tags: cleanedTags,
             } satisfies CreateResourceInput)
           : await updateResourceAction({
               id: form.mode.id,
@@ -143,6 +168,8 @@ export function ResourcesClient({
               title: form.title.trim(),
               url: form.url.trim(),
               description: form.description.trim(),
+              visibility: form.visibility,
+              tags: cleanedTags,
               isPublished: form.isPublished,
             } satisfies UpdateResourceInput);
       if (!result.ok) {
@@ -220,11 +247,25 @@ export function ResourcesClient({
                   >
                     {r.categoryName}
                   </Badge>
+                  {r.visibility !== 'all' && (
+                    <Badge variant="outline" className="text-[10px]">
+                      {VISIBILITY_LABEL[r.visibility]}
+                    </Badge>
+                  )}
                   {!r.isPublished && (
                     <Badge variant="outline" className="text-[10px]">
                       Unpublished
                     </Badge>
                   )}
+                  {r.tags.map((t) => (
+                    <Badge
+                      key={t}
+                      variant="outline"
+                      className="text-[10px] tracking-wide"
+                    >
+                      #{t}
+                    </Badge>
+                  ))}
                 </div>
                 <p className="text-base font-semibold tracking-tight">
                   {r.title}
@@ -378,6 +419,94 @@ export function ResourcesClient({
                 )}
               >
                 {form.description.length} / 500
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Visibility</Label>
+              <div className="flex flex-col gap-1.5">
+                {(['all', 'captains_only', 'sales_execs_only'] as ResourceVisibility[]).map((v) => (
+                  <label
+                    key={v}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="visibility"
+                      value={v}
+                      checked={form.visibility === v}
+                      onChange={() =>
+                        setForm((s) => ({ ...s, visibility: v }))
+                      }
+                      disabled={busy}
+                    />
+                    {VISIBILITY_LABEL[v]}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="resource-tags">
+                Tags <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="resource-tags"
+                value={form.tagDraft}
+                onChange={(e) =>
+                  setForm((s) => ({
+                    ...s,
+                    tagDraft: e.target.value.slice(0, 40),
+                  }))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+                    e.preventDefault();
+                    const t = form.tagDraft.trim().toLowerCase();
+                    if (t.length === 0) return;
+                    setForm((s) => ({
+                      ...s,
+                      tags: Array.from(new Set([...s.tags, t])),
+                      tagDraft: '',
+                    }));
+                  }
+                }}
+                maxLength={40}
+                disabled={busy}
+                className="h-11"
+                placeholder="Type a tag and press Enter (e.g. 1bhk, premium)"
+              />
+              {form.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {form.tags.map((t) => (
+                    <Badge
+                      key={t}
+                      variant="secondary"
+                      className="text-[10px] gap-1"
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        aria-label={`Remove tag ${t}`}
+                        onClick={() =>
+                          setForm((s) => ({
+                            ...s,
+                            tags: s.tags.filter((x) => x !== t),
+                          }))
+                        }
+                        disabled={busy}
+                        className="hover:text-destructive"
+                      >
+                        ×
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                Free-form tags help execs filter on the read surface. Use
+                short slugs like <code>1bhk</code>, <code>premium</code>.
+                Tags are lowercased automatically.
               </p>
             </div>
 

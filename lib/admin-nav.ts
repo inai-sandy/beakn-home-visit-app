@@ -90,6 +90,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         href: '/admin/settings/audit-content/announcements',
       },
       {
+        label: 'Announcement Categories',
+        icon: 'bookmarks',
+        href: '/admin/settings/audit-content/announcement-categories',
+      },
+      {
         label: 'Customer Support Phone',
         icon: 'support_agent',
         href: '/admin/settings/notifications/customer-support-phone',

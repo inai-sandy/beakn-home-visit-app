@@ -255,6 +255,11 @@ export const CONFIG_SCHEMA = {
       // rename / reorder / deactivate via a sparse diff.
       'resource_category_created',
       'resource_category_updated',
+      // HVA-156-FIX2 — admin-managed announcement categories + explicit
+      // per-user announcement acknowledgments per HVA-120 §13.1.
+      'announcement_category_created',
+      'announcement_category_updated',
+      'announcement_acknowledged',
     ],
     editable: true,
   },

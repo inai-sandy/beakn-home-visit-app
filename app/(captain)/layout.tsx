@@ -75,6 +75,7 @@ export default async function CaptainLayout({
   // both the mobile drawer + desktop sidebar.
   const unreadAnnouncementsCount = await countUnreadAnnouncementsForUser(
     user.id,
+    user.role,
   );
 
   return (

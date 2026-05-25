@@ -1,18 +1,15 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
 import { ResourcesView } from '@/components/content/ResourcesView';
+import { getServerSession } from '@/lib/auth-server';
 import {
   loadActiveResourceCategories,
-  loadPublishedResources,
+  loadPublishedResourcesForRole,
 } from '@/lib/content/queries';
 
 // =============================================================================
-// HVA-156-FIX1: /captain/resources — captain read surface
-// =============================================================================
-//
-// Same source of truth as the exec surface (HVA-156 D1 / D4 — broadcast
-// to all staff). Both portals call loadPublishedResources +
-// loadActiveResourceCategories and render the shared ResourcesView.
+// HVA-156-FIX2: /captain/resources — captain read surface
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -22,8 +19,12 @@ export const metadata: Metadata = {
 };
 
 export default async function CaptainResourcesPage() {
+  const session = await getServerSession();
+  if (!session) redirect('/login?next=/captain/resources');
+  const user = session.user as { id: string; role?: string };
+
   const [resources, categories] = await Promise.all([
-    loadPublishedResources(),
+    loadPublishedResourcesForRole(user.role),
     loadActiveResourceCategories(),
   ]);
   return (

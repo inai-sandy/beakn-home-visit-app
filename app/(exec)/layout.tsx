@@ -81,6 +81,7 @@ export default async function ExecLayout({
   // both the mobile drawer + desktop sidebar.
   const unreadAnnouncementsCount = await countUnreadAnnouncementsForUser(
     user.id,
+    user.role,
   );
 
   return (

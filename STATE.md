@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-25 (HVA-89 — admin URL consolidation)
+**Last updated:** 2026-05-25 (HVA-156-FIX2 — full Resources + Announcements spec)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-25 | HVA-156-FIX2 (2C) | Full HVA-120 + HVA-121 spec closure: Resources gain visibility + tags; Announcements gain admin-managed categories + audience + importance rename + scheduled publish_date + explicit ack tracking with admin ack-rate display; captain ack-drilldown query helper added |
 | 2026-05-25 | HVA-89 (1B) | Admin Settings consolidation: all config-y admin surfaces move under /admin/settings/{group}/{page}; sidebar collapses People + Content groups into one Settings group; old URLs 308-redirect (next.config.ts) |
 | 2026-05-25 | HVA-156-FIX1 | Resources rework: URL bookmarks + admin-managed categories CRUD + dropdown/search filter + Open/Share buttons (Web Share API + copy-link fallback) |
 | 2026-05-23 | HVA-156 | Resources + Announcements: schema (3 tables, 2 enums), super_admin CRUD UI, exec + captain read surfaces, per-user read-tracking, drawer unread badge |

@@ -1,18 +1,15 @@
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 
 import { ResourcesView } from '@/components/content/ResourcesView';
+import { getServerSession } from '@/lib/auth-server';
 import {
   loadActiveResourceCategories,
-  loadPublishedResources,
+  loadPublishedResourcesForRole,
 } from '@/lib/content/queries';
 
 // =============================================================================
-// HVA-156-FIX1: /resources — exec read surface for sales enablement material
-// =============================================================================
-//
-// Server-rendered shell, client-side filter + share. Same source of truth
-// as the captain surface — every published resource is broadcast to all
-// staff (HVA-156 D1 / D4).
+// HVA-156-FIX2: /resources — exec read surface
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -22,8 +19,12 @@ export const metadata: Metadata = {
 };
 
 export default async function ExecResourcesPage() {
+  const session = await getServerSession();
+  if (!session) redirect('/login?next=/resources');
+  const user = session.user as { id: string; role?: string };
+
   const [resources, categories] = await Promise.all([
-    loadPublishedResources(),
+    loadPublishedResourcesForRole(user.role),
     loadActiveResourceCategories(),
   ]);
   return (

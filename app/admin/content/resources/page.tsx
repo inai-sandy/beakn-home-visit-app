@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { getServerSession } from '@/lib/auth-server';
-import { loadAllResourcesForAdmin } from '@/lib/content/queries';
+import {
+  loadAllResourceCategoriesForAdmin,
+  loadAllResourcesForAdmin,
+} from '@/lib/content/queries';
 
 import { ResourcesClient } from './resources-client';
 
@@ -27,7 +30,10 @@ export default async function AdminResourcesPage() {
   const user = session.user as { id: string; role?: string };
   if (user.role !== 'super_admin') redirect('/admin/dashboard');
 
-  const resources = await loadAllResourcesForAdmin();
+  const [resources, categories] = await Promise.all([
+    loadAllResourcesForAdmin(),
+    loadAllResourceCategoriesForAdmin(),
+  ]);
 
   return (
     <main className="min-h-svh bg-background">
@@ -40,7 +46,7 @@ export default async function AdminResourcesPage() {
             </p>
           </div>
         </header>
-        <ResourcesClient resources={resources} />
+        <ResourcesClient resources={resources} categories={categories} />
       </div>
     </main>
   );

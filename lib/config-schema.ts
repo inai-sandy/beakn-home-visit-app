@@ -251,6 +251,10 @@ export const CONFIG_SCHEMA = {
       'resource_created',
       'resource_updated',
       'announcement_created',
+      // HVA-156-FIX1 — admin-managed resource categories. Update covers
+      // rename / reorder / deactivate via a sparse diff.
+      'resource_category_created',
+      'resource_category_updated',
     ],
     editable: true,
   },

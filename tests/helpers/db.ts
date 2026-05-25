@@ -93,7 +93,10 @@ const SAFE_TRUNCATE_TABLES = [
   'rate_limits',
   'request_reschedule_history',
   'request_status_history',
+  // HVA-156-FIX1: resources FK → resource_categories. Truncate resources
+  // first so the categories truncate doesn't trip the RESTRICT cascade.
   'resources',
+  'resource_categories',
   'sales_executives',
   'sessions',
   'tasks',
@@ -122,6 +125,20 @@ export async function truncateAll(): Promise<void> {
   // explicit reset, the testcontainer's .withReuse() option means
   // mutations bleed across runs (Bangalore left with a captain_routing_email
   // from yesterday's session showed up as a flake here).
+  // HVA-156-FIX1: re-seed resource_categories with the same starter rows
+  // migration 0033 inserted. Truncating drops them; tests need at least one
+  // active category to insert resources against, so we re-insert here.
+  await db.execute(
+    sqlBuilder.raw(`
+      INSERT INTO resource_categories (name, slug, sort_order) VALUES
+        ('Sales scripts', 'sales-scripts', 10),
+        ('Pricing',       'pricing',       20),
+        ('Brand assets',  'brand-assets',  30),
+        ('Training',      'training',      40),
+        ('Other',         'other',         99)
+      ON CONFLICT DO NOTHING;
+    `),
+  );
   await db.execute(
     sqlBuilder.raw(
       'UPDATE cities SET captain_routing_email = NULL, other_routing_email = NULL, discord_webhook_url = NULL;',

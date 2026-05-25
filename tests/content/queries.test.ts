@@ -1,13 +1,21 @@
+import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
-import { announcementReads, announcements, resources } from '@/db/schema';
+import {
+  announcementReads,
+  announcements,
+  resourceCategories,
+  resources,
+} from '@/db/schema';
 import {
   countUnreadAnnouncementsForUser,
+  loadActiveResourceCategories,
   loadAllAnnouncementsForAdmin,
+  loadAllResourceCategoriesForAdmin,
   loadAllResourcesForAdmin,
   loadPublishedAnnouncementsForUser,
-  loadPublishedResourcesGrouped,
+  loadPublishedResources,
 } from '@/lib/content/queries';
 
 import {
@@ -17,30 +25,43 @@ import {
 } from '../helpers/db';
 
 // =============================================================================
-// HVA-156: content read queries
+// HVA-156 + HVA-156-FIX1: content read queries
 // =============================================================================
 //
 // Same shape as tests/notes/queries.test.ts — seed via Drizzle, then call
 // the helper and assert on shape + ordering. No mocks; real Postgres.
+//
+// Tests rely on the 5 seeded categories from migration 0033 (re-seeded by
+// truncateAll between tests).
 // =============================================================================
 
+async function getCategoryBySlug(slug: string): Promise<string> {
+  const [row] = await db
+    .select({ id: resourceCategories.id })
+    .from(resourceCategories)
+    .where(eq(resourceCategories.slug, slug))
+    .limit(1);
+  if (!row) throw new Error(`No category with slug ${slug}`);
+  return row.id;
+}
+
 async function seedResource(input: {
-  category: 'sales_scripts' | 'pricing' | 'brand_assets' | 'training' | 'other';
+  categoryId: string;
   title: string;
-  body: string;
+  url: string;
+  description?: string | null;
   createdByUserId: string;
   isPublished?: boolean;
-  createdAt?: Date;
 }) {
   const [row] = await db
     .insert(resources)
     .values({
-      category: input.category,
+      categoryId: input.categoryId,
       title: input.title,
-      body: input.body,
+      url: input.url,
+      description: input.description ?? null,
       createdByUserId: input.createdByUserId,
       isPublished: input.isPublished ?? true,
-      ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     })
     .returning({ id: resources.id });
   return row.id;
@@ -68,75 +89,120 @@ async function seedAnnouncement(input: {
   return row.id;
 }
 
-describe('loadPublishedResourcesGrouped', () => {
-  it('returns only published rows, grouped by category in canonical order', async () => {
+// -----------------------------------------------------------------------------
+// Resource categories
+// -----------------------------------------------------------------------------
+
+describe('loadActiveResourceCategories', () => {
+  it('returns the seed categories in sort_order then name', async () => {
+    const rows = await loadActiveResourceCategories();
+    expect(rows.map((r) => r.name)).toEqual([
+      'Sales scripts',
+      'Pricing',
+      'Brand assets',
+      'Training',
+      'Other',
+    ]);
+  });
+
+  it('skips deactivated categories', async () => {
+    const otherId = await getCategoryBySlug('other');
+    await db
+      .update(resourceCategories)
+      .set({ isActive: false })
+      .where(eq(resourceCategories.id, otherId));
+
+    const rows = await loadActiveResourceCategories();
+    expect(rows.find((r) => r.slug === 'other')).toBeUndefined();
+    expect(rows).toHaveLength(4);
+  });
+});
+
+describe('loadAllResourceCategoriesForAdmin', () => {
+  it('includes deactivated categories', async () => {
+    const otherId = await getCategoryBySlug('other');
+    await db
+      .update(resourceCategories)
+      .set({ isActive: false })
+      .where(eq(resourceCategories.id, otherId));
+
+    const rows = await loadAllResourceCategoriesForAdmin();
+    expect(rows).toHaveLength(5);
+    expect(rows.find((r) => r.slug === 'other')?.isActive).toBe(false);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Resources — flat list
+// -----------------------------------------------------------------------------
+
+describe('loadPublishedResources', () => {
+  it('returns only published rows, newest-first, with category joined', async () => {
     const admin = await seedSuperAdmin({ phone: '+918888156001' });
+    const scriptsId = await getCategoryBySlug('sales-scripts');
+    const pricingId = await getCategoryBySlug('pricing');
+    const trainingId = await getCategoryBySlug('training');
 
     await seedResource({
-      category: 'pricing',
+      categoryId: pricingId,
       title: 'Price list Q2',
-      body: 'paid plans',
+      url: 'https://drive.google.com/price-q2',
       createdByUserId: admin.id,
     });
     await seedResource({
-      category: 'sales_scripts',
+      categoryId: scriptsId,
       title: 'Cold call script v1',
-      body: 'opener line',
+      url: 'https://drive.google.com/script-v1',
+      description: 'opener line',
       createdByUserId: admin.id,
     });
     await seedResource({
-      category: 'sales_scripts',
+      categoryId: scriptsId,
       title: 'Cold call script v2',
-      body: 'refined opener',
+      url: 'https://drive.google.com/script-v2',
       createdByUserId: admin.id,
     });
-    // Unpublished — must be filtered out.
     await seedResource({
-      category: 'training',
+      categoryId: trainingId,
       title: 'Draft training deck',
-      body: 'wip',
+      url: 'https://drive.google.com/draft',
       createdByUserId: admin.id,
       isPublished: false,
     });
 
-    const groups = await loadPublishedResourcesGrouped();
-
-    // Canonical category order is sales_scripts → pricing → brand_assets →
-    // training → other; empty groups are filtered, so we expect 2 groups.
-    expect(groups.map((g) => g.category)).toEqual(['sales_scripts', 'pricing']);
-
-    const scripts = groups.find((g) => g.category === 'sales_scripts')!;
-    expect(scripts.rows).toHaveLength(2);
-    // Newest-first within each group.
-    expect(scripts.rows[0].title).toBe('Cold call script v2');
-    expect(scripts.rows[1].title).toBe('Cold call script v1');
-
-    const pricing = groups.find((g) => g.category === 'pricing')!;
-    expect(pricing.rows).toHaveLength(1);
-    expect(pricing.rows[0].title).toBe('Price list Q2');
-    expect(pricing.rows[0].authorName).toBe('Test Super Admin');
+    const rows = await loadPublishedResources();
+    expect(rows).toHaveLength(3);
+    expect(rows[0].title).toBe('Cold call script v2');
+    expect(rows[0].categoryName).toBe('Sales scripts');
+    expect(rows[0].categorySlug).toBe('sales-scripts');
+    expect(rows[0].url).toBe('https://drive.google.com/script-v2');
+    expect(rows[0].description).toBeNull();
+    expect(rows[1].description).toBe('opener line');
+    expect(rows[0].authorName).toBe('Test Super Admin');
   });
 
-  it('returns empty array when no resources are published', async () => {
-    const groups = await loadPublishedResourcesGrouped();
-    expect(groups).toEqual([]);
+  it('returns empty array when nothing is published', async () => {
+    const rows = await loadPublishedResources();
+    expect(rows).toEqual([]);
   });
 });
 
 describe('loadAllResourcesForAdmin', () => {
   it('includes unpublished rows', async () => {
     const admin = await seedSuperAdmin({ phone: '+918888156002' });
+    const trainingId = await getCategoryBySlug('training');
+    const pricingId = await getCategoryBySlug('pricing');
     await seedResource({
-      category: 'training',
+      categoryId: trainingId,
       title: 'Draft',
-      body: 'wip',
+      url: 'https://example.test/draft',
       createdByUserId: admin.id,
       isPublished: false,
     });
     await seedResource({
-      category: 'pricing',
+      categoryId: pricingId,
       title: 'Live',
-      body: 'shipped',
+      url: 'https://example.test/live',
       createdByUserId: admin.id,
       isPublished: true,
     });
@@ -147,6 +213,10 @@ describe('loadAllResourcesForAdmin', () => {
     expect(titles).toEqual(['Draft', 'Live']);
   });
 });
+
+// -----------------------------------------------------------------------------
+// Announcements (unchanged from HVA-156)
+// -----------------------------------------------------------------------------
 
 describe('loadPublishedAnnouncementsForUser', () => {
   it('flags isRead correctly via the announcement_reads join', async () => {
@@ -167,7 +237,6 @@ describe('loadPublishedAnnouncementsForUser', () => {
       createdByUserId: admin.id,
     });
 
-    // exec has read a1 but not a2.
     await db.insert(announcementReads).values({
       userId: exec.id,
       announcementId: a1,
@@ -175,7 +244,6 @@ describe('loadPublishedAnnouncementsForUser', () => {
 
     const rows = await loadPublishedAnnouncementsForUser(exec.id);
     expect(rows).toHaveLength(2);
-
     const ra1 = rows.find((r) => r.id === a1)!;
     const ra2 = rows.find((r) => r.id === a2)!;
     expect(ra1.isRead).toBe(true);
@@ -248,7 +316,6 @@ describe('countUnreadAnnouncementsForUser', () => {
       body: 'x',
       createdByUserId: admin.id,
     });
-    // Unpublished — must not be counted.
     await seedAnnouncement({
       severity: 'info',
       title: 'Three',

@@ -1,40 +1,38 @@
 // =============================================================================
-// HVA-156: Resources + Announcements — shared types + label tables
+// HVA-156 + HVA-156-FIX1: content shared types (DB-runtime-free)
 // =============================================================================
 //
-// Types and label constants pulled out of lib/content/queries.ts so client
-// components can import them without dragging the postgres-js / Drizzle
-// runtime into the browser bundle (Next.js 16 will otherwise complain
-// about the dynamic require in pg-types).
+// Types pulled out of lib/content/queries.ts so client components can
+// import them without dragging postgres-js / Drizzle into the browser
+// bundle. queries.ts re-exports these for server-side callers.
 //
-// queries.ts re-exports these so server-side callers can keep using the
-// `from '@/lib/content/queries'` import path.
+// FIX1 dropped the hardcoded ResourceCategory enum + label table in favour
+// of an admin-managed `resource_categories` table; ResourceCategoryRow
+// represents a row from that table.
 // =============================================================================
-
-export const RESOURCE_CATEGORIES = [
-  'sales_scripts',
-  'pricing',
-  'brand_assets',
-  'training',
-  'other',
-] as const;
-export type ResourceCategory = (typeof RESOURCE_CATEGORIES)[number];
-
-export const RESOURCE_CATEGORY_LABELS: Record<ResourceCategory, string> = {
-  sales_scripts: 'Sales scripts',
-  pricing: 'Pricing',
-  brand_assets: 'Brand assets',
-  training: 'Training',
-  other: 'Other',
-};
 
 export type AnnouncementSeverity = 'info' | 'important' | 'urgent';
 
+/** Row from `resource_categories` — drives the admin CRUD UI + the filter
+ *  dropdown on the read surface. */
+export interface ResourceCategoryRow {
+  id: string;
+  name: string;
+  slug: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface ResourceRow {
   id: string;
-  category: ResourceCategory;
+  categoryId: string;
+  categoryName: string;
+  categorySlug: string;
   title: string;
-  body: string;
+  url: string;
+  description: string | null;
   isPublished: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -52,10 +50,4 @@ export interface AnnouncementRow {
   authorName: string | null;
   /** True when the viewing user has an announcement_reads row for this id. */
   isRead: boolean;
-}
-
-export interface ResourcesGroupedByCategory {
-  category: ResourceCategory;
-  label: string;
-  rows: ResourceRow[];
 }

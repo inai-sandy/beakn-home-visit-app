@@ -66,6 +66,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         href: '/admin/content/resources',
       },
       {
+        label: 'Categories',
+        icon: 'label',
+        href: '/admin/content/categories',
+      },
+      {
         label: 'Announcements',
         icon: 'campaign',
         href: '/admin/content/announcements',

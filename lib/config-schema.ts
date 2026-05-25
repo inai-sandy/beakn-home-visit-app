@@ -272,6 +272,8 @@ export const CONFIG_SCHEMA = {
       // HVA-77 + HVA-94 — admin help round-trip.
       'admin_help_sent',
       'admin_help_replied',
+      // HVA-72 — reschedule data flow (exec + customer-initiated).
+      'request_rescheduled',
     ],
     editable: true,
   },

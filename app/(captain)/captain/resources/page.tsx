@@ -1,11 +1,34 @@
-export const dynamic = "force-dynamic";
+import type { Metadata } from 'next';
 
-// HVA-78 stub. Resources library — TBD ticket.
-export default function CaptainResourcesPage() {
+import { ResourcesView } from '@/components/content/ResourcesView';
+import { loadPublishedResourcesGrouped } from '@/lib/content/queries';
+
+// =============================================================================
+// HVA-156: /captain/resources — captain read surface for sales enablement
+// =============================================================================
+//
+// Same source of truth as the exec surface (D1 / D4 — broadcast to all
+// staff). Both portals call loadPublishedResourcesGrouped and render the
+// shared ResourcesView component.
+// =============================================================================
+
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = {
+  title: 'Resources — Captain',
+};
+
+export default async function CaptainResourcesPage() {
+  const groups = await loadPublishedResourcesGrouped();
   return (
-    <div className="p-4 sm:p-8 space-y-3 max-w-3xl">
-      <h1 className="text-2xl font-semibold tracking-tight">Resources</h1>
-      <p className="text-sm text-muted-foreground">Coming soon.</p>
-    </div>
+    <main className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Resources</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Sales scripts, pricing, brand assets, training.
+        </p>
+      </header>
+      <ResourcesView groups={groups} />
+    </main>
   );
 }

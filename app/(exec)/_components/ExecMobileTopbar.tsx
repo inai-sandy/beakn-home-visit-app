@@ -25,9 +25,15 @@ interface Props {
   fullName: string;
   captainName: string | null;
   cities: Array<{ id: string; name: string }>;
+  unreadAnnouncementsCount?: number;
 }
 
-export function ExecMobileTopbar({ fullName, captainName, cities }: Props) {
+export function ExecMobileTopbar({
+  fullName,
+  captainName,
+  cities,
+  unreadAnnouncementsCount = 0,
+}: Props) {
   const pathname = usePathname() ?? '/today';
   const title = resolveExecPageTitle(pathname);
 
@@ -40,6 +46,7 @@ export function ExecMobileTopbar({ fullName, captainName, cities }: Props) {
         fullName={fullName}
         captainName={captainName}
         cities={cities}
+        unreadAnnouncementsCount={unreadAnnouncementsCount}
       />
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}

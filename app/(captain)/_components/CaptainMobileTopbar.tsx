@@ -28,9 +28,15 @@ import { CaptainSidebarSheet } from './CaptainSidebarSheet';
 interface Props {
   captainName: string;
   cities: Array<{ id: string; name: string }>;
+  /** HVA-156: unread-count badge next to the Announcements item. */
+  unreadAnnouncementsCount?: number;
 }
 
-export function CaptainMobileTopbar({ captainName, cities }: Props) {
+export function CaptainMobileTopbar({
+  captainName,
+  cities,
+  unreadAnnouncementsCount = 0,
+}: Props) {
   const pathname = usePathname() ?? '/captain/dashboard';
   const title = resolveCaptainPageTitle(pathname);
 
@@ -39,7 +45,11 @@ export function CaptainMobileTopbar({ captainName, cities }: Props) {
       className="lg:hidden sticky top-0 z-20 h-14 flex items-center gap-2 border-b bg-background/95 backdrop-blur-sm px-4"
       aria-label="Page header"
     >
-      <CaptainSidebarSheet captainName={captainName} cities={cities} />
+      <CaptainSidebarSheet
+        captainName={captainName}
+        cities={cities}
+        unreadAnnouncementsCount={unreadAnnouncementsCount}
+      />
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}
       </h1>

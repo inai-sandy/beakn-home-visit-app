@@ -245,6 +245,12 @@ export const CONFIG_SCHEMA = {
       // left `pending` after their `task_date` passed. actor_user_id is
       // null (system event). afterState carries { rolledOverAt }.
       'task_rolled_over',
+      // HVA-156 — super_admin authors content. Resources are editable
+      // (resource_updated carries a sparse diff); Announcements are
+      // append-only (no announcement_updated event).
+      'resource_created',
+      'resource_updated',
+      'announcement_created',
     ],
     editable: true,
   },

@@ -13,3 +13,4 @@ export * from './admin_help';
 export * from './audit';
 export * from './config';
 export * from './notes';
+export * from './content';

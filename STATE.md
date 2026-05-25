@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-25 (UI unification — admin Resources + Announcements lists now match the team's read surface)
+**Last updated:** 2026-05-25 (Settings accordion — admin sidebar Settings group restructured per HVA-89 6-card hierarchy)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -63,6 +63,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 | Date | Ticket | Summary |
 |---|---|---|
 | 2026-05-25 | docs sync | docs/CONTEXT.md Resources + Announcements paragraphs rewritten to reflect FIX2 (announcement_acknowledgments rename, audience/publish_date/importance, visibility/tags, pure helpers) |
+| 2026-05-25 | Settings accordion | Admin Settings sidebar group restructured into 6 collapsible accordions per HVA-89 (Organization / Audit & Content / Notifications shipped; Workflow & Status / Targets / AI & Report Cards rendered as "Coming soon" placeholders). Active subgroup auto-expands based on URL. |
 | 2026-05-25 | UI unification | Admin Resources/Announcements lists now render the same ResourcesView/AnnouncementsView the team sees, with an overlay ✏️ icon-button per card. Append-only semantics preserved (announcements Manage dialog only toggles published) |
 | 2026-05-25 | HVA-61 (10B) | Mark-Done sonner toast gains an Undo action button (5s duration) on top of the existing persistent inline Undo on completed task cards |
 | 2026-05-25 | HVA-113 (9A) | Captain deactivation blocked when active sales execs still report; action-layer guard returns 409 with exec count + names; closes HVA-91 spec divergence |

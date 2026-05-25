@@ -29,18 +29,36 @@ export interface AdminNavItem {
   placeholder?: true;
 }
 
+/** Accordion subgroup — used inside the Settings group per the HVA-89
+ *  6-card spec. Operations + Reports stay flat (no subgroups); Settings
+ *  is the only group today that uses subgroups. */
+export interface AdminNavSubgroup {
+  label: string;
+  icon: string;
+  items: AdminNavItem[];
+  /** When true, render the subgroup as a disabled placeholder with
+   *  "Coming soon" — used for the 3 HVA-89 cards that have no shipped
+   *  pages yet (Workflow & Status / Targets / AI & Report Cards). */
+  comingSoon?: true;
+}
+
 export interface AdminNavGroup {
   /** Small-caps group header text in the sidebar. */
   label: string;
-  items: AdminNavItem[];
+  /** Flat list of leaf items. Used by Operations + Reports groups. Mutually
+   *  exclusive with `subgroups`. */
+  items?: AdminNavItem[];
+  /** Hierarchical subgroups (accordion). Used by the Settings group per
+   *  HVA-89. Mutually exclusive with `items`. */
+  subgroups?: AdminNavSubgroup[];
 }
 
-// HVA-89: All configuration surfaces now live under /admin/settings/<group>/<page>
-// per the Settings Hub spec. The sidebar collapses to two top-level groups
-// ('Operations' and 'Settings') so non-config pages (dashboard, requests, help)
-// remain at the root and every config-y page sits under one Settings header.
-// URL hierarchy reflects the HVA-89 6-card grouping (organization /
-// audit-content / notifications / etc.); the sidebar flattens those leaves.
+// HVA-89: All configuration surfaces live under /admin/settings/<group>/<page>.
+// The Settings group renders as collapsible accordions per the HVA-89 6-card
+// spec — three subgroups have shipped pages (Organization / Audit & Content /
+// Notifications); the other three (Workflow & Status / Targets / AI & Report
+// Cards) render as disabled "Coming soon" placeholders so the full Phase-1
+// roadmap is visible from the sidebar.
 export const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Operations',
@@ -58,46 +76,82 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   },
   {
     label: 'Settings',
-    items: [
+    subgroups: [
       {
-        label: 'Cities',
-        icon: 'location_city',
-        href: '/admin/settings/organization/cities',
+        label: 'Organization',
+        icon: 'corporate_fare',
+        items: [
+          {
+            label: 'Cities',
+            icon: 'location_city',
+            href: '/admin/settings/organization/cities',
+          },
+          {
+            label: 'Captains',
+            icon: 'shield_person',
+            href: '/admin/settings/organization/captains',
+          },
+          {
+            label: 'Executives',
+            icon: 'badge',
+            href: '/admin/settings/organization/executives',
+          },
+        ],
       },
       {
-        label: 'Captains',
-        icon: 'shield_person',
-        href: '/admin/settings/organization/captains',
+        label: 'Audit & Content',
+        icon: 'fact_check',
+        items: [
+          {
+            label: 'Resources',
+            icon: 'menu_book',
+            href: '/admin/settings/audit-content/resources',
+          },
+          {
+            label: 'Resource Categories',
+            icon: 'label',
+            href: '/admin/settings/audit-content/categories',
+          },
+          {
+            label: 'Announcements',
+            icon: 'campaign',
+            href: '/admin/settings/audit-content/announcements',
+          },
+          {
+            label: 'Announcement Categories',
+            icon: 'bookmarks',
+            href: '/admin/settings/audit-content/announcement-categories',
+          },
+        ],
       },
       {
-        label: 'Executives',
-        icon: 'badge',
-        href: '/admin/settings/organization/executives',
+        label: 'Notifications',
+        icon: 'notifications_active',
+        items: [
+          {
+            label: 'Customer Support Phone',
+            icon: 'support_agent',
+            href: '/admin/settings/notifications/customer-support-phone',
+          },
+        ],
       },
       {
-        label: 'Resources',
-        icon: 'menu_book',
-        href: '/admin/settings/audit-content/resources',
+        label: 'Workflow & Status',
+        icon: 'rule',
+        items: [],
+        comingSoon: true,
       },
       {
-        label: 'Categories',
-        icon: 'label',
-        href: '/admin/settings/audit-content/categories',
+        label: 'Targets',
+        icon: 'flag',
+        items: [],
+        comingSoon: true,
       },
       {
-        label: 'Announcements',
-        icon: 'campaign',
-        href: '/admin/settings/audit-content/announcements',
-      },
-      {
-        label: 'Announcement Categories',
-        icon: 'bookmarks',
-        href: '/admin/settings/audit-content/announcement-categories',
-      },
-      {
-        label: 'Customer Support Phone',
-        icon: 'support_agent',
-        href: '/admin/settings/notifications/customer-support-phone',
+        label: 'AI & Report Cards',
+        icon: 'auto_awesome',
+        items: [],
+        comingSoon: true,
       },
     ],
   },
@@ -110,6 +164,32 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     ],
   },
 ];
+
+/** Returns every leaf nav item across both flat and subgroup-bearing groups.
+ *  Used by `resolveAdminPageTitle` and tests to assert overall structure. */
+export function flatAdminNavItems(): AdminNavItem[] {
+  const out: AdminNavItem[] = [];
+  for (const g of ADMIN_NAV) {
+    if (g.items) out.push(...g.items);
+    if (g.subgroups) {
+      for (const sg of g.subgroups) out.push(...sg.items);
+    }
+  }
+  return out;
+}
+
+/** True when any leaf inside the subgroup matches the current URL. Drives
+ *  the accordion's default-expanded state. */
+export function isAdminNavSubgroupActive(
+  subgroup: AdminNavSubgroup,
+  currentPath: string,
+  currentQuery?: URLSearchParams | null,
+): boolean {
+  if (subgroup.comingSoon) return false;
+  return subgroup.items.some((it) =>
+    isAdminNavItemActive(it, currentPath, currentQuery),
+  );
+}
 
 // =============================================================================
 // Active-state detection
@@ -154,22 +234,20 @@ export function isAdminNavItemActive(
   // query constraint would match the current URL, defer to that one —
   // so "All Requests" doesn't light up when the URL is /admin/requests?city=other.
   if (currentQuery) {
-    for (const group of ADMIN_NAV) {
-      for (const sibling of group.items) {
-        if (
-          sibling !== item &&
-          sibling.href === item.href &&
-          sibling.query
-        ) {
-          let allMatch = true;
-          for (const [k, v] of Object.entries(sibling.query)) {
-            if (currentQuery.get(k) !== v) {
-              allMatch = false;
-              break;
-            }
+    for (const sibling of flatAdminNavItems()) {
+      if (
+        sibling !== item &&
+        sibling.href === item.href &&
+        sibling.query
+      ) {
+        let allMatch = true;
+        for (const [k, v] of Object.entries(sibling.query)) {
+          if (currentQuery.get(k) !== v) {
+            allMatch = false;
+            break;
           }
-          if (allMatch) return false;
         }
+        if (allMatch) return false;
       }
     }
   }
@@ -191,11 +269,9 @@ export function resolveAdminPageTitle(
   currentPath: string,
   currentQuery?: URLSearchParams | null,
 ): string {
-  for (const group of ADMIN_NAV) {
-    for (const item of group.items) {
-      if (isAdminNavItemActive(item, currentPath, currentQuery)) {
-        return item.label;
-      }
+  for (const item of flatAdminNavItems()) {
+    if (isAdminNavItemActive(item, currentPath, currentQuery)) {
+      return item.label;
     }
   }
   // Fallback: last segment, title-cased.

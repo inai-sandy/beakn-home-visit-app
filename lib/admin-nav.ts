@@ -138,8 +138,13 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       {
         label: 'Workflow & Status',
         icon: 'rule',
-        items: [],
-        comingSoon: true,
+        items: [
+          {
+            label: 'Holidays',
+            icon: 'event',
+            href: '/admin/settings/workflow/holidays',
+          },
+        ],
       },
       {
         label: 'Targets',

@@ -31,6 +31,8 @@ interface Props {
     phone: string;
     isUnavailable: boolean;
     hasRedFlag: boolean;
+    /** HVA-85: drives the rebalance dialog's team-pool query. */
+    captainUserId: string;
   };
   cities: ReadonlyArray<{ id: string; name: string }>;
   quickStats: QuickStats;
@@ -117,6 +119,8 @@ export function ExecDrillDownHeader({ exec, cities, quickStats }: Props) {
           </div>
           <MarkUnavailableToggle
             execUserId={exec.userId}
+            execName={exec.fullName}
+            captainUserId={exec.captainUserId}
             initial={exec.isUnavailable}
           />
         </div>

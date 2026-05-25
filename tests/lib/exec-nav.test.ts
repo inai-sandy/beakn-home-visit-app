@@ -77,10 +77,11 @@ describe('isExecNavItemActive', () => {
 // =============================================================================
 
 describe('EXEC_DRAWER_NAV', () => {
-  it('exposes drawer destinations in locked order (D2)', () => {
+  it('exposes drawer destinations in locked order (HVA-71 added Calendar)', () => {
     expect(EXEC_DRAWER_NAV.map((i) => i.label)).toEqual([
       'Dashboard',
       'Today',
+      'Calendar',
       'Tasks',
       'Contacts',
       'Requests',

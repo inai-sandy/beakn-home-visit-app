@@ -269,6 +269,9 @@ export const CONFIG_SCHEMA = {
       'request_routed_from_other_queue',
       // HVA-85 — bulk reassignment when captain marks an exec unavailable.
       'request_reassigned_by_unavailable_rebalance',
+      // HVA-77 + HVA-94 — admin help round-trip.
+      'admin_help_sent',
+      'admin_help_replied',
     ],
     editable: true,
   },

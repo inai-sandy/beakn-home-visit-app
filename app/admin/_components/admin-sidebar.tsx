@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import {
   ADMIN_NAV,
@@ -32,8 +33,12 @@ import { cn } from "@/lib/utils";
 
 export function AdminSidebar({
   userFooter,
+  /** HVA-77 + HVA-94: pending admin help count drives the badge next to
+   *  the "Admin Help Inbox" nav item. */
+  pendingHelpCount = 0,
 }: {
   userFooter: React.ReactNode;
+  pendingHelpCount?: number;
 }) {
   const pathname = usePathname() ?? "/admin";
   const searchParams = useSearchParams();
@@ -74,6 +79,11 @@ export function AdminSidebar({
                     pathname={pathname}
                     searchParams={searchParams}
                     groupLabel={group.label}
+                    badgeCount={
+                      item.label === 'Admin Help Inbox'
+                        ? pendingHelpCount
+                        : 0
+                    }
                   />
                 ))}
               </ul>
@@ -109,11 +119,13 @@ function NavLeaf({
   pathname,
   searchParams,
   groupLabel,
+  badgeCount = 0,
 }: {
   item: AdminNavItem;
   pathname: string;
   searchParams: URLSearchParams | null;
   groupLabel: string;
+  badgeCount?: number;
 }) {
   const active = isAdminNavItemActive(item, pathname, searchParams);
   if (item.placeholder || !item.href) {
@@ -148,7 +160,16 @@ function NavLeaf({
         aria-current={active ? "page" : undefined}
       >
         <Icon name={item.icon} size="sm" />
-        <span>{item.label}</span>
+        <span className="flex-1">{item.label}</span>
+        {badgeCount > 0 && (
+          <Badge
+            variant="outline"
+            className="text-[9px] tabular-nums border-primary/50 text-primary"
+            aria-label={`${badgeCount} pending`}
+          >
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </Badge>
+        )}
       </Link>
     </li>
   );

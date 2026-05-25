@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { countPendingAdminHelpMessages } from "@/lib/admin-help/actions";
 import { decideAdminAccess } from "@/lib/admin-authz";
 import { getServerSession } from "@/lib/auth-server";
 
@@ -53,10 +54,14 @@ export default async function AdminLayout({
   const user = session!.user as { name?: string; role: string; email?: string };
   const displayName = user.name ?? user.email ?? "Admin";
 
+  // HVA-77 + HVA-94: drives the Admin Help Inbox sidebar badge.
+  const pendingHelpCount = await countPendingAdminHelpMessages();
+
   return (
     <div className="min-h-svh flex bg-background">
       <AdminSidebar
         userFooter={<AdminUserFooter fullName={displayName} role={user.role} />}
+        pendingHelpCount={pendingHelpCount}
       />
       {/*
         Outer wrapper is a plain <div>, not <main>: every existing

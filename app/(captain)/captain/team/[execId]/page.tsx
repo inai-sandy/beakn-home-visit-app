@@ -170,6 +170,11 @@ export default async function CaptainTeamExecDrillDownPage({
           phone: identityRow.phone,
           isUnavailable: singleMetrics?.isUnavailable ?? false,
           hasRedFlag: status?.hasRedFlag ?? false,
+          // HVA-85: drives the rebalance dialog's team-pool query. For
+          // super_admin viewing the captain shell, we still need this id
+          // — fall back to the request's own captain link from the
+          // identity row (defined on the exec record).
+          captainUserId: identityRow.captainUserId,
         }}
         cities={captainCities}
         quickStats={quickStats}

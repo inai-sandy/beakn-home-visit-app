@@ -267,6 +267,8 @@ export const CONFIG_SCHEMA = {
       'holiday_updated',
       // HVA-95 — manual routing of Other-city queue requests.
       'request_routed_from_other_queue',
+      // HVA-85 — bulk reassignment when captain marks an exec unavailable.
+      'request_reassigned_by_unavailable_rebalance',
     ],
     editable: true,
   },

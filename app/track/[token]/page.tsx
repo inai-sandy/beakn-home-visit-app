@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 
+import { CancelRequestButton } from "@/components/track/CancelRequestButton";
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import {
@@ -456,6 +457,19 @@ export default async function TrackPage({ params }: PageProps) {
             )}
           </ol>
         </section>
+
+        {/* HVA-39: customer-initiated cancellation. Hidden when the
+            request is already cancelled or already complete. Renders as
+            a discreet outlined button so it doesn't compete with the
+            status centerpiece. */}
+        {!isCancelled && !isTerminal && (
+          <section
+            aria-label="Cancel request"
+            className="flex justify-center"
+          >
+            <CancelRequestButton token={token} />
+          </section>
+        )}
 
         {/* HVA-37: Documents — BHK-matched proposal(s) + standard catalogues.
             Renders nothing if admin hasn't uploaded any matching Resources

@@ -1,8 +1,9 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
+
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -50,7 +51,6 @@ interface Props {
 }
 
 export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
-  const router = useRouter();
   const [type, setType] = useState<'Customer' | 'Business'>('Customer');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -62,11 +62,17 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
   const [businessTypeId, setBusinessTypeId] = useState<string>('');
   const [notes, setNotes] = useState('');
 
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const busy = submitting || isPending;
+
+  const { mutate, isPending: busy } = useServerMutation(addLeadAction, {
+    successMessage: 'Lead added',
+    onSuccess: () => onClose(),
+    onError: (err, errs) => {
+      setGeneralError(err);
+      if (errs) setFieldErrors(errs);
+    },
+  });
 
   function toggleInterest(tag: string) {
     setInterest((prev) =>
@@ -74,50 +80,34 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
     );
   }
 
-  async function onSubmit() {
+  function onSubmit() {
     if (busy) return;
-    setSubmitting(true);
     setGeneralError(null);
     setFieldErrors({});
-    try {
-      const payload =
-        type === 'Customer'
-          ? {
-              type: 'Customer' as const,
-              name: name.trim(),
-              phone,
-              email: email.trim() || undefined,
-              cityId,
-              interest: interest as (typeof ALLOWED_INTERESTS)[number][],
-              bhk: bhk ? (bhk as (typeof LEAD_BHK_VALUES)[number]) : undefined,
-              notes: notes.trim() || undefined,
-            }
-          : {
-              type: 'Business' as const,
-              name: name.trim(),
-              phone,
-              email: email.trim() || undefined,
-              cityId,
-              interest: interest as (typeof ALLOWED_INTERESTS)[number][],
-              firmName: firmName.trim(),
-              businessTypeId,
-              notes: notes.trim() || undefined,
-            };
-      const result = await addLeadAction(payload);
-      if (!result.ok) {
-        setGeneralError(result.error);
-        if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-        toast.error(result.error);
-        return;
-      }
-      toast.success('Lead added');
-      onClose();
-      startTransition(() => {
-        router.refresh();
-      });
-    } finally {
-      setSubmitting(false);
-    }
+    const payload =
+      type === 'Customer'
+        ? {
+            type: 'Customer' as const,
+            name: name.trim(),
+            phone,
+            email: email.trim() || undefined,
+            cityId,
+            interest: interest as (typeof ALLOWED_INTERESTS)[number][],
+            bhk: bhk ? (bhk as (typeof LEAD_BHK_VALUES)[number]) : undefined,
+            notes: notes.trim() || undefined,
+          }
+        : {
+            type: 'Business' as const,
+            name: name.trim(),
+            phone,
+            email: email.trim() || undefined,
+            cityId,
+            interest: interest as (typeof ALLOWED_INTERESTS)[number][],
+            firmName: firmName.trim(),
+            businessTypeId,
+            notes: notes.trim() || undefined,
+          };
+    void mutate(payload);
   }
 
   return (

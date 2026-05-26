@@ -1,7 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -24,6 +23,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import { cn } from '@/lib/utils';
 
 import { editRequestAction } from '../_actions/editRequest';
@@ -87,7 +87,6 @@ function localToIso(local: string): string | null {
 }
 
 export function EditRequestSheet({ request, cities, onClose }: Props) {
-  const router = useRouter();
   const [customerName, setCustomerName] = useState(request.customerName);
   const [phone, setPhone] = useState(digitsFromStorage(request.customerPhone));
   const [email, setEmail] = useState(request.customerEmail ?? '');
@@ -99,42 +98,33 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
     isoToLocal(request.visitScheduledAt),
   );
 
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  async function onSubmit() {
+  const { mutate, isPending: busy } = useServerMutation(editRequestAction, {
+    successMessage: 'Request updated',
+    onSuccess: () => onClose(),
+    onError: (err, errs) => {
+      setGeneralError(err);
+      if (errs) setFieldErrors(errs);
+    },
+  });
+
+  function onSubmit() {
     if (busy) return;
-    setSubmitting(true);
     setGeneralError(null);
     setFieldErrors({});
-    try {
-      const result = await editRequestAction({
-        requestId: request.id,
-        customerName: customerName.trim(),
-        customerPhone: phone,
-        customerEmail: email.trim() || null,
-        address: address.trim(),
-        cityId,
-        bhk,
-        customerState: customerState.trim() || null,
-        visitScheduledAt: localToIso(visitScheduledLocal),
-      });
-
-      if (!result.ok) {
-        setGeneralError(result.error ?? 'Save failed');
-        if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-        toast.error(result.error ?? 'Save failed');
-        return;
-      }
-      toast.success(result.changed ? 'Request updated' : 'No changes');
-      onClose();
-      startTransition(() => router.refresh());
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({
+      requestId: request.id,
+      customerName: customerName.trim(),
+      customerPhone: phone,
+      customerEmail: email.trim() || null,
+      address: address.trim(),
+      cityId,
+      bhk,
+      customerState: customerState.trim() || null,
+      visitScheduledAt: localToIso(visitScheduledLocal),
+    });
   }
 
   return (

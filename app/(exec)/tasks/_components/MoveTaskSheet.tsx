@@ -1,8 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
-import { toast } from 'sonner';
+import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -16,6 +14,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { moveTaskAction } from '../../today/actions';
 
@@ -76,43 +75,29 @@ interface Props {
 }
 
 export function MoveTaskSheet({ target, onClose }: Props) {
-  const router = useRouter();
   const minDate = useMemo(() => todayLocalIso(), []);
   const maxDate = useMemo(() => maxDateLocalIso(), []);
 
   const [newDate, setNewDate] = useState<string>(minDate);
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
   const isPostponed = target.status === 'postponed';
   const sheetTitle = isPostponed ? 'Reschedule task' : 'Move task';
   const buttonLabel = isPostponed ? 'Reschedule' : 'Move';
   const successCopy = isPostponed ? 'Task rescheduled' : 'Task moved';
 
-  const canSubmit =
-    !busy && newDate >= minDate && newDate <= maxDate;
+  const { mutate, isPending: busy } = useServerMutation(moveTaskAction, {
+    successMessage: successCopy,
+    onSuccess: () => onClose(),
+  });
 
-  async function onSubmit() {
+  const canSubmit = !busy && newDate >= minDate && newDate <= maxDate;
+
+  function onSubmit() {
     if (busy || !canSubmit) return;
-    setSubmitting(true);
-    try {
-      const result = await moveTaskAction({
-        taskId: target.taskId,
-        newDate,
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(successCopy);
-      onClose();
-      startTransition(() => {
-        router.refresh();
-      });
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({
+      taskId: target.taskId,
+      newDate,
+    });
   }
 
   return (

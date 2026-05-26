@@ -1,7 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -17,6 +16,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { postponeTaskAction } from '../actions';
 
@@ -69,39 +69,16 @@ interface Props {
 }
 
 export function PostponeSheet({ taskId, reasons, onClose }: Props) {
-  const router = useRouter();
   const [reasonId, setReasonId] = useState<string | null>(null);
   const [date, setDate] = useState<string>(tomorrowIso());
   const [customerInformed, setCustomerInformed] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
   const today = useMemo(() => todayIso(), []);
   const max = useMemo(() => maxDateIso(), []);
 
-  async function onConfirm() {
-    if (busy) return;
-    if (!reasonId) {
-      toast.error('Pick a reason');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const result = await postponeTaskAction({
-        taskId,
-        reasonId,
-        postponedToDate: date,
-        customerInformed,
-      });
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
+  const { mutate, isPending: busy } = useServerMutation(postponeTaskAction, {
+    onSuccess: () => {
       onClose();
-      startTransition(() => {
-        router.refresh();
-      });
       if (!customerInformed) {
         toast('Send notification to customer now?', {
           duration: 8000,
@@ -124,9 +101,21 @@ export function PostponeSheet({ taskId, reasons, onClose }: Props) {
       } else {
         toast.success('Task postponed');
       }
-    } finally {
-      setSubmitting(false);
+    },
+  });
+
+  function onConfirm() {
+    if (busy) return;
+    if (!reasonId) {
+      toast.error('Pick a reason');
+      return;
     }
+    void mutate({
+      taskId,
+      reasonId,
+      postponedToDate: date,
+      customerInformed,
+    });
   }
 
   return (

@@ -339,7 +339,7 @@ function CaptainFormModal({
           </div>
 
           <div className="space-y-2">
-            <Label>Cities {editing ? "(0–2)" : "(exactly 2)"}</Label>
+            <Label>Cities {editing ? "(0–2)" : "(1 or 2)"}</Label>
             <div className="space-y-1.5 rounded-input border border-input p-3 max-h-48 overflow-y-auto">
               {pickable.length === 0 ? (
                 <p className="text-xs text-muted-foreground">

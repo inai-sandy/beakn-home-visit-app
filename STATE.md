@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-26 (PR2 — Dashboard count aligned to /tasks (Option B); exec /requests moves to server-side pagination + search)
+**Last updated:** 2026-05-26 (PR3 — captain visibility switches from city-scope to team-scope on approvals + requests; setExecUnavailable revalidates the full layout)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-26 | PR3 team-scope | Captain visibility on `/captain/approvals` and `/captain/requests` switches from `cities.captain_user_id` (city-scope) to `assigned_captain_user_id = me` plus an unaccepted-but-pending-in-my-cities fallback. New `lib/captain/team-scope.ts` centralises the rule. Closes the cross-captain leak where captain B could approve or see captain A's request when both owned overlapping cities. `setExecUnavailableAction` revalidates `/` layout instead of three narrow paths — every surface reading `is_unavailable` now refreshes. |
 | 2026-05-26 | PR2 list-UX | Dashboard pending count drops the `taskDate = today OR rolledOverAt IS NOT NULL` predicate — now matches `/tasks` page 1:1 (Option B; future-scheduled tasks like the auto-created Schedule-Visit row surface on both surfaces). Exec `/requests` moves from client-side filter to server-side: bucket → status_code IN(...) WHERE, search → LOWER LIKE on customer_name/customer_phone, pagination 10/page, debounced search updates `?q=`, bucket tabs update `?bucket=`. Bucket counts derived from a single GROUP-BY pass so pills reflect the search-filtered total. |
 | 2026-05-26 | PR1 visible bugs | Calendar dedupes visit + auto-task by linkRequestId (was rendering both, looked like duplicate). Schedule-Visit reason + Reschedule input + EditRequestSheet datetime + RebalanceDialog all force `Asia/Kolkata` timezone (Docker server is UTC; was showing 06:30 instead of 12:00 IST and 04:30 in the timeline reason). Universal accordion-closed rule applied to admin-help inbox/thread + exec Dashboard TasksAccordion + exec /tasks TasksPageView. `DEFAULT_PAGE_SIZE` lifted from 20 → 10 with admin-help + other-city imported from the shared constant. Mandatory-field removal on exec-facing forms: AddTask (task type, date, description, estimated time), AddLead (type), ConvertLead (address, bhk), EditRequest (all `required` props dropped from FormRow). Lead.interest demoted to optional. |
 | 2026-05-25 | docs sync | docs/CONTEXT.md Resources + Announcements paragraphs rewritten to reflect FIX2 (announcement_acknowledgments rename, audience/publish_date/importance, visibility/tags, pure helpers) |

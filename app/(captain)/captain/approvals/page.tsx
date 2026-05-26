@@ -1,5 +1,5 @@
 import { alias } from "drizzle-orm/pg-core";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { formatDistanceToNow } from "date-fns";
 import { redirect } from "next/navigation";
 
@@ -14,7 +14,7 @@ import {
   visitRequests,
 } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
-import { loadCaptainCityIds } from "@/lib/captain/cities";
+import { buildCaptainRequestVisibilityWhere } from "@/lib/captain/team-scope";
 import { maskCustomerPhone } from "@/lib/format/phone";
 
 import { InlineApprovalButtons } from "./inline-approval-buttons";
@@ -44,24 +44,13 @@ export default async function CaptainApprovalsPage() {
   const actor = session.user as { id: string; role?: string };
   const isAdmin = actor.role === "super_admin";
 
-  const myCityIds = isAdmin ? [] : await loadCaptainCityIds(actor.id);
-  if (!isAdmin && myCityIds.length === 0) {
-    return (
-      <div className="p-4 sm:p-8 max-w-3xl space-y-3">
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Pending Approvals
-          </h1>
-        </header>
-        <div className="rounded-3xl border bg-muted/40 p-10 text-center">
-          <p className="text-sm text-muted-foreground">
-            You don&apos;t have any cities assigned yet. Ask an admin to
-            set this up.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // 2026-05-26 team-scope fix: approvals now filter by
+  // assigned_captain_user_id = me, not by cities the captain owns. This
+  // prevents captain B from seeing/approving captain A's request just
+  // because the assigned exec works in a city B also owns.
+  const captainScope = isAdmin
+    ? undefined
+    : buildCaptainRequestVisibilityWhere(actor.id);
 
   // Resolve the PENDING_CAPTAIN_APPROVAL stage id once so the per-request
   // join can index on it directly.
@@ -103,16 +92,11 @@ export default async function CaptainApprovalsPage() {
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .leftJoin(execUser, eq(execUser.id, visitRequests.assignedExecUserId))
     .where(
-      isAdmin
-        ? and(
-            eq(visitRequests.statusStageId, pendingStage.id),
-            isNull(visitRequests.cancelledAt),
-          )
-        : and(
-            eq(visitRequests.statusStageId, pendingStage.id),
-            isNull(visitRequests.cancelledAt),
-            inArray(visitRequests.cityId, myCityIds),
-          ),
+      and(
+        eq(visitRequests.statusStageId, pendingStage.id),
+        isNull(visitRequests.cancelledAt),
+        captainScope,
+      ),
     );
 
   // For each candidate, find the LATEST history row pointing INTO

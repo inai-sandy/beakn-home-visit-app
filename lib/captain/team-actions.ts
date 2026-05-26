@@ -80,9 +80,10 @@ export async function setExecUnavailableAction(
     afterState: { isUnavailable: input.isUnavailable },
   });
 
-  // Invalidate every surface that reads this flag.
-  revalidatePath(`/captain/team/${input.execUserId}`);
-  revalidatePath('/captain/team');
-  revalidatePath('/captain/dashboard');
+  // 2026-05-26: lift to layout-level revalidation so every surface that
+  // reads the flag (dashboard, team list, exec detail, captain-assign
+  // dropdowns elsewhere) stays in sync. The narrow per-path list missed
+  // the assignment surfaces.
+  revalidatePath('/', 'layout');
   return { ok: true, changed: true };
 }

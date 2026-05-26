@@ -1,16 +1,26 @@
 import { and, asc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { statusStages, tasks, visitRequests } from '@/db/schema';
+import { leads, statusStages, tasks, visitRequests } from '@/db/schema';
 import { TIMEZONE } from '@/lib/date';
 
 // =============================================================================
-// HVA-71: exec calendar data
+// HVA-71 + 2026-05-26 fix: exec calendar data
 // =============================================================================
 //
 // Day / Week / Month views all query the same shape: visits + tasks for
-// the exec, in a date range. Day = single date; Week = 7 days; Month =
-// every day in the calendar grid (5–6 weeks for the visible month).
+// the exec, in a date range.
+//
+// F1 fix: task titles join the linked request's customer name (or lead
+// name) so the tile shows "Visit: Sandeep Karnati" instead of just the
+// internal task description. Falls back to the raw description when no
+// link is set (Outlet visits / Stall activities etc.).
+//
+// F2 fix: task tap now navigates to /requests/<linkRequestId> when the
+// task is linked to a request — gives the exec full customer context.
+// Lead-linked tasks point at the contact detail page. Standalone tasks
+// (no link) fall back to /tasks?date=YYYY-MM-DD so the exec lands on
+// the right day's task list.
 // =============================================================================
 
 export interface CalendarEvent {
@@ -24,7 +34,6 @@ export interface CalendarEvent {
   href: string;
 }
 
-/** All visits + tasks for this exec between fromIso and toIso (inclusive). */
 export async function loadCalendarEvents(
   execUserId: string,
   fromIso: string,
@@ -56,11 +65,19 @@ export async function loadCalendarEvents(
   const taskRows = await db
     .select({
       id: tasks.id,
-      title: tasks.description,
+      description: tasks.description,
       taskDate: tasks.taskDate,
       status: tasks.status,
+      linkRequestId: tasks.linkRequestId,
+      linkLeadId: tasks.linkLeadId,
+      // F1: pull joined customer names from request + lead so the tile
+      // can lead with the customer instead of the raw description.
+      requestCustomerName: visitRequests.customerName,
+      leadName: leads.name,
     })
     .from(tasks)
+    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
     .where(
       and(
         eq(tasks.execUserId, execUserId),
@@ -79,16 +96,27 @@ export async function loadCalendarEvents(
       stageCode: v.stageCode,
       href: `/requests/${v.id}`,
     })),
-    ...taskRows.map<CalendarEvent>((t) => ({
-      id: t.id,
-      kind: 'task',
-      title: t.title,
-      // Anchor tasks at 09:00 IST so they cluster at the start of the day
-      // in Day view without the SQL needing a time column on tasks.
-      at: new Date(`${t.taskDate}T09:00:00+05:30`),
-      stageCode: t.status,
-      href: `/today`,
-    })),
+    ...taskRows.map<CalendarEvent>((t) => {
+      const linkedName = t.requestCustomerName ?? t.leadName ?? null;
+      const title = linkedName
+        ? `${linkedName} — ${t.description}`
+        : t.description;
+      const href = t.linkRequestId
+        ? `/requests/${t.linkRequestId}`
+        : t.linkLeadId
+          ? `/leads/${t.linkLeadId}`
+          : `/tasks?date=${t.taskDate}`;
+      return {
+        id: t.id,
+        kind: 'task',
+        title,
+        // Anchor tasks at 09:00 IST so they cluster at the start of the day
+        // in Day view without the SQL needing a time column on tasks.
+        at: new Date(`${t.taskDate}T09:00:00+05:30`),
+        stageCode: t.status,
+        href,
+      };
+    }),
   ];
   events.sort((a, b) => a.at.getTime() - b.at.getTime());
   return events;

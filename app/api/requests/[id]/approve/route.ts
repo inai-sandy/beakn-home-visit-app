@@ -1,21 +1,15 @@
-import { eq } from 'drizzle-orm';
-import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { db } from '@/db/client';
-import { cities, statusStages, users, visitRequests } from '@/db/schema';
-import { logEvent } from '@/lib/audit';
 import {
   ForbiddenError,
   requireAuth,
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { approveRequest } from '@/lib/captain/approve-request';
 import { log } from '@/lib/logger';
-import { dispatchNotification } from '@/lib/notifications/engine';
-import { transitionRequestStatus } from '@/lib/status-transition';
 import { approveSchema } from '@/lib/validators/approval';
 
 // =============================================================================
@@ -79,7 +73,6 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
   const actorRole = (session.user as { role?: string }).role as Role;
   const captainName =
     (session.user as { name?: string }).name ?? 'A captain';
-  const isAdmin = actorRole === USER_ROLES.SUPER_ADMIN;
 
   // 2. Validate path + body.
   const paramsParsed = paramsSchema.safeParse(await ctx.params);
@@ -113,143 +106,46 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
   }
   const note = bodyParsed.data.note;
 
-  // 3. Load request + city captain + assigned exec + current stage.
-  const [reqRow] = await db
-    .select({
-      id: visitRequests.id,
-      customerName: visitRequests.customerName,
-      assignedExecUserId: visitRequests.assignedExecUserId,
-      execName: users.fullName,
-      cityName: cities.name,
-      cityCaptainUserId: cities.captainUserId,
-      cancelledAt: visitRequests.cancelledAt,
-      statusStageCode: statusStages.code,
-    })
-    .from(visitRequests)
-    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
-    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
-    .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
-    .where(eq(visitRequests.id, requestUuid))
-    .limit(1);
-
-  if (!reqRow) {
-    return NextResponse.json({ ok: false, error: 'Request not found' }, { status: 404 });
-  }
-  if (reqRow.cancelledAt !== null) {
-    return NextResponse.json(
-      { ok: false, error: 'Request is closed. No further changes.' },
-      { status: 409 },
-    );
-  }
-  if (reqRow.statusStageCode !== 'PENDING_CAPTAIN_APPROVAL') {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: 'Approve is only valid at Pending Captain Approval.',
-        currentStage: reqRow.statusStageCode,
-      },
-      { status: 409 },
-    );
-  }
-
-  // 4. Per-row authorization. super_admin bypasses; captain must own
-  //    the request's city.
-  if (!isAdmin && reqRow.cityCaptainUserId !== actorUserId) {
-    return NextResponse.json(
-      { ok: false, error: 'This request is not in your assigned city.' },
-      { status: 403 },
-    );
-  }
-
-  // 5. Look up target stage id.
-  const [targetStage] = await db
-    .select({ id: statusStages.id, name: statusStages.name })
-    .from(statusStages)
-    .where(eq(statusStages.code, TARGET_STAGE_CODE))
-    .limit(1);
-  if (!targetStage) {
-    reqLog.error({}, 'order_executed_successfully_stage_not_seeded');
-    return NextResponse.json(
-      { ok: false, error: 'Service temporarily unavailable.' },
-      { status: 503 },
-    );
-  }
-
-  // 6. Forward transition. Pure +1 (seq 9 → 10) — no special option
-  //    needed; transition service writes status_change + history rows.
-  const result = await transitionRequestStatus({
+  // 3. Delegate to shared helper — same logic the bulk action uses.
+  const result = await approveRequest({
     requestId: requestUuid,
-    nextStatusId: targetStage.id,
-    actorUserId,
-    actorRole,
-    reason: note,
+    actor: { userId: actorUserId, role: actorRole, name: captainName },
+    note,
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
 
   if (!result.ok) {
     reqLog.info(
-      { requestUuid, transitionError: result.error },
-      'approve_transition_failed',
+      { requestUuid, code: result.code },
+      'approve_helper_rejected',
     );
-    const { status, ...body } = result;
-    return NextResponse.json(body, { status });
-  }
-
-  // 7. Action-named audit row carrying actor + optional note.
-  await logEvent({
-    eventType: 'request_approved',
-    actorUserId,
-    actorRole,
-    targetEntityType: 'visit_request',
-    targetEntityId: requestUuid,
-    beforeState: { statusStageCode: 'PENDING_CAPTAIN_APPROVAL' },
-    afterState: {
-      statusStageCode: TARGET_STAGE_CODE,
-      note,
-    },
-    reason: note,
-    ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
-    userAgent: reqHeaders.get('user-agent'),
-  });
-
-  // 8. Notify the assigned exec — in-app drawer. Fire-and-forget.
-  if (reqRow.assignedExecUserId) {
-    setImmediate(() => {
-      dispatchNotification('request.approved', {
-        requestId: requestUuid,
-        customerName: reqRow.customerName,
-        cityName: reqRow.cityName,
-        captainUserId: actorUserId,
-        captainName,
-        execUserId: reqRow.assignedExecUserId,
-        execName: reqRow.execName ?? 'Assigned executive',
-        note,
-      }).catch((err) => {
-        reqLog.error(
-          { requestUuid, err: err instanceof Error ? err.message : String(err) },
-          'approve_dispatch_failed',
-        );
-      });
-    });
-  } else {
-    reqLog.warn(
-      { requestUuid },
-      'approve_skipped_exec_dispatch_no_assigned_exec',
+    const status =
+      result.code === 'NOT_FOUND'
+        ? 404
+        : result.code === 'CANCELLED' || result.code === 'WRONG_STAGE'
+          ? 409
+          : result.code === 'NOT_OWNER'
+            ? 403
+            : result.code === 'STAGE_NOT_SEEDED'
+              ? 503
+              : result.code === 'TRANSITION_FAILED'
+                ? result.status
+                : 500;
+    return NextResponse.json(
+      result.code === 'WRONG_STAGE'
+        ? { ok: false, error: result.message, currentStage: result.currentStage }
+        : { ok: false, error: result.message },
+      { status },
     );
   }
-
-  // HVA-143: invalidate the client Router Cache so /captain/approvals,
-  // /captain/requests, and the exec's /today reflect the terminal
-  // state on the next navigation.
-  revalidatePath('/', 'layout');
 
   return NextResponse.json(
     {
       ok: true,
       requestId: requestUuid,
-      previousStage: result.previous,
-      currentStage: result.current,
+      previousStage: result.previousStage,
+      currentStage: result.currentStage,
     },
     { status: 200 },
   );

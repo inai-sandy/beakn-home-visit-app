@@ -362,12 +362,14 @@ export async function POST(req: Request): Promise<NextResponse> {
       .values({
         customerName: parsed.data.name,
         customerPhone: customerPhoneStorage,
-        customerEmail: parsed.data.email,
+        // 2026-05-26 no-mandate: email/state/bhk are accepted as empty
+        // string on the public form. Coerce to null / a sensible default
+        // before INSERT so the row is well-formed.
+        customerEmail: parsed.data.email === '' ? null : parsed.data.email,
         address: parsed.data.address,
         cityId: cityRow.id,
-        customerState: parsed.data.state,
-        // bhk_type enum is spaceless; form gives '2 BHK'.
-        bhk: toDbBhk(parsed.data.bhk) as
+        customerState: parsed.data.state === '' ? null : parsed.data.state,
+        bhk: (parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk)) as
           | '1BHK'
           | '2BHK'
           | '3BHK'
@@ -441,12 +443,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     trackingToken,
     customerName: parsed.data.name,
     customerPhone: customerPhoneStorage,
-    customerEmail: parsed.data.email ?? null,
+    customerEmail: parsed.data.email === '' ? null : parsed.data.email,
     address: parsed.data.address,
     cityId: cityRow.id,
     cityName: parsed.data.city,
-    customerState: parsed.data.state ?? null,
-    bhk: toDbBhk(parsed.data.bhk),
+    customerState: parsed.data.state === '' ? null : parsed.data.state,
+    bhk: parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk),
     interest: parsed.data.interest,
     submittedAt: new Date().toISOString(),
     requestIdHeader: requestId,

@@ -44,6 +44,13 @@ export type AllowedInterest = (typeof ALLOWED_INTERESTS)[number];
 // re-validation in HVA-33 should use this same regex.
 export const PHONE_DIGITS_REGEX = /^[6-9]\d{9}$/;
 
+// 2026-05-26 universal no-mandate: keep name + phone + address + city
+// required (the four bits needed to dispatch a visit). Email, state,
+// bhk, interest demoted by accepting empty string / empty array through
+// a union with z.literal('') / array. The TYPE shape stays stable so
+// the react-hook-form `zodResolver` keeps the same FieldValues — that
+// avoided the regression where demoting via `.optional()` flipped
+// strings to `string | undefined` and broke the typed Control.
 export const customerRequestSchema = z.object({
   name: z
     .string()
@@ -52,10 +59,10 @@ export const customerRequestSchema = z.object({
   phone: z
     .string()
     .regex(PHONE_DIGITS_REGEX, 'Enter a valid 10-digit Indian mobile number'),
-  email: z
-    .string()
-    .trim()
-    .email('Enter a valid email address'),
+  email: z.union([
+    z.literal(''),
+    z.string().trim().email('Enter a valid email address'),
+  ]),
   address: z
     .string()
     .trim()
@@ -64,16 +71,9 @@ export const customerRequestSchema = z.object({
   // The server route at /api/customer-request resolves the name to a
   // cities.id and rejects unknown names with 400 + fieldErrors.city.
   city: z.string().trim().min(1, 'Select a city'),
-  state: z
-    .string()
-    .trim()
-    .min(2, 'State is required'),
-  bhk: z.enum(ALLOWED_BHKS, {
-    message: 'Select a BHK option',
-  }),
-  interest: z
-    .array(z.enum(ALLOWED_INTERESTS))
-    .min(1, 'Select at least one interest'),
+  state: z.string().trim().max(100),
+  bhk: z.union([z.literal(''), z.enum(ALLOWED_BHKS)]),
+  interest: z.array(z.enum(ALLOWED_INTERESTS)),
 
   // HVA-32: optional self-reported GPS coordinates from the browser's
   // Geolocation API. Customer-driven; permission denial / non-share leaves

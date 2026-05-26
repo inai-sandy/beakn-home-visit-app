@@ -297,11 +297,18 @@ export async function loadExecPostponedTasksOpen(
   return rows.map(mapTaskRow);
 }
 
+// 2026-05-26 Option B (extended): align Dashboard with /tasks across all
+// three status sections. Pending was already widened; now completed and
+// postponed follow. Dashboard accordion counts and /tasks accordion
+// counts now derive from identical predicates, eliminating the drift
+// users were noticing (e.g. "the count of completed tasks shows wrong").
+// The name keeps the historical "Today" suffix for callsite stability;
+// callers don't need to rename. Newest completions surface first.
 export async function loadExecCompletedTasksToday(
   execUserId: string,
-  now: Date = new Date(),
+  _now: Date = new Date(),
 ): Promise<ExecDashboardTaskRow[]> {
-  const istDate = getIstDateString(now);
+  void _now;
   const rows = await db
     .select({
       id: tasks.id,
@@ -326,10 +333,9 @@ export async function loadExecCompletedTasksToday(
       and(
         eq(tasks.execUserId, execUserId),
         eq(tasks.status, 'completed'),
-        eq(tasks.taskDate, istDate),
       ),
     )
-    .orderBy(asc(tasks.createdAt));
+    .orderBy(desc(tasks.completedAt), asc(tasks.createdAt));
   return rows.map(mapTaskRow);
 }
 

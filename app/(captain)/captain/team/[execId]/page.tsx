@@ -6,6 +6,7 @@ import { DateRangePicker } from '@/app/(captain)/captain/dashboard/_components/D
 import { db } from '@/db/client';
 import { salesExecutives, users } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecUnavailabilitySchedules } from '@/lib/captain/availability';
 import { loadCaptainCities } from '@/lib/captain/cities';
 import {
   loadTeamExecStatuses,
@@ -30,6 +31,7 @@ import { AIDailyReportCard } from './_components/AIDailyReportCard';
 import { DayCloseReportSection } from './_components/DayCloseReportSection';
 import { DayPlanSection } from './_components/DayPlanSection';
 import { ExecDrillDownHeader } from './_components/ExecDrillDownHeader';
+import { UnavailabilityScheduleSection } from './_components/UnavailabilityScheduleSection';
 
 // =============================================================================
 // HVA-167: /captain/team/[execId] — exec drill-down
@@ -141,6 +143,7 @@ export default async function CaptainTeamExecDrillDownPage({
     dayCloseData,
     weeklyData,
     leadsBreakdown,
+    unavailabilitySchedules,
   ] = await Promise.all([
     loadTeamExecStatuses(captainForCities, todayFilter),
     loadSingleExecMetrics(execId, todayFilter),
@@ -149,6 +152,7 @@ export default async function CaptainTeamExecDrillDownPage({
     loadExecDayClose(execId, dateFilter),
     loadExecWeeklyReport(execId),
     loadExecLeadsBreakdown(execId),
+    loadExecUnavailabilitySchedules(execId),
   ]);
 
   const status = statuses.find((s) => s.userId === execId);
@@ -196,6 +200,16 @@ export default async function CaptainTeamExecDrillDownPage({
         <DayCloseReportSection data={dayCloseData} />
         <WeeklyReportCard data={weeklyData} />
         <LeadsEnrolledCard data={leadsBreakdown} />
+        <UnavailabilityScheduleSection
+          execUserId={execId}
+          execName={identityRow.fullName}
+          schedules={unavailabilitySchedules.map((s) => ({
+            id: s.id,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            reason: s.reason,
+          }))}
+        />
         <AIDailyReportCard />
       </div>
     </main>

@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, pgTable, text, uuid, varchar } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  check,
+  date,
+  index,
+  pgTable,
+  text,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core';
 
 import { timestamps } from './_helpers';
 import { users } from './auth';
@@ -41,4 +50,45 @@ export const salesExecutives = pgTable(
     ...timestamps(),
   },
   (table) => [index('sales_executives_captain_user_idx').on(table.captainUserId)],
+);
+
+// =============================================================================
+// PR10 2026-05-26: scheduled exec unavailability
+// =============================================================================
+//
+// Captain schedules vacation / half-day / weekly off windows ahead of
+// time instead of flipping `is_unavailable` daily. Queries that need
+// "available today?" must check BOTH the boolean flag and the schedule
+// (resolved via lib/captain/availability.ts).
+//
+// The `reason` text is app-capped at 200 chars (no DB-side limit so a
+// future longer note pattern doesn't need a migration).
+// =============================================================================
+
+export const execUnavailabilitySchedules = pgTable(
+  'exec_unavailability_schedules',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    execUserId: uuid('exec_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    reason: text('reason'),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    ...timestamps(),
+  },
+  (table) => [
+    index('exec_unavailability_schedules_lookup_idx').on(
+      table.execUserId,
+      table.startDate,
+      table.endDate,
+    ),
+    check(
+      'exec_unavailability_schedules_dates_chk',
+      sql`${table.startDate} <= ${table.endDate}`,
+    ),
+  ],
 );

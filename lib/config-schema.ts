@@ -276,6 +276,10 @@ export const CONFIG_SCHEMA = {
       'request_rescheduled',
       // FIX 2026-05-26 — visit scheduling now captures a date + auto-task.
       'visit_scheduled',
+      // PR10 2026-05-26 — scheduled exec unavailability (date ranges).
+      // afterState carries { scheduleId, startDate, endDate, reason? }.
+      'exec_unavailability_scheduled',
+      'exec_unavailability_schedule_removed',
     ],
     editable: true,
   },

@@ -14,6 +14,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { resolveTeamUnavailableTodaySet } from '@/lib/captain/availability';
 import { dispatchNotification } from '@/lib/notifications/engine';
 
 // =============================================================================
@@ -21,7 +22,11 @@ import { dispatchNotification } from '@/lib/notifications/engine';
 // of an exec they just marked unavailable
 // =============================================================================
 //
-// The MarkUnavailableToggle flips sales_executives.is_unavailable. This
+// The MarkUnavailableToggle flips sales_executives.is_unavailable. PR10
+// adds scheduled-unavailability windows on top — the resolveTeam call
+// below factors both axes.
+// (legacy comment retained for context)
+//
 // helper fetches the affected future visits + lists the captain's other
 // active execs as the destination pool. A separate bulk action commits
 // the per-visit reassignments in a transaction.
@@ -97,12 +102,15 @@ export async function loadAffectedFutureVisitsForExec(
   return rows;
 }
 
-/** Other active execs on the captain's team — destinations for rebalance. */
+/** Other active execs on the captain's team — destinations for rebalance.
+ *  PR10 2026-05-26: filters out execs with a scheduled-unavailability
+ *  row covering today IST in addition to the immediate is_unavailable
+ *  boolean flag. */
 export async function loadTeammatesForRebalance(
   captainUserId: string,
   excludeExecUserId: string,
 ) {
-  return db
+  const candidates = await db
     .select({
       id: users.id,
       fullName: users.fullName,
@@ -117,6 +125,14 @@ export async function loadTeammatesForRebalance(
       ),
     )
     .orderBy(users.fullName);
+
+  if (candidates.length === 0) return candidates;
+  const unavailableScheduled = await resolveTeamUnavailableTodaySet(
+    candidates.map((c) => c.id),
+  );
+  return candidates.filter(
+    (c) => c.id !== excludeExecUserId && !unavailableScheduled.has(c.id),
+  );
 }
 
 const bulkReassignSchema = z.object({
@@ -172,9 +188,13 @@ export async function bulkReassignAffectedVisitsAction(
   }
 
   // Validate every destination exec is on the captain's team + active.
+  // PR10 2026-05-26: also factor in scheduled unavailability covering
+  // today IST — a destination with an active schedule fails the same
+  // way the boolean flag does.
   const destIds = Array.from(
     new Set(data.reassignments.map((r) => r.toExecUserId)),
   );
+  const scheduledUnavailable = await resolveTeamUnavailableTodaySet(destIds);
   for (const destId of destIds) {
     const [se] = await db
       .select({
@@ -195,7 +215,7 @@ export async function bulkReassignAffectedVisitsAction(
         error: 'Cannot reassign to an exec on a different team',
       };
     }
-    if (!se.isActive || se.isUnavailable) {
+    if (!se.isActive || se.isUnavailable || scheduledUnavailable.has(destId)) {
       return {
         ok: false,
         error: 'Destination exec is inactive or unavailable',

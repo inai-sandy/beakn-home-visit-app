@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-26 (PR4 — 4 hand-rolled mutation sites migrated to useServerMutation; the larger portal-wide refactor continues incrementally)
+**Last updated:** 2026-05-26 (PR5 — Dashboard completed count widens to Option B (all completed); /tasks gains a search input; public form demotes email/state/bhk/interest)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-26 | PR5 followups | Sandeep's "completed count again showing error" — Dashboard `loadExecCompletedTasksToday` no longer filters by `task_date = today`; Option B now applies to completed too (matches Pending behavior). `/tasks` gains a search input that filters Pending + Postponed rows client-side by description, type, or linked customer name (rows are already loaded — no server round-trip). Public `/request` form demotes `email`, `state`, `bhk`, `interest` to optional by widening to `z.union([z.literal(''), ...])` (kept the FieldValues type shape stable so the react-hook-form resolver didn't break this time); API route coerces empty values to `null` / `Others` / `[]` on insert. |
 | 2026-05-26 | PR4 useServerMutation (partial) | Migrated 4 hand-rolled mutation sites to the centralised `useServerMutation` hook so the HVA-149 refresh-required pattern lives in one place: `components/reschedule/RescheduleButton`, `RebalanceDialog`, `StartMyDayButton`, `MarkUnavailableToggle`. Each loses its bespoke `useState + useTransition + router.refresh + toast` quadruplet. ~25 more callsites remain — exec today actions, lead/contact sheets, payment/refund/quotation/void buttons, captain assign/approve/reject modals — and migrate incrementally as those surfaces are touched. |
 | 2026-05-26 | PR3 team-scope | Captain visibility on `/captain/approvals` and `/captain/requests` switches from `cities.captain_user_id` (city-scope) to `assigned_captain_user_id = me` plus an unaccepted-but-pending-in-my-cities fallback. New `lib/captain/team-scope.ts` centralises the rule. Closes the cross-captain leak where captain B could approve or see captain A's request when both owned overlapping cities. `setExecUnavailableAction` revalidates `/` layout instead of three narrow paths — every surface reading `is_unavailable` now refreshes. |
 | 2026-05-26 | PR2 list-UX | Dashboard pending count drops the `taskDate = today OR rolledOverAt IS NOT NULL` predicate — now matches `/tasks` page 1:1 (Option B; future-scheduled tasks like the auto-created Schedule-Visit row surface on both surfaces). Exec `/requests` moves from client-side filter to server-side: bucket → status_code IN(...) WHERE, search → LOWER LIKE on customer_name/customer_phone, pagination 10/page, debounced search updates `?q=`, bucket tabs update `?bucket=`. Bucket counts derived from a single GROUP-BY pass so pills reflect the search-filtered total. |

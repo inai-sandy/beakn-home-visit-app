@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import {
   Accordion,
@@ -8,6 +8,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { Icon } from '@/components/ui/icon';
+import { Input } from '@/components/ui/input';
 
 import {
   AddTaskSheet,
@@ -72,6 +74,33 @@ export function TasksPageView({
 }: Props) {
   const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [cloneSource, setCloneSource] = useState<CloneFromTask | null>(null);
+  // 2026-05-26: client-side search filter on pending + postponed. The
+  // server already returns the full set; we just narrow the view.
+  const [search, setSearch] = useState('');
+  const needle = search.trim().toLowerCase();
+
+  function rowMatches(t: ExecTaskRow): boolean {
+    if (needle === '') return true;
+    const haystack = [
+      t.description,
+      t.taskType,
+      t.linkedCustomerName ?? '',
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(needle);
+  }
+
+  const filteredPending = useMemo(
+    () => pendingTasks.filter(rowMatches),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pendingTasks, needle],
+  );
+  const filteredPostponed = useMemo(
+    () => postponedTasks.filter(rowMatches),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [postponedTasks, needle],
+  );
 
   function openMove(task: ExecTaskRow) {
     const status = task.status === 'postponed' ? 'postponed' : 'pending';
@@ -102,6 +131,23 @@ export function TasksPageView({
         </p>
       </header>
 
+      <div className="relative">
+        <Icon
+          name="search"
+          size="sm"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          placeholder="Search description, type, or customer name"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-11 pl-9"
+          aria-label="Search tasks"
+        />
+      </div>
+
       <section
         aria-label="Tasks"
         className="rounded-3xl border bg-card shadow-sm px-4 sm:px-5"
@@ -117,16 +163,23 @@ export function TasksPageView({
               <span className="inline-flex items-center gap-2">
                 Pending
                 <span className="text-muted-foreground font-normal">
-                  ({pendingTasks.length})
+                  ({filteredPending.length}
+                  {needle ? ` of ${pendingTasks.length}` : ''})
                 </span>
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              {pendingTasks.length === 0 ? (
-                <EmptyRow text="No pending tasks anywhere. Clean slate." />
+              {filteredPending.length === 0 ? (
+                <EmptyRow
+                  text={
+                    needle
+                      ? `No pending tasks match "${search}".`
+                      : 'No pending tasks anywhere. Clean slate.'
+                  }
+                />
               ) : (
                 <ul className="space-y-2">
-                  {pendingTasks.map((t) => (
+                  {filteredPending.map((t) => (
                     <li key={t.id}>
                       <TaskRowWithAction
                         task={t}
@@ -145,16 +198,23 @@ export function TasksPageView({
               <span className="inline-flex items-center gap-2">
                 Postponed
                 <span className="text-muted-foreground font-normal">
-                  ({postponedTasks.length})
+                  ({filteredPostponed.length}
+                  {needle ? ` of ${postponedTasks.length}` : ''})
                 </span>
               </span>
             </AccordionTrigger>
             <AccordionContent>
-              {postponedTasks.length === 0 ? (
-                <EmptyRow text="Nothing postponed." />
+              {filteredPostponed.length === 0 ? (
+                <EmptyRow
+                  text={
+                    needle
+                      ? `No postponed tasks match "${search}".`
+                      : 'Nothing postponed.'
+                  }
+                />
               ) : (
                 <ul className="space-y-2">
-                  {postponedTasks.map((t) => (
+                  {filteredPostponed.map((t) => (
                     <li key={t.id}>
                       <TaskRowWithAction
                         task={t}

@@ -1,11 +1,16 @@
+import { asc, eq, inArray } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { addDays, addMonths, endOfMonth, format, parseISO, startOfMonth, startOfWeek, subDays } from 'date-fns';
 
+import { db } from '@/db/client';
+import { leads, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { loadCalendarEvents } from '@/lib/exec/calendar-queries';
 import { getIstDateString } from '@/lib/today/time';
 
+import { CalendarAddTaskFab } from './_components/CalendarAddTaskFab';
 import { CalendarClient } from './_components/CalendarClient';
 
 // =============================================================================
@@ -68,12 +73,33 @@ export default async function ExecCalendarPage({ searchParams }: PageProps) {
     void addMonths; // utility kept available for the client's nav
   }
 
-  const events = await loadCalendarEvents(user.id, fromIso, toIso);
+  // F3 2026-05-26: load AddTaskSheet's linkable data so the calendar FAB
+  // can open the same sheet with the current anchor date prefilled.
+  const visibleContactIds = await loadExecVisibleContactIds(user.id);
+  const [events, linkableRequests, linkableLeads] = await Promise.all([
+    loadCalendarEvents(user.id, fromIso, toIso),
+    db
+      .select({
+        id: visitRequests.id,
+        customerName: visitRequests.customerName,
+        customerPhone: visitRequests.customerPhone,
+      })
+      .from(visitRequests)
+      .where(eq(visitRequests.assignedExecUserId, user.id))
+      .orderBy(asc(visitRequests.createdAt))
+      .limit(50),
+    visibleContactIds.length === 0
+      ? Promise.resolve([] as Array<{ id: string; name: string; phone: string }>)
+      : db
+          .select({ id: leads.id, name: leads.name, phone: leads.phone })
+          .from(leads)
+          .where(inArray(leads.id, visibleContactIds))
+          .orderBy(asc(leads.name))
+          .limit(50),
+  ]);
 
-  // Client component renders the actual UI — keeps the date math + selection
-  // state interactive while the data load stays server-side.
   return (
-    <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
+    <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5 relative">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -85,6 +111,11 @@ export default async function ExecCalendarPage({ searchParams }: PageProps) {
         view={view}
         anchorIso={anchor}
         events={events.map((e) => ({ ...e, at: e.at.toISOString() }))}
+      />
+      <CalendarAddTaskFab
+        anchorDate={anchor}
+        linkableRequests={linkableRequests}
+        linkableLeads={linkableLeads}
       />
     </main>
   );

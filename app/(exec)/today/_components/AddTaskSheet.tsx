@@ -181,6 +181,7 @@ export function AddTaskSheet({
   preselectedLink,
   taskToEdit,
   cloneFromTask,
+  initialTaskDate,
   onClose,
 }: {
   linkableRequests: LinkableRequest[];
@@ -191,6 +192,10 @@ export function AddTaskSheet({
   /** HVA-170 D5: when present (and taskToEdit absent), renders in clone
    *  mode — prefills from source but submits a NEW row via addTaskAction. */
   cloneFromTask?: CloneFromTask;
+  /** F3 2026-05-26: when the sheet is opened from /calendar, prefill the
+   *  task_date with the day the captain was viewing. The picker is still
+   *  editable; this just saves a tap. */
+  initialTaskDate?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -202,7 +207,7 @@ export function AddTaskSheet({
   // taskDate: edit mode keeps the row's date; clone mode + add mode default
   // to today (D7 — clone never inherits source's date).
   const [taskDate, setTaskDate] = useState<string>(
-    taskToEdit?.taskDate ?? todayLocalIso(),
+    taskToEdit?.taskDate ?? initialTaskDate ?? todayLocalIso(),
   );
   const [description, setDescription] = useState(
     taskToEdit?.description ?? cloneFromTask?.description ?? '',

@@ -29,7 +29,9 @@ type ViewMode = 'day' | 'week' | 'month';
 
 interface CalendarEventDTO {
   id: string;
-  kind: 'visit' | 'task';
+  /** 'payment' added in PR13 (2026-05-26) for the captain finance
+   *  calendar — same event shape, different kind tag for the badge. */
+  kind: 'visit' | 'task' | 'payment';
   title: string;
   at: string;
   stageCode: string | null;

@@ -160,7 +160,7 @@ export function ConvertLeadSheet({ lead, onClose }: Props) {
           {/* Address */}
           <div className="space-y-2">
             <Label htmlFor="convert-address" className="text-sm">
-              Address <span className="text-destructive">*</span>
+              Address
             </Label>
             <Textarea
               id="convert-address"
@@ -182,7 +182,7 @@ export function ConvertLeadSheet({ lead, onClose }: Props) {
           {/* BHK */}
           <div className="space-y-2">
             <Label htmlFor="convert-bhk" className="text-sm">
-              BHK <span className="text-destructive">*</span>
+              BHK
             </Label>
             <Select value={bhk} onValueChange={setBhk} disabled={busy}>
               <SelectTrigger

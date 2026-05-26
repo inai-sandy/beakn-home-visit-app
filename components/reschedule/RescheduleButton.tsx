@@ -28,14 +28,17 @@ interface Props {
   currentVisitScheduledAt: Date | null;
 }
 
+// 2026-05-26 IST tz fix: this runs on the SERVER for the initial render of
+// the dialog defaults (and on the CLIENT in IST browsers). On the server
+// the container is UTC, so .getTimezoneOffset() returns 0 and the old
+// code emitted UTC time. For a visit at 12:00 PM IST (06:30 UTC) that
+// rendered "06:30" in the datetime-local field — wrong. We force the
+// IST offset (+05:30 = -330 min) so the string matches what the user
+// picked regardless of where this runs.
+const IST_OFFSET_MIN = 330;
 function toLocalDatetimeValue(d: Date | null): string {
-  if (!d) {
-    const t = new Date(Date.now() + 60 * 60 * 1000);
-    return new Date(t.getTime() - t.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
-  }
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  const base = d ?? new Date(Date.now() + 60 * 60 * 1000);
+  return new Date(base.getTime() + IST_OFFSET_MIN * 60_000)
     .toISOString()
     .slice(0, 16);
 }
@@ -57,15 +60,22 @@ export function RescheduleButton({ requestId, currentVisitScheduledAt }: Props) 
       toast.error('Reason must be at least 10 characters');
       return;
     }
-    const target = new Date(when);
-    if (Number.isNaN(target.getTime())) {
+    // The datetime-local value is naked (no tz suffix). We treat the
+    // entered value as IST and convert to UTC by subtracting the +05:30
+    // offset before sending. Without this, server-side new Date(when)
+    // interprets the string as UTC and stores a time 5:30 earlier than
+    // the user picked.
+    const targetUtcMs =
+      Date.parse(`${when}:00.000+05:30`);
+    if (Number.isNaN(targetUtcMs)) {
       toast.error('Pick a valid date + time');
       return;
     }
-    if (target.getTime() <= Date.now()) {
+    if (targetUtcMs <= Date.now()) {
       toast.error('New date must be in the future');
       return;
     }
+    const target = new Date(targetUtcMs);
     setSubmitting(true);
     try {
       const res = await rescheduleByExecAction({

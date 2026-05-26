@@ -74,7 +74,8 @@ export function TasksAccordion({
       aria-label="Today's tasks"
       className="rounded-3xl border bg-card shadow-sm px-4 sm:px-5"
     >
-      <Accordion type="multiple" defaultValue={['pending']} className="w-full">
+      {/* 2026-05-26 universal-closed rule: accordions never auto-open. */}
+      <Accordion type="multiple" defaultValue={[]} className="w-full">
         <AccordionItem value="pending">
           <AccordionTrigger>
             <span className="inline-flex items-center gap-2">

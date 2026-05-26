@@ -106,9 +106,10 @@ export function TasksPageView({
         aria-label="Tasks"
         className="rounded-3xl border bg-card shadow-sm px-4 sm:px-5"
       >
+        {/* 2026-05-26 universal-closed rule: accordions never auto-open. */}
         <Accordion
           type="multiple"
-          defaultValue={['pending']}
+          defaultValue={[]}
           className="w-full"
         >
           <AccordionItem value="pending">

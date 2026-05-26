@@ -121,7 +121,11 @@ export const auth = betterAuth({
     window: 60 * 15, // 15-min rolling window
     max: 100, // generic cap on auth endpoints
     customRules: {
-      '/sign-in/phone-number': { window: 60 * 15, max: 5 },
+      // 5 was too aggressive for legitimate admin testing (logging in as
+      // multiple roles from the same IP within a short window). Bumped
+      // to 20 — still well below brute-force territory + leaves room
+      // for genuine retry while admins debug a forgotten password.
+      '/sign-in/phone-number': { window: 60 * 15, max: 20 },
     },
   },
 

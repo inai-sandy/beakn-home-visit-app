@@ -50,12 +50,12 @@ export interface EditRequestInput {
   visitScheduledAt: string | null;
 }
 
-export interface EditRequestResult {
-  ok: boolean;
-  changed?: boolean;
-  error?: string;
-  fieldErrors?: Record<string, string>;
-}
+// 2026-05-26: narrowed to a discriminated union so useServerMutation's
+// ActionResult constraint is satisfied. Callers already branch on
+// `result.ok`, so this is a strict refinement, not a behavioural change.
+export type EditRequestResult =
+  | { ok: true; changed: boolean }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 const EDITABLE_FIELDS = [
   'customerName',

@@ -119,7 +119,7 @@ describe('editRequestAction — happy path + audit', () => {
       visitScheduledAt: futureIso,
     });
     expect(res.ok).toBe(true);
-    expect(res.changed).toBe(true);
+    if (res.ok) expect(res.changed).toBe(true);
 
     const [row] = await db
       .select()
@@ -177,7 +177,7 @@ describe('editRequestAction — happy path + audit', () => {
       visitScheduledAt: null,
     });
     expect(res.ok).toBe(true);
-    expect(res.changed).toBe(false);
+    if (res.ok) expect(res.changed).toBe(false);
 
     const audits = await db
       .select()
@@ -252,6 +252,6 @@ describe('editRequestAction — does NOT touch linked contact (D5)', () => {
       visitScheduledAt: null,
     });
     expect(res.ok).toBe(true);
-    expect(res.changed).toBe(true);
+    if (res.ok) expect(res.changed).toBe(true);
   });
 });

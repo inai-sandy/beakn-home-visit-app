@@ -1,8 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
-import { toast } from 'sonner';
+import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,6 +23,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import { cn } from '@/lib/utils';
 import { LEAD_BHK_VALUES } from '@/lib/validators/lead';
 
@@ -66,41 +66,35 @@ export function ConvertLeadSheet({ lead, onClose }: Props) {
   const router = useRouter();
   const [address, setAddress] = useState('');
   const [bhk, setBhk] = useState<string>(lead.bhk ?? '');
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const busy = submitting || isPending;
 
-  async function onSubmit() {
+  const { mutate, isPending: busy } = useServerMutation(
+    convertLeadToRequestAction,
+    {
+      successMessage: 'Request created',
+      onSuccess: (data) => {
+        onClose();
+        if (data?.requestId) router.push(`/requests/${data.requestId}`);
+      },
+      onError: (err, errs) => {
+        setGeneralError(err);
+        if (errs) setFieldErrors(errs);
+      },
+    },
+  );
+
+  function onSubmit() {
     if (busy) return;
-    setSubmitting(true);
     setGeneralError(null);
     setFieldErrors({});
-    try {
-      const result = await convertLeadToRequestAction({
-        leadId: lead.id,
-        extra: {
-          address: address.trim(),
-          bhk: bhk as (typeof LEAD_BHK_VALUES)[number],
-        },
-      });
-      if (!result.ok) {
-        setGeneralError(result.error);
-        if (result.fieldErrors) setFieldErrors(result.fieldErrors);
-        toast.error(result.error);
-        return;
-      }
-      toast.success('Request created');
-      onClose();
-      const requestId = result.data?.requestId;
-      startTransition(() => {
-        if (requestId) router.push(`/requests/${requestId}`);
-        else router.refresh();
-      });
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({
+      leadId: lead.id,
+      extra: {
+        address: address.trim(),
+        bhk: bhk as (typeof LEAD_BHK_VALUES)[number],
+      },
+    });
   }
 
   return (

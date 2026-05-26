@@ -45,8 +45,14 @@ export interface ServerMutationOptions<T> {
   /** Called after a successful refresh — useful for closing a modal. */
   onSuccess?: (data: T | undefined) => void;
   /** Called when the action returns ok=false — useful for inline field
-   *  errors. Toast.error still fires unless suppressErrorToast=true. */
-  onError?: (error: string) => void;
+   *  errors. Toast.error still fires unless suppressErrorToast=true.
+   *  The second arg carries `fieldErrors` when the action returns them
+   *  (the {ok:false} shape can extend ActionResult with that key —
+   *  callers must consume the field map themselves). */
+  onError?: (
+    error: string,
+    fieldErrors?: Record<string, string>,
+  ) => void;
   /** Skip the default toast.error. Set when the call site renders its
    *  own inline error UI. */
   suppressErrorToast?: boolean;
@@ -76,7 +82,10 @@ export function useServerMutation<TInput, TData = undefined>(
         const result = await action(input);
         if (!result.ok) {
           if (!options.suppressErrorToast) toast.error(result.error);
-          options.onError?.(result.error);
+          const fieldErrors = (
+            result as { fieldErrors?: Record<string, string> }
+          ).fieldErrors;
+          options.onError?.(result.error, fieldErrors);
           return null;
         }
         if (options.successMessage) toast.success(options.successMessage);

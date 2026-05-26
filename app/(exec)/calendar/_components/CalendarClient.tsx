@@ -34,15 +34,27 @@ interface CalendarEventDTO {
   at: string;
   stageCode: string | null;
   href: string;
+  /** 2026-05-26: optional exec-name chip rendered after the title. The
+   *  captain calendar uses this to color-tag events by exec; the exec
+   *  calendar leaves it undefined (single-owner view). */
+  execName?: string | null;
 }
 
 interface Props {
   view: ViewMode;
   anchorIso: string;
   events: CalendarEventDTO[];
+  /** Base path for nav router.push. Defaults to the exec route
+   *  '/calendar'; captain page passes '/captain/calendar'. */
+  basePath?: string;
 }
 
-export function CalendarClient({ view, anchorIso, events }: Props) {
+export function CalendarClient({
+  view,
+  anchorIso,
+  events,
+  basePath = '/calendar',
+}: Props) {
   const router = useRouter();
   const params = useSearchParams();
   const anchor = parseISO(anchorIso);
@@ -51,7 +63,7 @@ export function CalendarClient({ view, anchorIso, events }: Props) {
     const search = new URLSearchParams(params?.toString() ?? '');
     search.set('view', nextView);
     search.set('date', format(nextDate, 'yyyy-MM-dd'));
-    router.push(`/calendar?${search.toString()}`);
+    router.push(`${basePath}?${search.toString()}`);
   }
 
   function shiftBy(days: number) {
@@ -198,7 +210,7 @@ function DayView({
               <p className="text-sm font-medium tracking-tight truncate">
                 {e.title}
               </p>
-              <div className="flex items-center gap-1 mt-0.5">
+              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                 <Badge
                   variant="outline"
                   className="text-[10px] uppercase tracking-wide"
@@ -211,6 +223,14 @@ function DayView({
                     className="text-[10px]"
                   >
                     {e.stageCode.replaceAll('_', ' ').toLowerCase()}
+                  </Badge>
+                )}
+                {e.execName && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] border-primary/40 text-primary"
+                  >
+                    {e.execName}
                   </Badge>
                 )}
               </div>

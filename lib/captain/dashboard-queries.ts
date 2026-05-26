@@ -443,6 +443,10 @@ export async function loadPendingApprovals(
   _filter: DateFilter,
 ): Promise<{
   totalCount: number;
+  /** 2026-05-26: count of pending approvals whose most recent
+   *  PENDING_CAPTAIN_APPROVAL entry happened >24h ago. Surfaces an SLA
+   *  cue on the dashboard so the queue doesn't quietly bloat. */
+  staleCount: number;
   topFive: PendingApprovalRow[];
 }> {
   const myCities = await db
@@ -450,14 +454,15 @@ export async function loadPendingApprovals(
     .from(cities)
     .where(eq(cities.captainUserId, captainUserId));
   const cityIds = myCities.map((c) => c.id);
-  if (cityIds.length === 0) return { totalCount: 0, topFive: [] };
+  if (cityIds.length === 0)
+    return { totalCount: 0, staleCount: 0, topFive: [] };
 
   const [pendingStage] = await db
     .select({ id: statusStages.id })
     .from(statusStages)
     .where(eq(statusStages.code, 'PENDING_CAPTAIN_APPROVAL'))
     .limit(1);
-  if (!pendingStage) return { totalCount: 0, topFive: [] };
+  if (!pendingStage) return { totalCount: 0, staleCount: 0, topFive: [] };
 
   const [countRow] = await db
     .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
@@ -467,6 +472,27 @@ export async function loadPendingApprovals(
         eq(visitRequests.statusStageId, pendingStage.id),
         inArray(visitRequests.cityId, cityIds),
         isNull(visitRequests.cancelledAt),
+      ),
+    );
+
+  // 2026-05-26: stale = most recent entry-into-pending happened >24h ago.
+  // Computed via the same correlated subquery used in the row loader so
+  // both surfaces agree on which row counts as "the" landing timestamp.
+  const [staleRow] = await db
+    .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
+    .from(visitRequests)
+    .where(
+      and(
+        eq(visitRequests.statusStageId, pendingStage.id),
+        inArray(visitRequests.cityId, cityIds),
+        isNull(visitRequests.cancelledAt),
+        sqlBuilder`(
+          SELECT rsh.changed_at FROM request_status_history rsh
+          WHERE rsh.request_id = ${visitRequests.id}
+            AND rsh.to_status_stage_id = ${pendingStage.id}
+          ORDER BY rsh.transition_order DESC
+          LIMIT 1
+        ) < NOW() - INTERVAL '24 hours'`,
       ),
     );
 
@@ -511,7 +537,11 @@ export async function loadPendingApprovals(
     (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0),
   );
 
-  return { totalCount: countRow?.cnt ?? 0, topFive: normalized };
+  return {
+    totalCount: countRow?.cnt ?? 0,
+    staleCount: staleRow?.cnt ?? 0,
+    topFive: normalized,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +568,9 @@ export interface PendingCollectionsSummary {
     thirtyPlus: number;
   };
   outstandingRequestCount: number;
+  /** 2026-05-26: count of outstanding requests whose quotation was
+   *  submitted >48h ago. Drives the stale-alert banner on the dashboard. */
+  staleCount: number;
 }
 
 export async function loadPendingCollections(
@@ -551,6 +584,7 @@ export async function loadPendingCollections(
       totalDueRupees: 0,
       buckets: { zeroToSeven: 0, eightToThirty: 0, thirtyPlus: 0 },
       outstandingRequestCount: 0,
+      staleCount: 0,
     };
   }
 
@@ -595,8 +629,10 @@ export async function loadPendingCollections(
   let eightToThirty = 0;
   let thirtyPlus = 0;
   let outstandingRequestCount = 0;
+  let staleCount = 0;
 
   const nowMs = Date.now();
+  const STALE_THRESHOLD_MS = 48 * 60 * 60 * 1000;
   for (const r of rows) {
     const total = Number(r.totalOrderValuePaise);
     const paid = Number(r.paidPaise ?? 0);
@@ -604,12 +640,15 @@ export async function loadPendingCollections(
     if (due <= 0) continue;
     outstandingRequestCount += 1;
     totalDuePaise += due;
-    const ageDays = Math.floor(
-      (nowMs - r.submittedAt.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    const ageMs = nowMs - r.submittedAt.getTime();
+    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
     if (ageDays <= 7) zeroToSeven += due;
     else if (ageDays <= 30) eightToThirty += due;
     else thirtyPlus += due;
+    // 2026-05-26: stale = quotation submitted >48h ago AND still has
+    // outstanding due. Captures the "we sent a quote 2 days ago but
+    // nobody's collected yet" cohort.
+    if (ageMs > STALE_THRESHOLD_MS) staleCount += 1;
   }
 
   return {
@@ -620,6 +659,7 @@ export async function loadPendingCollections(
       thirtyPlus: thirtyPlus / 100,
     },
     outstandingRequestCount,
+    staleCount,
   };
 }
 

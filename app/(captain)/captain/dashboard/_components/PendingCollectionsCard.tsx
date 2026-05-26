@@ -98,6 +98,23 @@ export function PendingCollectionsCard({
         Days since quotation submitted (proxy for billing date).
       </p>
 
+      {/* 2026-05-26: stale-alert banner — outstanding requests where the
+          quotation was submitted >48h ago. */}
+      {summary.staleCount > 0 && (
+        <Link
+          href="/captain/collections"
+          className="flex items-center gap-2 rounded-2xl border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100/80 transition-colors"
+        >
+          <Icon name="warning" size="sm" className="shrink-0" aria-hidden />
+          <span className="flex-1">
+            <strong>{summary.staleCount}</strong>
+            {summary.staleCount === 1 ? ' collection' : ' collections'} waiting{' '}
+            <span className="whitespace-nowrap">&gt; 48h</span>.
+          </span>
+          <Icon name="chevron_right" size="xs" className="shrink-0" />
+        </Link>
+      )}
+
       <div className="divide-y rounded-2xl border bg-muted/20 px-3">
         <BucketRow
           label="0–7 days"

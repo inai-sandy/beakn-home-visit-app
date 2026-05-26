@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
@@ -14,6 +14,7 @@ import { loadTeamExecMetrics } from '@/lib/captain/team-queries';
 import { getIstDateString } from '@/lib/today/time';
 
 import { EmptyTeamState } from './_components/EmptyTeamState';
+import { TeamSearchInput } from './_components/TeamSearchInput';
 import {
   TeamWindowToggle,
   type TeamWindow,
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ window?: string }>;
+  searchParams: Promise<{ window?: string; q?: string }>;
 }
 
 function parseWindow(raw: unknown): TeamWindow {
@@ -66,6 +67,7 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
 
   const params = await searchParams;
   const window = parseWindow(params.window);
+  const search = (params.q ?? '').trim();
   const dateFilter = buildDateFilter(window);
 
   // super_admin has no team to list — show the empty state. They can use
@@ -88,6 +90,16 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
   // Captain's team — pull phone alongside id/name in one round trip, so
   // we don't have to ask loadTeamExecStatuses to re-shape its output.
   // Same active-team filter the dashboard's loadTeamExecStatuses uses.
+  // 2026-05-26: optional name/phone search via `?q=`. ILIKE on
+  // users.full_name + users.phone (digit substring), AND'd with the
+  // active-team scope. Empty/whitespace search is a no-op.
+  const searchTerm = search.toLowerCase();
+  const searchPredicate =
+    searchTerm.length > 0
+      ? sql`(LOWER(${users.fullName}) LIKE ${`%${searchTerm}%`}
+            OR LOWER(${users.phone}) LIKE ${`%${searchTerm}%`})`
+      : undefined;
+
   const teamRoster = await db
     .select({
       userId: salesExecutives.userId,
@@ -100,6 +112,7 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
       and(
         eq(salesExecutives.captainUserId, user.id),
         eq(users.isActive, true),
+        searchPredicate,
       ),
     )
     .orderBy(asc(users.fullName));
@@ -110,8 +123,17 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
         </header>
+        <TeamSearchInput initial={search} />
         <TeamWindowToggle active={window} />
-        <EmptyTeamState />
+        {search.length > 0 ? (
+          <div className="rounded-3xl border bg-muted/40 p-10 text-center">
+            <p className="text-sm text-muted-foreground">
+              No team members match &ldquo;{search}&rdquo;.
+            </p>
+          </div>
+        ) : (
+          <EmptyTeamState />
+        )}
       </div>
     );
   }
@@ -148,10 +170,11 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
         <h1 className="text-2xl font-semibold tracking-tight">My Team</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {members.length} active {members.length === 1 ? 'executive' : 'executives'}
-          .
+          {search.length > 0 ? ` matching “${search}”` : ''}.
         </p>
       </header>
 
+      <TeamSearchInput initial={search} />
       <TeamWindowToggle active={window} />
 
       <ul className="space-y-2" aria-label="Team members">

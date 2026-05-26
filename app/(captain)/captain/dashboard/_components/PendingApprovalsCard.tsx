@@ -18,11 +18,17 @@ import type { DateFilter, PendingApprovalRow } from '@/lib/captain/dashboard-que
 
 interface Props {
   totalCount: number;
+  staleCount: number;
   topFive: PendingApprovalRow[];
   filter: DateFilter;
 }
 
-export function PendingApprovalsCard({ totalCount, topFive, filter }: Props) {
+export function PendingApprovalsCard({
+  totalCount,
+  staleCount,
+  topFive,
+  filter,
+}: Props) {
   // `filter` is currently unused at the render layer — the server-side
   // query already chose the right semantic (today-snapshot vs history/
   // range). Accepting the prop keeps the interface aligned with the
@@ -49,6 +55,24 @@ export function PendingApprovalsCard({ totalCount, topFive, filter }: Props) {
           {totalCount}
         </Badge>
       </header>
+
+      {/* 2026-05-26: stale-alert banner — surfaces requests sitting at
+          PENDING_CAPTAIN_APPROVAL for >24h so the captain can clear
+          the SLA tail without polling the queue manually. */}
+      {staleCount > 0 && (
+        <Link
+          href="/captain/approvals"
+          className="flex items-center gap-2 rounded-2xl border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100/80 transition-colors"
+        >
+          <Icon name="warning" size="sm" className="shrink-0" aria-hidden />
+          <span className="flex-1">
+            <strong>{staleCount}</strong>
+            {staleCount === 1 ? ' approval' : ' approvals'} waiting{' '}
+            <span className="whitespace-nowrap">&gt; 24h</span>.
+          </span>
+          <Icon name="chevron_right" size="xs" className="shrink-0" />
+        </Link>
+      )}
 
       {topFive.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">

@@ -182,7 +182,11 @@ describe('loadExecPendingTasks', () => {
     expect(otherOut).toEqual([]);
   });
 
-  it('excludes completed / postponed / past pending without rolled_over_at', async () => {
+  // 2026-05-26 Option B: Dashboard count aligns with /tasks (all pending,
+  // no date filter). A past-day pending row that hasn't been rolled over
+  // yet is still "pending work I owe" and now surfaces here too. Only
+  // completed + postponed are filtered out by the status predicate.
+  it('excludes completed / postponed; includes ALL pending regardless of date', async () => {
     const { exec } = await captainExecPair();
     const planId = await seedDayPlan(exec.id, istToday);
     await seedTask({
@@ -197,15 +201,18 @@ describe('loadExecPendingTasks', () => {
       status: 'postponed',
       taskDate: istToday,
     });
-    // Past day, status=pending, rolled_over_at NOT set yet (cron hasn't run)
+    // Past day, status=pending, rolled_over_at NOT set yet (cron hasn't run).
+    // Pre-Option-B this was hidden; post-Option-B it surfaces.
     await seedTask({
       execUserId: exec.id,
       status: 'pending',
       taskDate: yesterday,
       rolledOverAt: null,
+      description: 'Past pending no roll-over',
     });
     const out = await loadExecPendingTasks(exec.id);
-    expect(out).toEqual([]);
+    expect(out).toHaveLength(1);
+    expect(out[0].description).toBe('Past pending no roll-over');
   });
 });
 

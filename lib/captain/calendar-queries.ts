@@ -43,11 +43,25 @@ export interface CaptainCalendarEvent {
   execUserId: string | null;
 }
 
+export interface LoadTeamCalendarEventsOptions {
+  /** Restrict events to a single exec. The id is silently dropped if
+   *  it isn't on the captain's team — caller can't escalate. */
+  execUserId?: string;
+  /** Substring search across event title (customer name) +
+   *  exec name. Case-insensitive. Empty/whitespace = no filter. */
+  search?: string;
+}
+
 export async function loadTeamCalendarEvents(
   captainUserId: string,
   fromIso: string,
   toIso: string,
-): Promise<CaptainCalendarEvent[]> {
+  options: LoadTeamCalendarEventsOptions = {},
+): Promise<{
+  events: CaptainCalendarEvent[];
+  /** Roster so the page can render an exec-filter dropdown. */
+  team: Array<{ userId: string; fullName: string }>;
+}> {
   // Active team roster — same predicate the team page uses.
   const teamRows = await db
     .select({ userId: salesExecutives.userId, fullName: users.fullName })
@@ -59,9 +73,19 @@ export async function loadTeamCalendarEvents(
         eq(users.isActive, true),
       ),
     );
-  const execIds = teamRows.map((t) => t.userId);
-  if (execIds.length === 0) return [];
+  const fullExecIds = teamRows.map((t) => t.userId);
+  if (fullExecIds.length === 0) {
+    return { events: [], team: [] };
+  }
   const execNameById = new Map(teamRows.map((t) => [t.userId, t.fullName]));
+
+  // Defence-in-depth: drop URL-supplied execUserId that isn't on the
+  // captain's team. Empty = no filter (all team execs).
+  const filteredExecIds =
+    options.execUserId && execNameById.has(options.execUserId)
+      ? [options.execUserId]
+      : fullExecIds;
+  const execIds = filteredExecIds;
 
   const fromDate = new Date(`${fromIso}T00:00:00.000Z`);
   const toDate = new Date(`${toIso}T23:59:59.999Z`);
@@ -158,7 +182,24 @@ export async function loadTeamCalendarEvents(
     }),
   ];
   events.sort((a, b) => a.at.getTime() - b.at.getTime());
-  return events;
+
+  // Client-side search filter on the materialised events — the search
+  // is across the joined customer + exec names; doing it post-query in
+  // memory keeps the SQL simple and the bulk size is bounded by the
+  // date range (day/week/month).
+  const needle = options.search?.trim().toLowerCase() ?? '';
+  const filteredEvents =
+    needle.length === 0
+      ? events
+      : events.filter((e) => {
+          const haystack = [e.title, e.execName ?? ''].join(' ').toLowerCase();
+          return haystack.includes(needle);
+        });
+
+  return {
+    events: filteredEvents,
+    team: teamRows,
+  };
 }
 
 export { TIMEZONE };

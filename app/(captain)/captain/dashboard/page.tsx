@@ -113,6 +113,7 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
           <PerformanceCard performance={performance} />
           <PendingApprovalsCard
             totalCount={approvals.totalCount}
+            staleCount={approvals.staleCount}
             topFive={approvals.topFive}
             filter={filter}
           />

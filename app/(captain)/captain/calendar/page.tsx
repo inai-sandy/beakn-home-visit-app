@@ -47,7 +47,10 @@ export const metadata: Metadata = {
 type ViewMode = 'day' | 'week' | 'month';
 
 function parseView(v: string | undefined): ViewMode {
-  if (v === 'week' || v === 'month') return v;
+  // 2026-05-26: explicit list includes 'day' — previously fell through
+  // to the default which happened to also be 'day'. Hardened so a
+  // future default change doesn't reintroduce the silent collapse.
+  if (v === 'day' || v === 'week' || v === 'month') return v;
   return 'day';
 }
 

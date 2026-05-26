@@ -46,8 +46,13 @@ export const metadata: Metadata = {
 
 type ViewMode = 'day' | 'week' | 'month';
 
+// 2026-05-26 fix: explicitly accept 'day' too. The previous version only
+// listed 'week'|'month' and fell through to the 'month' default, which
+// meant ?view=day always rendered as month. Symptom on the live site:
+// clicking a date in the month grid put view=day in the URL but the
+// server parsed it back to 'month' and the window-totals never changed.
 function parseView(v: string | undefined): ViewMode {
-  if (v === 'week' || v === 'month') return v;
+  if (v === 'day' || v === 'week' || v === 'month') return v;
   return 'month';
 }
 

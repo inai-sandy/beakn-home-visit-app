@@ -1,11 +1,8 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
-import { toast } from 'sonner';
-
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { startDayAction } from '../actions';
 
@@ -14,44 +11,21 @@ import { startDayAction } from '../actions';
 // =============================================================================
 //
 // Single CTA on the pre-submission view. Calls startDayAction (idempotent
-// INSERT via ON CONFLICT DO NOTHING) and router.refresh() after success;
-// the server gate re-evaluates and renders the post-submission view.
-//
-// HVA-136 wrap: useTransition keeps `isPending` true until the RSC fetch
-// from router.refresh resolves, so the button stays disabled across the
-// full request → server-render → client-reconcile window. Without the
-// transition wrap, a fast double-tap could fire the action twice; the
-// ON CONFLICT DO NOTHING makes that a no-op, but disabling the button
-// is the correct UX signal.
+// INSERT via ON CONFLICT DO NOTHING). 2026-05-26: migrated to
+// useServerMutation so the refresh-required pattern lives in one place;
+// the previous hand-rolled useTransition + router.refresh duo was the
+// HVA-136 walk-bug class.
 // =============================================================================
 
 export function StartMyDayButton() {
-  const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
-
-  async function onClick() {
-    if (busy) return;
-    setSubmitting(true);
-    try {
-      const result = await startDayAction();
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      startTransition(() => {
-        router.refresh();
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const { mutate, isPending: busy } = useServerMutation(startDayAction);
 
   return (
     <Button
       type="button"
-      onClick={onClick}
+      onClick={() => {
+        void mutate(undefined);
+      }}
       disabled={busy}
       className="w-full sm:w-auto h-14 px-8 text-base font-medium rounded-full"
     >

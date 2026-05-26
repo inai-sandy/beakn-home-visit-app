@@ -201,11 +201,16 @@ function mapTaskRow(t: {
   };
 }
 
+// 2026-05-26 Option B: align Dashboard count to /tasks — drop the
+// today+rolled-over predicate. Dashboard pending now matches
+// loadExecAllPendingTasks 1:1 so a single number drives both surfaces.
+// Rolled-over surfacing is preserved by the row-level rolledOverAt flag
+// the UI uses to draw the "Rolled over from <date>" pill.
 export async function loadExecPendingTasks(
   execUserId: string,
-  now: Date = new Date(),
+  // _now retained for signature compatibility; no longer used.
+  _now: Date = new Date(),
 ): Promise<ExecDashboardTaskRow[]> {
-  const istDate = getIstDateString(now);
   const rows = await db
     .select({
       id: tasks.id,
@@ -230,8 +235,6 @@ export async function loadExecPendingTasks(
       and(
         eq(tasks.execUserId, execUserId),
         eq(tasks.status, 'pending'),
-        // task_date = today  OR  rolled_over_at is set.
-        or(eq(tasks.taskDate, istDate), sql`${tasks.rolledOverAt} IS NOT NULL`),
       ),
     )
     // Rolled-over rows first (NULLS LAST inverts that), then oldest task_date.

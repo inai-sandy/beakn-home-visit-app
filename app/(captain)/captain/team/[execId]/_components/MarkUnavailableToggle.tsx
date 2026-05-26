@@ -1,7 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Switch } from '@/components/ui/switch';
@@ -11,6 +10,7 @@ import {
   type AffectedVisitRow,
 } from '@/lib/captain/rebalance-actions';
 import { setExecUnavailableAction } from '@/lib/captain/team-actions';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { RebalanceDialog } from './RebalanceDialog';
 
@@ -22,6 +22,10 @@ import { RebalanceDialog } from './RebalanceDialog';
 // toggle goes to UNAVAILABLE, query for future-scheduled visits assigned
 // to this exec; if any, open the rebalance dialog so the captain can
 // redistribute the workload immediately.
+//
+// 2026-05-26: migrated to useServerMutation; the rebalance side-effect
+// fires inside onSuccess so the action's post-commit hook has consistent
+// shape with every other mutation site.
 // =============================================================================
 
 interface Props {
@@ -37,10 +41,8 @@ export function MarkUnavailableToggle({
   captainUserId,
   initial,
 }: Props) {
-  const router = useRouter();
   const [local, setLocal] = useState(initial);
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [pendingNext, setPendingNext] = useState<boolean | null>(null);
   const [rebalance, setRebalance] = useState<
     | null
     | {
@@ -48,47 +50,37 @@ export function MarkUnavailableToggle({
         teammates: Array<{ id: string; fullName: string }>;
       }
   >(null);
-  const busy = submitting || isPending;
 
-  async function onChange(next: boolean) {
+  const { mutate, isPending: busy } = useServerMutation(
+    setExecUnavailableAction,
+    {
+      onSuccess: async () => {
+        const next = pendingNext;
+        toast.success(
+          next ? 'Marked unavailable for today.' : 'Marked available.',
+        );
+        if (next === true) {
+          const [visits, teammates] = await Promise.all([
+            loadAffectedFutureVisitsForExec(execUserId),
+            loadTeammatesForRebalance(captainUserId, execUserId),
+          ]);
+          if (visits.length > 0) {
+            setRebalance({ visits, teammates });
+          }
+        }
+      },
+      onError: () => {
+        // Roll back the optimistic toggle on failure.
+        if (pendingNext !== null) setLocal(!pendingNext);
+      },
+    },
+  );
+
+  function onChange(next: boolean) {
     if (busy) return;
     setLocal(next);
-    setSubmitting(true);
-    try {
-      const result = await setExecUnavailableAction({
-        execUserId,
-        isUnavailable: next,
-      });
-      if (!result.ok) {
-        setLocal(!next);
-        toast.error(result.error);
-        return;
-      }
-      toast.success(
-        next ? 'Marked unavailable for today.' : 'Marked available.',
-      );
-
-      // HVA-85: on the unavailable transition, check for affected future
-      // visits and offer to rebalance. We do this AFTER the toggle so the
-      // exec is already flagged when the captain confirms reassignments
-      // (the new destination is validated to be available, not the source).
-      if (next) {
-        const [visits, teammates] = await Promise.all([
-          loadAffectedFutureVisitsForExec(execUserId),
-          loadTeammatesForRebalance(captainUserId, execUserId),
-        ]);
-        if (visits.length > 0) {
-          setRebalance({ visits, teammates });
-        }
-      }
-
-      startTransition(() => router.refresh());
-    } catch {
-      setLocal(!next);
-      toast.error('Could not update availability.');
-    } finally {
-      setSubmitting(false);
-    }
+    setPendingNext(next);
+    void mutate({ execUserId, isUnavailable: next });
   }
 
   return (

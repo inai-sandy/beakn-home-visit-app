@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -17,6 +16,7 @@ import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import { rescheduleByExecAction } from '@/lib/reschedule/actions';
 
 // =============================================================================
@@ -44,29 +44,30 @@ function toLocalDatetimeValue(d: Date | null): string {
 }
 
 export function RescheduleButton({ requestId, currentVisitScheduledAt }: Props) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [when, setWhen] = useState(() =>
     toLocalDatetimeValue(currentVisitScheduledAt),
   );
   const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
-  async function onSubmit() {
+  // HVA-149: useServerMutation bundles useTransition + router.refresh() +
+  // toasts so a forgotten refresh can't recur here.
+  const { mutate, isPending: busy } = useServerMutation(rescheduleByExecAction, {
+    successMessage: 'Visit rescheduled',
+    onSuccess: () => setOpen(false),
+  });
+
+  function onSubmit() {
     if (busy) return;
     if (reason.trim().length < 10) {
       toast.error('Reason must be at least 10 characters');
       return;
     }
-    // The datetime-local value is naked (no tz suffix). We treat the
-    // entered value as IST and convert to UTC by subtracting the +05:30
-    // offset before sending. Without this, server-side new Date(when)
-    // interprets the string as UTC and stores a time 5:30 earlier than
-    // the user picked.
-    const targetUtcMs =
-      Date.parse(`${when}:00.000+05:30`);
+    // The datetime-local value is naked (no tz suffix). Treat the entered
+    // value as IST and convert to UTC by adding the +05:30 offset before
+    // sending. Without this, server-side new Date(when) interprets the
+    // string as UTC and stores a time 5:30 earlier than the user picked.
+    const targetUtcMs = Date.parse(`${when}:00.000+05:30`);
     if (Number.isNaN(targetUtcMs)) {
       toast.error('Pick a valid date + time');
       return;
@@ -75,24 +76,11 @@ export function RescheduleButton({ requestId, currentVisitScheduledAt }: Props) 
       toast.error('New date must be in the future');
       return;
     }
-    const target = new Date(targetUtcMs);
-    setSubmitting(true);
-    try {
-      const res = await rescheduleByExecAction({
-        requestId,
-        toVisitScheduledAt: target.toISOString(),
-        reason: reason.trim(),
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success('Visit rescheduled');
-      setOpen(false);
-      startTransition(() => router.refresh());
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({
+      requestId,
+      toVisitScheduledAt: new Date(targetUtcMs).toISOString(),
+      reason: reason.trim(),
+    });
   }
 
   return (

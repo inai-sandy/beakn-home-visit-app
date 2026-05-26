@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -27,6 +26,7 @@ import {
   bulkReassignAffectedVisitsAction,
   type AffectedVisitRow,
 } from '@/lib/captain/rebalance-actions';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 // =============================================================================
 // HVA-85: rebalance dialog — picks new exec per affected future visit
@@ -54,7 +54,6 @@ export function RebalanceDialog({
   visits,
   teammates,
 }: Props) {
-  const router = useRouter();
   const [assignments, setAssignments] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       visits.map((v) => [v.requestId, teammates[0]?.id ?? '']),
@@ -63,11 +62,19 @@ export function RebalanceDialog({
   const [reason, setReason] = useState(
     `${fromExecName} marked unavailable — bulk reassign by captain.`,
   );
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
-  async function onConfirm() {
+  const { mutate, isPending: busy } = useServerMutation(
+    bulkReassignAffectedVisitsAction,
+    {
+      onSuccess: (data) => {
+        const count = data?.reassignedCount ?? 0;
+        toast.success(`Reassigned ${count} visit${count === 1 ? '' : 's'}`);
+        onClose();
+      },
+    },
+  );
+
+  function onConfirm() {
     if (busy) return;
     if (reason.trim().length < 20) {
       toast.error('Reason must be at least 20 characters');
@@ -84,25 +91,11 @@ export function RebalanceDialog({
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const res = await bulkReassignAffectedVisitsAction({
-        fromExecUserId,
-        reassignments,
-        reason: reason.trim(),
-      });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(
-        `Reassigned ${res.data?.reassignedCount ?? reassignments.length} visit${(res.data?.reassignedCount ?? reassignments.length) === 1 ? '' : 's'}`,
-      );
-      onClose();
-      startTransition(() => router.refresh());
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({
+      fromExecUserId,
+      reassignments,
+      reason: reason.trim(),
+    });
   }
 
   return (

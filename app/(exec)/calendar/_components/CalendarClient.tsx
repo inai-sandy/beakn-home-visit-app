@@ -149,20 +149,141 @@ export function CalendarClient({
 
       {view === 'day' && <DayView anchor={anchor} events={parsedEvents} />}
       {view === 'week' && (
-        <WeekView
-          anchor={anchor}
-          events={parsedEvents}
-          onPickDay={(d) => go('day', d)}
-        />
+        <>
+          <WeekView
+            anchor={anchor}
+            events={parsedEvents}
+            onPickDay={(d) => go('day', d)}
+          />
+          {/* PR12-FIX 2026-05-26: also list the events for the visible
+              week below the grid. Without this, sparse calendars (e.g.
+              payments cluster on a few days) make the rest of the
+              surface feel empty even when the dots are showing data. */}
+          <PeriodEventList
+            events={parsedEvents.filter((e) => isSameOrInWeek(e.atDate, anchor))}
+            emptyText="No events scheduled in this week."
+          />
+        </>
       )}
       {view === 'month' && (
-        <MonthView
-          anchor={anchor}
-          events={parsedEvents}
-          onPickDay={(d) => go('day', d)}
-        />
+        <>
+          <MonthView
+            anchor={anchor}
+            events={parsedEvents}
+            onPickDay={(d) => go('day', d)}
+          />
+          <PeriodEventList
+            events={parsedEvents.filter((e) => isSameMonth(e.atDate, anchor))}
+            emptyText="No events scheduled in this month."
+          />
+        </>
       )}
     </div>
+  );
+}
+
+function isSameOrInWeek(d: Date, anchor: Date): boolean {
+  const ws = startOfWeek(anchor, { weekStartsOn: 1 });
+  const we = addDays(ws, 6);
+  return d >= ws && d <= addDays(we, 1);
+}
+
+// -----------------------------------------------------------------------------
+// PR12-FIX 2026-05-26: shared "events list" surface for week + month views
+// -----------------------------------------------------------------------------
+//
+// Same row shape as the day view, but the date heading is included so
+// the captain can see WHICH day each event belongs to without
+// drilling in. Especially important for the payment calendar where
+// the day view of an empty day felt like the whole page was broken.
+// -----------------------------------------------------------------------------
+
+function PeriodEventList({
+  events,
+  emptyText,
+}: {
+  events: (CalendarEventDTO & { atDate: Date })[];
+  emptyText: string;
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed bg-card/50 p-6 text-center mt-3">
+        <p className="text-sm text-muted-foreground">{emptyText}</p>
+      </div>
+    );
+  }
+
+  // Group by date string so the section has visible day headers.
+  const byDate = new Map<string, (CalendarEventDTO & { atDate: Date })[]>();
+  for (const e of events) {
+    const key = format(e.atDate, 'yyyy-MM-dd');
+    const arr = byDate.get(key) ?? [];
+    arr.push(e);
+    byDate.set(key, arr);
+  }
+  const orderedKeys = Array.from(byDate.keys()).sort();
+
+  return (
+    <ul className="space-y-3 mt-3">
+      {orderedKeys.map((dateKey) => {
+        const list = byDate.get(dateKey)!;
+        return (
+          <li key={dateKey} className="space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-1">
+              {format(parseISO(dateKey), 'EEE, dd MMM yyyy')}
+              <span className="ml-2 font-normal text-muted-foreground/70">
+                · {list.length} event{list.length === 1 ? '' : 's'}
+              </span>
+            </p>
+            <ul className="space-y-2">
+              {list.map((e) => (
+                <li
+                  key={`${e.kind}-${e.id}`}
+                  className="rounded-2xl border bg-card p-3 shadow-sm"
+                >
+                  <Link href={e.href} className="flex items-center gap-3">
+                    <div className="text-xs tabular-nums text-muted-foreground w-12">
+                      {format(e.atDate, 'HH:mm')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium tracking-tight truncate">
+                        {e.title}
+                      </p>
+                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] uppercase tracking-wide"
+                        >
+                          {e.kind}
+                        </Badge>
+                        {e.stageCode && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {e.stageCode.replaceAll('_', ' ').toLowerCase()}
+                          </Badge>
+                        )}
+                        {e.execName && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-primary/40 text-primary"
+                          >
+                            {e.execName}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <Icon
+                      name="chevron_right"
+                      size="sm"
+                      className="text-muted-foreground"
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

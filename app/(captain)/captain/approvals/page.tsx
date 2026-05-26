@@ -1,9 +1,7 @@
 import { alias } from "drizzle-orm/pg-core";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { formatDistanceToNow } from "date-fns";
 import { redirect } from "next/navigation";
 
-import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import {
@@ -15,9 +13,11 @@ import {
 } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
 import { buildCaptainRequestVisibilityWhere } from "@/lib/captain/team-scope";
-import { maskCustomerPhone } from "@/lib/format/phone";
 
-import { InlineApprovalButtons } from "./inline-approval-buttons";
+import {
+  ApprovalsListClient,
+  type ApprovalRowDTO,
+} from "./_components/ApprovalsListClient";
 
 // =============================================================================
 // HVA-137: /captain/approvals — captain-pending listing + inline actions
@@ -161,72 +161,17 @@ export default async function CaptainApprovalsPage() {
           </p>
         </div>
       ) : (
-        <ul className="space-y-4">
-          {rows.map((r) => (
-            <li
-              key={r.id}
-              className="rounded-3xl border bg-card p-5 shadow-sm space-y-4"
-            >
-              <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <div className="space-y-1">
-                  <h2 className="text-base font-semibold tracking-tight">
-                    <a
-                      href={`/requests/${r.id}`}
-                      className="hover:underline"
-                    >
-                      {r.customerName}
-                    </a>
-                  </h2>
-                  <p className="text-xs font-mono text-muted-foreground">
-                    {maskCustomerPhone(r.customerPhone)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className="text-[10px]">
-                    {r.cityName}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="text-xs text-muted-foreground">
-                <span>
-                  Exec:{" "}
-                  <span className="text-foreground font-medium">
-                    {r.assignedExecName ?? "—"}
-                  </span>
-                </span>
-                {r.completedAt && (
-                  <>
-                    <span className="mx-2">·</span>
-                    <span title={r.completedAt.toISOString()}>
-                      Completed {formatDistanceToNow(r.completedAt, { addSuffix: true })}
-                    </span>
-                  </>
-                )}
-              </div>
-
-              {r.execNote ? (
-                <blockquote className="rounded-2xl border-l-4 border-primary/40 bg-muted/30 px-4 py-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                    Exec&apos;s note
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{r.execNote}</p>
-                </blockquote>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">
-                  No note submitted by the exec.
-                </p>
-              )}
-
-              <div className="flex justify-end pt-1">
-                <InlineApprovalButtons
-                  requestId={r.id}
-                  customerName={r.customerName}
-                />
-              </div>
-            </li>
-          ))}
-        </ul>
+        <ApprovalsListClient
+          rows={rows.map<ApprovalRowDTO>((r) => ({
+            id: r.id,
+            customerName: r.customerName,
+            customerPhone: r.customerPhone,
+            cityName: r.cityName,
+            assignedExecName: r.assignedExecName,
+            execNote: r.execNote,
+            completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+          }))}
+        />
       )}
     </div>
   );

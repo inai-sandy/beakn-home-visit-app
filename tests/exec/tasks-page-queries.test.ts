@@ -113,7 +113,8 @@ describe('loadExecAllPostponedTasks', () => {
 // -----------------------------------------------------------------------------
 
 describe('loadExecCompletedTasksPaginated', () => {
-  it('returns first page of 20 by default', async () => {
+  // 2026-05-26: DEFAULT_PAGE_SIZE lifted 20 → 10 (universal 10/page rule).
+  it('returns first page of 10 by default', async () => {
     const { exec } = await captainExecPair();
     const planId = await seedPlan(exec.id, istToday);
     // Seed 25 completed tasks. completedAt staggered so order is deterministic.
@@ -129,13 +130,13 @@ describe('loadExecCompletedTasksPaginated', () => {
       });
     }
     const result = await loadExecCompletedTasksPaginated(exec.id, { page: 1 });
-    expect(result.tasks).toHaveLength(20);
+    expect(result.tasks).toHaveLength(10);
     expect(result.pagination.totalCount).toBe(25);
-    expect(result.pagination.totalPages).toBe(2);
+    expect(result.pagination.totalPages).toBe(3);
     expect(result.pagination.currentPage).toBe(1);
   });
 
-  it('page=2 returns the remaining 5', async () => {
+  it('page=3 returns the remaining 5', async () => {
     const { exec } = await captainExecPair();
     const planId = await seedPlan(exec.id, istToday);
     for (let i = 0; i < 25; i += 1) {
@@ -147,7 +148,7 @@ describe('loadExecCompletedTasksPaginated', () => {
         completedAt: new Date(Date.now() - i * 60_000),
       });
     }
-    const result = await loadExecCompletedTasksPaginated(exec.id, { page: 2 });
+    const result = await loadExecCompletedTasksPaginated(exec.id, { page: 3 });
     expect(result.tasks).toHaveLength(5);
   });
 

@@ -40,13 +40,9 @@ interface Props {
 export function AdminHelpSection({ requestId, messages }: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
-  // D3 2026-05-26: accordion fold/unfold per thread. Default: pending
-  // threads expanded, replied threads collapsed.
-  const [openIds, setOpenIds] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    for (const m of messages) initial[m.id] = m.repliedAt === null;
-    return initial;
-  });
+  // 2026-05-26 universal-closed rule: every accordion / fold-unfold UI
+  // defaults to closed. User opens what they need.
+  const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
 
   // HVA-149: useServerMutation bundles useTransition + router.refresh() +
   // toast.error/success so the refresh-required bug class can't recur.

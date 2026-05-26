@@ -57,14 +57,9 @@ export function AdminHelpInboxClient({
     msg: AdminHelpInboxRow;
     text: string;
   } | null>(null);
-  // Accordion fold/unfold state. Default: pending messages expanded,
-  // replied messages collapsed. The user can toggle either direction
-  // per row.
-  const [openIds, setOpenIds] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    for (const m of messages) initial[m.id] = m.repliedAt === null;
-    return initial;
-  });
+  // 2026-05-26 universal-closed rule: every accordion / fold-unfold UI
+  // defaults to closed. User opens what they need.
+  const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;

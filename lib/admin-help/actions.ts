@@ -10,6 +10,7 @@ import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { sendEmail } from '@/lib/email';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 // =============================================================================
 // HVA-77 + HVA-94: Admin Help round-trip
@@ -307,7 +308,7 @@ export async function loadAdminHelpInbox(args: {
       eq(visitRequests.id, adminHelpMessages.requestId),
     );
 
-  const pageSize = args.pageSize ?? 20;
+  const pageSize = args.pageSize ?? DEFAULT_PAGE_SIZE;
   const page = Math.max(1, args.page ?? 1);
   const offset = (page - 1) * pageSize;
 

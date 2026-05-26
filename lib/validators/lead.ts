@@ -29,6 +29,10 @@ import {
 export const LEAD_BHK_VALUES = ['1BHK', '2BHK', '3BHK', '4BHK', 'Others'] as const;
 export type LeadBhk = (typeof LEAD_BHK_VALUES)[number];
 
+// 2026-05-26 universal no-mandate (constrained by DB NOT NULL): name +
+// phone + cityId stay required (the latter because leads.city_id is
+// NOT NULL). Interest is demoted to optional (min(1) lifted) — exec
+// can capture without naming an interest category up front.
 const baseFields = {
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
   phone: z
@@ -41,9 +45,7 @@ const baseFields = {
     .optional()
     .or(z.literal('').transform(() => undefined)),
   cityId: z.string().uuid('Select a city'),
-  interest: z
-    .array(z.enum(ALLOWED_INTERESTS))
-    .min(1, 'Select at least one interest'),
+  interest: z.array(z.enum(ALLOWED_INTERESTS)).optional().default([]),
   notes: z
     .string()
     .trim()
@@ -88,6 +90,8 @@ export type LeadInput = z.infer<typeof leadSchema>;
 // state value the server falls back to.
 // =============================================================================
 
+// 2026-05-26: address + bhk stay required (visit needs both; DB NOT NULL
+// on visit_requests.bhk). customerState already optional.
 export const convertLeadExtraFieldsSchema = z.object({
   address: z
     .string()

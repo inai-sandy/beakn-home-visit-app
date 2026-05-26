@@ -377,9 +377,7 @@ export function AddTaskSheet({
 
         <div className="px-4 space-y-5">
           <div className="space-y-2">
-            <Label className="text-sm">
-              Task type <span className="text-destructive">*</span>
-            </Label>
+            <Label className="text-sm">Task type</Label>
             <div className="flex flex-wrap gap-2">
               {TASK_TYPES.map((t) => (
                 <Button
@@ -404,7 +402,7 @@ export function AddTaskSheet({
 
           <div className="space-y-2">
             <Label htmlFor="add-task-date" className="text-sm">
-              Task date <span className="text-destructive">*</span>
+              Task date
             </Label>
             <Input
               id="add-task-date"
@@ -426,7 +424,7 @@ export function AddTaskSheet({
 
           <div className="space-y-2">
             <Label htmlFor="add-task-description" className="text-sm">
-              Description <span className="text-destructive">*</span>
+              Description
             </Label>
             <Textarea
               id="add-task-description"
@@ -444,7 +442,7 @@ export function AddTaskSheet({
 
           <div className="space-y-2">
             <Label htmlFor="add-task-est" className="text-sm">
-              Estimated time <span className="text-destructive">*</span>
+              Estimated time
             </Label>
             <Select
               value={estimatedTime}

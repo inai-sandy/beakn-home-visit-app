@@ -179,7 +179,13 @@ export async function scheduleVisitAction(
         sequenceNumber: visitStage.sequenceNumber,
         transitionOrder: sql`COALESCE((SELECT MAX(transition_order) FROM request_status_history WHERE request_id = ${data.requestId}), 0) + 1`,
         changedByUserId: actor.id,
-        reason: `Visit scheduled for ${target.toLocaleString('en-IN')}`,
+        // 2026-05-26 IST tz fix: without timeZone this rendered UTC into
+        // the audit/timeline reason. The timeline reads this string
+        // verbatim, so the user saw "06:30" or similar instead of the
+        // 12:00 they picked.
+        reason: `Visit scheduled for ${target.toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+        })}`,
       });
 
       // 3) auto-task for the assigned exec on that date

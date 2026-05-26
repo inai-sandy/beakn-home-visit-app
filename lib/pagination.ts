@@ -11,12 +11,12 @@
 //   - building list URLs with filter overrides and "reset to page 1" on
 //     any filter change
 //
-// Page size is fixed at 20 today. Bundle didn't ask for a per-page
-// selector; if a future ticket needs one it lands as a `?size=` param
-// driven by the same parser.
+// Page size is fixed at 10 per Sandeep's universal UX policy (2026-05-26):
+// every list page paginates with 10 rows per page. If a future ticket
+// needs an override it lands as a `?size=` param driven by the same parser.
 // =============================================================================
 
-export const DEFAULT_PAGE_SIZE = 20;
+export const DEFAULT_PAGE_SIZE = 10;
 export const MAX_PAGE_SIZE = 100;
 
 export interface PageRange {

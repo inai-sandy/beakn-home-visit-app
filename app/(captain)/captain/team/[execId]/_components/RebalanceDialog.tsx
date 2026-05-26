@@ -142,6 +142,9 @@ export function RebalanceDialog({
                           month: 'short',
                           hour: '2-digit',
                           minute: '2-digit',
+                          // 2026-05-26 IST tz fix: without timeZone, this
+                          // fell back to the server's UTC clock.
+                          timeZone: 'Asia/Kolkata',
                         })}
                       </p>
                     )}

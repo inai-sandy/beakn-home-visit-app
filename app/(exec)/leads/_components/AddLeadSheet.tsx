@@ -133,9 +133,7 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
         <div className="px-4 space-y-5">
           {/* Type toggle */}
           <div className="space-y-2">
-            <Label className="text-sm">
-              Type <span className="text-destructive">*</span>
-            </Label>
+            <Label className="text-sm">Type</Label>
             <div className="grid grid-cols-2 gap-2">
               <Button
                 type="button"

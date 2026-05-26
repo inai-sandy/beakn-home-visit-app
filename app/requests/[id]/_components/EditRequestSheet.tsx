@@ -63,28 +63,27 @@ function digitsFromStorage(phoneStorage: string): string {
   return phoneStorage.replace(/\D/g, '').replace(/^91/, '');
 }
 
-/**
- * `<input type="datetime-local">` expects `YYYY-MM-DDTHH:mm`. Strip the
- * timezone + seconds from an ISO string to make the round-trip clean.
- */
+// 2026-05-26 IST tz fix: .getHours()/.getMinutes() return server-local time,
+// which is UTC inside Docker. Force IST by shifting the timestamp by
+// +05:30 before slicing the ISO string. Symmetric on the reverse path —
+// treat the naked datetime-local value as IST and add the +05:30 suffix
+// before parsing.
+const IST_OFFSET_MIN = 330;
+
 function isoToLocal(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const y = d.getFullYear();
-  const m = pad(d.getMonth() + 1);
-  const day = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mm = pad(d.getMinutes());
-  return `${y}-${m}-${day}T${hh}:${mm}`;
+  return new Date(d.getTime() + IST_OFFSET_MIN * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }
 
 function localToIso(local: string): string | null {
   if (!local) return null;
-  const d = new Date(local);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+  const ms = Date.parse(`${local}:00.000+05:30`);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
 export function EditRequestSheet({ request, cities, onClose }: Props) {
@@ -150,7 +149,7 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
         </SheetHeader>
 
         <div className="px-4 space-y-5">
-          <FormRow label="Customer name" required error={fieldErrors.customerName}>
+          <FormRow label="Customer name" error={fieldErrors.customerName}>
             <Input
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value.slice(0, 255))}
@@ -159,7 +158,7 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
             />
           </FormRow>
 
-          <FormRow label="Phone" required error={fieldErrors.customerPhone}>
+          <FormRow label="Phone" error={fieldErrors.customerPhone}>
             <div className="flex">
               <span className="inline-flex items-center px-3 h-11 rounded-l-md border border-r-0 bg-muted/40 text-sm text-muted-foreground select-none">
                 +91
@@ -190,7 +189,7 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
             />
           </FormRow>
 
-          <FormRow label="Address" required error={fieldErrors.address}>
+          <FormRow label="Address" error={fieldErrors.address}>
             <Textarea
               value={address}
               onChange={(e) => setAddress(e.target.value.slice(0, 2000))}
@@ -200,7 +199,7 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
             />
           </FormRow>
 
-          <FormRow label="City" required error={fieldErrors.cityId}>
+          <FormRow label="City" error={fieldErrors.cityId}>
             <Select value={cityId} onValueChange={setCityId} disabled={busy}>
               <SelectTrigger className="h-11 w-full">
                 <SelectValue />
@@ -224,7 +223,7 @@ export function EditRequestSheet({ request, cities, onClose }: Props) {
             />
           </FormRow>
 
-          <FormRow label="BHK" required error={fieldErrors.bhk}>
+          <FormRow label="BHK" error={fieldErrors.bhk}>
             <Select value={bhk} onValueChange={setBhk} disabled={busy}>
               <SelectTrigger className="h-11 w-full">
                 <SelectValue />

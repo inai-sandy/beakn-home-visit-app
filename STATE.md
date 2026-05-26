@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-25 (Settings accordion — admin sidebar Settings group restructured per HVA-89 6-card hierarchy)
+**Last updated:** 2026-05-26 (PR1 visible bugs — calendar dedupe + IST tz + accordions universally closed + 10/page + selective mandatory-field removal)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-26 | PR1 visible bugs | Calendar dedupes visit + auto-task by linkRequestId (was rendering both, looked like duplicate). Schedule-Visit reason + Reschedule input + EditRequestSheet datetime + RebalanceDialog all force `Asia/Kolkata` timezone (Docker server is UTC; was showing 06:30 instead of 12:00 IST and 04:30 in the timeline reason). Universal accordion-closed rule applied to admin-help inbox/thread + exec Dashboard TasksAccordion + exec /tasks TasksPageView. `DEFAULT_PAGE_SIZE` lifted from 20 → 10 with admin-help + other-city imported from the shared constant. Mandatory-field removal on exec-facing forms: AddTask (task type, date, description, estimated time), AddLead (type), ConvertLead (address, bhk), EditRequest (all `required` props dropped from FormRow). Lead.interest demoted to optional. |
 | 2026-05-25 | docs sync | docs/CONTEXT.md Resources + Announcements paragraphs rewritten to reflect FIX2 (announcement_acknowledgments rename, audience/publish_date/importance, visibility/tags, pure helpers) |
 | 2026-05-25 | HVA-149 (10C-partial) | lib/hooks/use-server-mutation hook bundles useTransition + router.refresh() + toast — prevents the refresh-required bug class. ESLint rule warns on raw useTransition in (exec)/(captain)/admin. One representative call site (AdminHelpSection) migrated as a template; ~60 remaining sites migrate opportunistically (HVA-149-FOLLOWUP). |
 | 2026-05-25 | HVA-71 (1C) | Exec Calendar tab — Day / Week / Month views at /calendar. Day = vertical event list; Week = 7-col grid with per-day count; Month = 5-6 week density grid with dot counts. Reads visit_requests + tasks for the exec; navigation persists view/date via query string. Drawer gains a Calendar entry. |

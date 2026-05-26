@@ -87,15 +87,27 @@ export async function loadCalendarEvents(
     )
     .orderBy(asc(tasks.taskDate));
 
+  // 2026-05-26 dedupe fix: scheduleVisitAction writes BOTH a visit_scheduled_at
+  // AND an auto-task linked to the same request. Without dedupe, the calendar
+  // renders one event per row pair = "duplicate". Suppress the visit event
+  // when a task already represents it; the task carries the same href +
+  // customer name and is user-editable. Legacy requests with
+  // visit_scheduled_at but no linked task still surface via the visit branch.
+  const taskRequestIds = new Set(
+    taskRows.map((t) => t.linkRequestId).filter((id): id is string => id !== null),
+  );
+
   const events: CalendarEvent[] = [
-    ...visitRows.map<CalendarEvent>((v) => ({
-      id: v.id,
-      kind: 'visit',
-      title: v.customerName,
-      at: v.visitScheduledAt!,
-      stageCode: v.stageCode,
-      href: `/requests/${v.id}`,
-    })),
+    ...visitRows
+      .filter((v) => !taskRequestIds.has(v.id))
+      .map<CalendarEvent>((v) => ({
+        id: v.id,
+        kind: 'visit',
+        title: v.customerName,
+        at: v.visitScheduledAt!,
+        stageCode: v.stageCode,
+        href: `/requests/${v.id}`,
+      })),
     ...taskRows.map<CalendarEvent>((t) => {
       const linkedName = t.requestCustomerName ?? t.leadName ?? null;
       const title = linkedName

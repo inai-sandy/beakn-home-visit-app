@@ -16,6 +16,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 // =============================================================================
 // HVA-95: Other City Requests queue — admin manually routes out-of-area
@@ -100,7 +101,7 @@ export async function loadOtherCityQueue(args: {
     .from(visitRequests)
     .where(baseWhere);
 
-  const pageSize = args.pageSize ?? 20;
+  const pageSize = args.pageSize ?? DEFAULT_PAGE_SIZE;
   const page = Math.max(1, args.page ?? 1);
   const offset = (page - 1) * pageSize;
 

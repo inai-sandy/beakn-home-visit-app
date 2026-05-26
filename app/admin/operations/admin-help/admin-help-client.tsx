@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -17,26 +17,96 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   replyAdminHelpAction,
+  type AdminHelpDateFilter,
   type AdminHelpInboxRow,
 } from '@/lib/admin-help/actions';
+import type { PageRange } from '@/lib/pagination';
+import { cn } from '@/lib/utils';
 
 interface Props {
   messages: AdminHelpInboxRow[];
+  total: number;
+  pageRange: PageRange;
+  currentSearch: string;
+  currentDateFilter: AdminHelpDateFilter;
 }
 
-export function AdminHelpInboxClient({ messages }: Props) {
+const DATE_CHIPS: Array<{ key: AdminHelpDateFilter; label: string }> = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This week' },
+  { key: 'month', label: 'This month' },
+  { key: 'all', label: 'All time' },
+];
+
+export function AdminHelpInboxClient({
+  messages,
+  total,
+  pageRange,
+  currentSearch,
+  currentDateFilter,
+}: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [searchInput, setSearchInput] = useState(currentSearch);
   const [replying, setReplying] = useState<{
     msg: AdminHelpInboxRow;
     text: string;
   } | null>(null);
+  // Accordion fold/unfold state. Default: pending messages expanded,
+  // replied messages collapsed. The user can toggle either direction
+  // per row.
+  const [openIds, setOpenIds] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const m of messages) initial[m.id] = m.repliedAt === null;
+    return initial;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
+
+  // Debounced search → URL ?q=
+  useEffect(() => {
+    const term = searchInput.trim();
+    if (term === currentSearch) return;
+    const handle = setTimeout(() => {
+      const next = new URLSearchParams(searchParams?.toString() ?? '');
+      if (term.length > 0) next.set('q', term);
+      else next.delete('q');
+      next.delete('page');
+      startTransition(() =>
+        router.push(`/admin/operations/admin-help?${next.toString()}`),
+      );
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput, currentSearch, router, searchParams]);
+
+  function setDateFilter(key: AdminHelpDateFilter) {
+    const next = new URLSearchParams(searchParams?.toString() ?? '');
+    if (key === 'all') next.delete('dt');
+    else next.set('dt', key);
+    next.delete('page');
+    startTransition(() =>
+      router.push(`/admin/operations/admin-help?${next.toString()}`),
+    );
+  }
+
+  function goToPage(page: number) {
+    const next = new URLSearchParams(searchParams?.toString() ?? '');
+    if (page === 1) next.delete('page');
+    else next.set('page', String(page));
+    startTransition(() =>
+      router.push(`/admin/operations/admin-help?${next.toString()}`),
+    );
+  }
+
+  function toggleOpen(id: string) {
+    setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
 
   async function onReply() {
     if (!replying || busy) return;
@@ -62,62 +132,222 @@ export function AdminHelpInboxClient({ messages }: Props) {
     }
   }
 
-  const pending = messages.filter((m) => m.repliedAt === null);
-  const done = messages.filter((m) => m.repliedAt !== null);
+  const filterBar = (
+    <div className="space-y-3">
+      <div className="relative">
+        <Icon
+          name="search"
+          size="sm"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search message text, exec name, or customer name"
+          className="h-11 pl-9"
+          aria-label="Search admin help inbox"
+        />
+      </div>
+      <div className="flex flex-wrap gap-1.5" aria-label="Date filter">
+        {DATE_CHIPS.map((chip) => {
+          const active = currentDateFilter === chip.key;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => setDateFilter(chip.key)}
+              disabled={isPending}
+              className={cn(
+                'inline-flex items-center rounded-full border px-3 py-0.5 text-[11px] tracking-wide transition-colors',
+                active
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card hover:bg-muted border-border text-foreground/80',
+              )}
+              aria-pressed={active}
+            >
+              {chip.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  if (total === 0 && currentSearch.length === 0 && currentDateFilter === 'all') {
+    return (
+      <div className="space-y-4">
+        {filterBar}
+        <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
+          <Icon
+            name="forum"
+            size="lg"
+            className="text-muted-foreground/50 mx-auto mb-3"
+            aria-hidden
+          />
+          <p className="text-sm text-muted-foreground">
+            No admin help messages yet.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (messages.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
-        <Icon
-          name="forum"
-          size="lg"
-          className="text-muted-foreground/50 mx-auto mb-3"
-          aria-hidden
-        />
-        <p className="text-sm text-muted-foreground">
-          No admin help messages yet. Sales execs can send one from the
-          request detail page.
-        </p>
+      <div className="space-y-4">
+        {filterBar}
+        <div className="rounded-2xl border border-dashed bg-card/50 p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            No messages match the current search + filter.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
-      {pending.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-700">
-            Pending reply ({pending.length})
-          </h2>
-          <ul className="space-y-2">
-            {pending.map((m) => (
-              <MessageCard
-                key={m.id}
-                message={m}
-                onReply={() => setReplying({ msg: m, text: '' })}
-                busy={busy}
-              />
-            ))}
-          </ul>
-        </section>
-      )}
+    <div className="space-y-4">
+      {filterBar}
+      <p className="text-[11px] text-muted-foreground">
+        Showing {pageRange.from}–{pageRange.to} of {total} message
+        {total === 1 ? '' : 's'}
+      </p>
 
-      {done.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Replied ({done.length})
-          </h2>
-          <ul className="space-y-2">
-            {done.map((m) => (
-              <MessageCard
-                key={m.id}
-                message={m}
-                onReply={null}
-                busy={busy}
-              />
-            ))}
-          </ul>
-        </section>
+      <ul className="space-y-2">
+        {messages.map((m) => {
+          const isOpen = openIds[m.id] ?? false;
+          const isPendingReply = m.repliedAt === null;
+          return (
+            <li
+              key={m.id}
+              className={cn(
+                'rounded-2xl border bg-card shadow-sm overflow-hidden',
+                isPendingReply ? 'border-amber-400/40' : '',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => toggleOpen(m.id)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/30 text-left"
+                aria-expanded={isOpen}
+              >
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold tracking-tight truncate">
+                      {m.execName ?? '(unknown exec)'}
+                    </p>
+                    <span className="text-[11px] text-muted-foreground">
+                      on{' '}
+                      <Link
+                        href={`/requests/${m.requestId}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-primary hover:underline"
+                      >
+                        {m.customerName}
+                      </Link>
+                    </span>
+                    {isPendingReply ? (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] text-amber-700"
+                      >
+                        Pending
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] text-emerald-700"
+                      >
+                        Replied
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatDistanceToNow(m.sentAt, { addSuffix: true })}
+                  </p>
+                  {!isOpen && (
+                    <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                      {m.message}
+                    </p>
+                  )}
+                </div>
+                <Icon
+                  name="expand_more"
+                  size="sm"
+                  className={cn(
+                    'text-muted-foreground transition-transform',
+                    isOpen ? 'rotate-180' : '',
+                  )}
+                />
+              </button>
+
+              {isOpen && (
+                <div className="px-4 pb-4 space-y-2">
+                  <p className="text-sm whitespace-pre-line text-foreground/90">
+                    {m.message}
+                  </p>
+                  {m.repliedAt && m.repliedMessage && (
+                    <div className="rounded-lg border-l-2 border-l-primary/50 bg-muted/40 px-3 py-2 space-y-0.5">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Admin replied{' '}
+                        {formatDistanceToNow(m.repliedAt, { addSuffix: true })}
+                      </p>
+                      <p className="text-sm whitespace-pre-line">
+                        {m.repliedMessage}
+                      </p>
+                    </div>
+                  )}
+                  {isPendingReply && (
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setReplying({ msg: m, text: '' })}
+                        disabled={busy}
+                      >
+                        <Icon name="reply" size="xs" />
+                        Reply
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {pageRange.totalPages > 1 && (
+        <nav
+          className="flex items-center justify-between gap-2 pt-2"
+          aria-label="Pagination"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => goToPage(pageRange.page - 1)}
+            disabled={pageRange.page <= 1 || isPending}
+          >
+            <Icon name="chevron_left" size="xs" />
+            Previous
+          </Button>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            Page {pageRange.page} of {pageRange.totalPages}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => goToPage(pageRange.page + 1)}
+            disabled={pageRange.page >= pageRange.totalPages || isPending}
+          >
+            Next
+            <Icon name="chevron_right" size="xs" />
+          </Button>
+        </nav>
       )}
 
       <Dialog
@@ -139,7 +369,9 @@ export function AdminHelpInboxClient({ messages }: Props) {
                   {replying.msg.execName ?? '(unknown exec)'} ·{' '}
                   {replying.msg.customerName}
                 </p>
-                <p className="text-sm whitespace-pre-line">{replying.msg.message}</p>
+                <p className="text-sm whitespace-pre-line">
+                  {replying.msg.message}
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="reply-text">
@@ -158,7 +390,7 @@ export function AdminHelpInboxClient({ messages }: Props) {
                   disabled={busy}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  {(replying.text.length)} / 500 — minimum 10 chars
+                  {replying.text.length} / 500 — minimum 10 chars
                 </p>
               </div>
             </div>
@@ -190,72 +422,5 @@ export function AdminHelpInboxClient({ messages }: Props) {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function MessageCard({
-  message,
-  onReply,
-  busy,
-}: {
-  message: AdminHelpInboxRow;
-  onReply: (() => void) | null;
-  busy: boolean;
-}) {
-  return (
-    <li className="rounded-2xl border bg-card p-4 shadow-sm space-y-2">
-      <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <div>
-          <p className="text-sm font-semibold tracking-tight">
-            {message.execName ?? '(unknown exec)'}
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            on{' '}
-            <Link
-              href={`/admin/requests/${message.requestId}`}
-              className="text-primary hover:underline"
-            >
-              {message.customerName}
-            </Link>
-            {' · '}
-            {formatDistanceToNow(message.sentAt, { addSuffix: true })}
-          </p>
-        </div>
-        {message.repliedAt === null ? (
-          <Badge variant="outline" className="text-[10px] text-amber-700">
-            Pending
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px] text-emerald-700">
-            Replied
-          </Badge>
-        )}
-      </div>
-      <p className="text-sm whitespace-pre-line text-foreground/90">
-        {message.message}
-      </p>
-      {message.repliedAt && message.repliedMessage && (
-        <div className="mt-2 rounded-lg border-l-2 border-l-primary/50 bg-muted/40 px-3 py-2 space-y-0.5">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Admin replied{' '}
-            {formatDistanceToNow(message.repliedAt, { addSuffix: true })}
-          </p>
-          <p className="text-sm whitespace-pre-line">{message.repliedMessage}</p>
-        </div>
-      )}
-      {onReply && (
-        <div className="flex justify-end pt-1">
-          <Button
-            type="button"
-            size="sm"
-            onClick={onReply}
-            disabled={busy}
-          >
-            <Icon name="reply" size="xs" />
-            Reply
-          </Button>
-        </div>
-      )}
-    </li>
   );
 }

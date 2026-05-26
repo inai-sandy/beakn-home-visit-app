@@ -2,12 +2,17 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { getServerSession } from '@/lib/auth-server';
-import { loadAdminHelpInbox } from '@/lib/admin-help/actions';
+import {
+  loadAdminHelpInbox,
+  type AdminHelpDateFilter,
+} from '@/lib/admin-help/actions';
+import { computePageRange, parsePage } from '@/lib/pagination';
 
 import { AdminHelpInboxClient } from './admin-help-client';
 
 // =============================================================================
-// HVA-94: /admin/operations/admin-help — admin inbox + reply UI
+// HVA-94 + D1/D2 2026-05-26: /admin/operations/admin-help with
+// pagination + search + date chips
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -16,13 +21,32 @@ export const metadata: Metadata = {
   title: 'Admin Help Inbox — Admin',
 };
 
-export default async function AdminHelpInboxPage() {
+interface PageProps {
+  searchParams: Promise<{ page?: string; q?: string; dt?: string }>;
+}
+
+function parseDateFilter(v: string | undefined): AdminHelpDateFilter {
+  if (v === 'today' || v === 'week' || v === 'month') return v;
+  return 'all';
+}
+
+export default async function AdminHelpInboxPage({ searchParams }: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/admin/operations/admin-help');
   const user = session.user as { id: string; role?: string };
   if (user.role !== 'super_admin') redirect('/admin/dashboard');
 
-  const messages = await loadAdminHelpInbox();
+  const sp = await searchParams;
+  const page = parsePage(sp.page);
+  const search = (sp.q ?? '').trim();
+  const dateFilter = parseDateFilter(sp.dt);
+
+  const { rows, total } = await loadAdminHelpInbox({
+    page,
+    search,
+    dateFilter,
+  });
+  const pageRange = computePageRange({ page, total });
 
   return (
     <main className="min-h-svh bg-background">
@@ -36,7 +60,13 @@ export default async function AdminHelpInboxPage() {
             first. Reply once per message — there's no thread.
           </p>
         </header>
-        <AdminHelpInboxClient messages={messages} />
+        <AdminHelpInboxClient
+          messages={rows}
+          total={total}
+          pageRange={pageRange}
+          currentSearch={search}
+          currentDateFilter={dateFilter}
+        />
       </div>
     </main>
   );

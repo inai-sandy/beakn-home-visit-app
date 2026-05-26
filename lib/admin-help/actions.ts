@@ -231,8 +231,56 @@ export interface AdminHelpInboxRow {
   requestId: string;
 }
 
-export async function loadAdminHelpInbox(): Promise<AdminHelpInboxRow[]> {
-  const rows = await db
+export type AdminHelpDateFilter = 'today' | 'week' | 'month' | 'all';
+
+function dateFilterToSinceISO(filter: AdminHelpDateFilter): string | null {
+  const now = new Date();
+  if (filter === 'today') {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.toISOString();
+  }
+  if (filter === 'week') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - 7);
+    return d.toISOString();
+  }
+  if (filter === 'month') {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString();
+  }
+  return null;
+}
+
+/**
+ * Paginated + searchable + date-filtered inbox. Date filter chips along
+ * the top of the inbox UI pick a sliding-window time range; search box
+ * matches the message text + exec name + customer name.
+ */
+export async function loadAdminHelpInbox(args: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  dateFilter?: AdminHelpDateFilter;
+}): Promise<{ rows: AdminHelpInboxRow[]; total: number }> {
+  const term = args.search?.trim().toLowerCase() ?? '';
+  const since = dateFilterToSinceISO(args.dateFilter ?? 'all');
+
+  const whereConditions: ReturnType<typeof and>[] = [];
+  if (term.length > 0) {
+    whereConditions.push(
+      sql`(LOWER(${adminHelpMessages.message}) LIKE ${`%${term}%`}
+          OR LOWER(${users.fullName}) LIKE ${`%${term}%`}
+          OR LOWER(${visitRequests.customerName}) LIKE ${`%${term}%`})`,
+    );
+  }
+  if (since) {
+    whereConditions.push(sql`${adminHelpMessages.sentAt} >= ${since}`);
+  }
+  const where = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+  const baseQuery = db
     .select({
       id: adminHelpMessages.id,
       message: adminHelpMessages.message,
@@ -248,13 +296,33 @@ export async function loadAdminHelpInbox(): Promise<AdminHelpInboxRow[]> {
     .innerJoin(
       visitRequests,
       eq(visitRequests.id, adminHelpMessages.requestId),
-    )
-    .orderBy(
-      // Pending first, then newest replied.
-      sql`(${adminHelpMessages.repliedAt} IS NULL)::int DESC`,
-      desc(adminHelpMessages.sentAt),
     );
-  return rows;
+
+  const countQuery = db
+    .select({ total: sql<number>`COUNT(*)::int` })
+    .from(adminHelpMessages)
+    .innerJoin(users, eq(users.id, adminHelpMessages.execUserId))
+    .innerJoin(
+      visitRequests,
+      eq(visitRequests.id, adminHelpMessages.requestId),
+    );
+
+  const pageSize = args.pageSize ?? 20;
+  const page = Math.max(1, args.page ?? 1);
+  const offset = (page - 1) * pageSize;
+
+  const [rows, totalResult] = await Promise.all([
+    (where ? baseQuery.where(where) : baseQuery)
+      .orderBy(
+        sql`(${adminHelpMessages.repliedAt} IS NULL)::int DESC`,
+        desc(adminHelpMessages.sentAt),
+      )
+      .limit(pageSize)
+      .offset(offset),
+    where ? countQuery.where(where) : countQuery,
+  ]);
+
+  return { rows, total: totalResult[0]?.total ?? 0 };
 }
 
 /** Drives the admin sidebar "Admin Help Inbox" badge (3C-lite, no engine). */

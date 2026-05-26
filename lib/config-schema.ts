@@ -274,6 +274,8 @@ export const CONFIG_SCHEMA = {
       'admin_help_replied',
       // HVA-72 — reschedule data flow (exec + customer-initiated).
       'request_rescheduled',
+      // FIX 2026-05-26 — visit scheduling now captures a date + auto-task.
+      'visit_scheduled',
     ],
     editable: true,
   },

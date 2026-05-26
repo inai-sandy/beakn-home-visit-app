@@ -232,6 +232,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const futureStages = await db
     .select({
       id: statusStages.id,
+      code: statusStages.code,
       name: statusStages.name,
       sequenceNumber: statusStages.sequenceNumber,
     })
@@ -789,7 +790,11 @@ export default async function RequestDetailPage({ params }: PageProps) {
               {actionVis.showAdvance && (
                 <AdvanceStatusButton
                   requestId={reqRow.id}
-                  nextStatus={{ id: nextStage.id, name: nextStage.name }}
+                  nextStatus={{
+                    id: nextStage.id,
+                    code: nextStage.code,
+                    name: nextStage.name,
+                  }}
                 />
               )}
             </section>

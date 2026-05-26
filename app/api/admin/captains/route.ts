@@ -108,9 +108,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     })
     .from(cities)
     .where(inArray(cities.id, cityIds));
-  if (cityRows.length !== 2) {
+  // B1 2026-05-26 fix: lifted from cityRows.length !== 2 to compare against
+  // the input length so 1-or-2 cities are both valid per the lifted
+  // captainCreateSchema. Without this, the validator accepts 1 city but
+  // the route still hard-rejects.
+  if (cityRows.length !== cityIds.length) {
     return NextResponse.json(
-      { ok: false, error: 'One or both cities not found.' },
+      { ok: false, error: 'One or more cities not found.' },
       { status: 400 },
     );
   }

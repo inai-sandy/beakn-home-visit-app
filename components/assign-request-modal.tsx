@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,27 +22,26 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { createFetchAction } from "@/lib/api/fetch-action";
+import { useServerMutation } from "@/lib/hooks/use-server-mutation";
 
 // =============================================================================
 // HVA-139: shared "Assign Sales Executive" modal
 // =============================================================================
 //
-// Single source of truth for the assignment UX, used by three entry
-// points:
-//   - /captain/requests/unassigned         (HVA-81 row trigger)
-//   - /requests/[id]                       (HVA-139 detail-page button)
-//   - /captain/requests                    (HVA-139 inline row button)
-//
-// Posts to /api/requests/[id]/assign with { execUserId, note? }. The
-// route atomically sets assigned_exec_user_id + assigned_captain_user_id
-// + assigned_at AND transitions Submitted→Assigned inside one tx.
-//
-// Pattern is controlled: caller owns the open/closed state and supplies
-// the request id + the captain's exec list. The modal handles submit,
-// toast, router.refresh, and close (via the supplied onClose). HVA-136's
-// useTransition pattern keeps the buttons disabled across both the
-// in-flight POST and the subsequent RSC reconciliation.
+// 2026-05-26: migrated to useServerMutation via createFetchAction. Same
+// /assign API route; success toast still includes the exec name from the
+// response payload via the hook's onSuccess data callback.
 // =============================================================================
+
+const assignRequestAction = createFetchAction<
+  { requestId: string; execUserId: string; note?: string },
+  { assignedExec?: { fullName: string } }
+>({
+  urlFor: (input) => `/api/requests/${input.requestId}/assign`,
+  bodyFor: (input) =>
+    JSON.stringify({ execUserId: input.execUserId, note: input.note }),
+});
 
 export interface AssignRequestModalProps {
   requestId: string;
@@ -58,54 +56,27 @@ export function AssignRequestModal({
   open,
   onClose,
 }: AssignRequestModalProps) {
-  const router = useRouter();
   const [execId, setExecId] = useState<string>("");
   const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
-  async function onConfirm() {
-    if (!execId || busy) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/requests/${requestId}/assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ execUserId: execId, note: note || undefined }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        assignedExec?: { fullName: string };
-      };
-      if (!res.ok || !j.ok) {
-        toast.error(j.error ?? `Assignment failed (${res.status}).`);
-        return;
-      }
-      toast.success(`Assigned to ${j.assignedExec?.fullName ?? "exec"}`);
-      // Reset local state before close so re-opening the modal in the
-      // same session starts clean.
+  const { mutate, isPending: busy } = useServerMutation(assignRequestAction, {
+    onSuccess: (data) => {
+      toast.success(`Assigned to ${data?.assignedExec?.fullName ?? "exec"}`);
       setExecId("");
       setNote("");
       onClose();
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      toast.error(
-        err instanceof Error
-          ? `Network error: ${err.message}`
-          : "Network error",
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    },
+  });
+
+  function onConfirm() {
+    if (!execId || busy) return;
+    void mutate({
+      requestId,
+      execUserId: execId,
+      note: note || undefined,
+    });
   }
 
-  // Closing via Cancel / Escape / scrim-click also needs to reset the
-  // form so the next open() doesn't carry a half-filled state from a
-  // dismissed previous attempt.
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen && !busy) {
       setExecId("");

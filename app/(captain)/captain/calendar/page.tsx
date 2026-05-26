@@ -16,6 +16,8 @@ import { getIstDateString } from '@/lib/today/time';
 
 import { CalendarClient } from '@/app/(exec)/calendar/_components/CalendarClient';
 
+import { CalendarFiltersBar } from './_components/CalendarFiltersBar';
+
 // =============================================================================
 // 2026-05-26: /captain/calendar — team-wide visit + task calendar
 // =============================================================================
@@ -25,12 +27,15 @@ import { CalendarClient } from '@/app/(exec)/calendar/_components/CalendarClient
 // `loadTeamCalendarEvents` — every active exec on the captain's team,
 // dedupe rule from the exec calendar carried forward.
 //
-// Each event chip carries the assigned exec name so the captain can
-// scan "whose visit is this" without drilling in.
-//
-// View + anchor date contracts are identical to /calendar:
+// PR11 2026-05-26: + search input + exec filter alongside the existing
+// view (day/week/month) selector. URL contract:
 //   ?view=day|week|month   (default day)
 //   ?date=YYYY-MM-DD       (default today IST)
+//   ?exec=<userId>         (default 'all')
+//   ?q=<text>              (default '')
+//
+// Each event chip carries the assigned exec name so the captain can
+// scan "whose visit is this" without drilling in.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -52,7 +57,12 @@ function parseDate(v: string | undefined): string {
 }
 
 interface PageProps {
-  searchParams: Promise<{ view?: string; date?: string }>;
+  searchParams: Promise<{
+    view?: string;
+    date?: string;
+    exec?: string;
+    q?: string;
+  }>;
 }
 
 export default async function CaptainCalendarPage({ searchParams }: PageProps) {
@@ -67,6 +77,8 @@ export default async function CaptainCalendarPage({ searchParams }: PageProps) {
   const view = parseView(sp.view);
   const anchor = parseDate(sp.date);
   const anchorDate = parseISO(anchor);
+  const execFilter = sp.exec && sp.exec !== 'all' ? sp.exec : undefined;
+  const search = (sp.q ?? '').trim();
 
   // Match the exec calendar window-derivation rules exactly.
   let fromIso: string;
@@ -86,10 +98,13 @@ export default async function CaptainCalendarPage({ searchParams }: PageProps) {
   }
 
   // Super_admin currently has no team to load; show empty.
-  const events =
+  const { events, team } =
     user.role === 'super_admin'
-      ? []
-      : await loadTeamCalendarEvents(user.id, fromIso, toIso);
+      ? { events: [], team: [] as Array<{ userId: string; fullName: string }> }
+      : await loadTeamCalendarEvents(user.id, fromIso, toIso, {
+          execUserId: execFilter,
+          search,
+        });
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-5">
@@ -102,6 +117,11 @@ export default async function CaptainCalendarPage({ searchParams }: PageProps) {
           an entry to drill in.
         </p>
       </header>
+      <CalendarFiltersBar
+        team={team}
+        currentExec={execFilter ?? 'all'}
+        currentSearch={search}
+      />
       <CalendarClient
         view={view}
         anchorIso={anchor}

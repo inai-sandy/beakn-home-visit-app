@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useMemo, useState, useTransition } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -22,6 +23,63 @@ import { maskCustomerPhone } from '@/lib/format/phone';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { InlineApprovalButtons } from '../inline-approval-buttons';
+
+// Small pagination nav, kept in-file because it's only used here. If
+// the approvals list ever splits across multiple paginated lists, lift
+// to a shared component.
+function ApprovalsPaginationNav({
+  pageRange,
+}: {
+  pageRange: import('@/lib/pagination').PageRange;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  function go(toPage: number) {
+    const next = new URLSearchParams(searchParams?.toString() ?? '');
+    if (toPage <= 1) next.delete('page');
+    else next.set('page', String(toPage));
+    const qs = next.toString();
+    startTransition(() =>
+      router.push(
+        qs.length > 0 ? `/captain/approvals?${qs}` : '/captain/approvals',
+      ),
+    );
+  }
+
+  return (
+    <nav
+      className="flex items-center justify-between gap-2 pt-2"
+      aria-label="Approvals pagination"
+    >
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => go(pageRange.page - 1)}
+        disabled={pageRange.page <= 1}
+      >
+        <Icon name="chevron_left" size="xs" />
+        Previous
+      </Button>
+      <p className="text-[11px] text-muted-foreground tabular-nums">
+        Page {pageRange.page} of {pageRange.totalPages} · Showing{' '}
+        {pageRange.from}–{pageRange.to} of {pageRange.total}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => go(pageRange.page + 1)}
+        disabled={pageRange.page >= pageRange.totalPages}
+      >
+        Next
+        <Icon name="chevron_right" size="xs" />
+      </Button>
+    </nav>
+  );
+}
 
 // Lightweight checkbox — avoids adding a new shadcn primitive for one
 // usage. Native input styled to match the rest of the form-control
@@ -79,9 +137,10 @@ export interface ApprovalRowDTO {
 
 interface Props {
   rows: ApprovalRowDTO[];
+  pageRange?: import('@/lib/pagination').PageRange;
 }
 
-export function ApprovalsListClient({ rows }: Props) {
+export function ApprovalsListClient({ rows, pageRange }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [note, setNote] = useState('');
@@ -251,6 +310,10 @@ export function ApprovalsListClient({ rows }: Props) {
           );
         })}
       </ul>
+
+      {pageRange && pageRange.totalPages > 1 && (
+        <ApprovalsPaginationNav pageRange={pageRange} />
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={(o) => !bulkBusy && setDialogOpen(o)}>
         <DialogContent className="sm:max-w-md">

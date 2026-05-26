@@ -38,16 +38,19 @@ const emailField = z
 
 const uuidField = z.string().uuid();
 
-// CAPTAIN: city ids are required exactly 2 (per spec §9). Schema doesn't
-// enforce uniqueness across captains here — server checks "city not
-// already assigned to another active captain" at INSERT.
+// CAPTAIN: 1-or-2 cities allowed per Sandeep 2026-05-26. Original spec
+// said exactly 2 but in practice some captains start with one city + a
+// city is added later (or some cities are temporarily handled by one
+// captain only). 0 is still disallowed at creation — a captain with no
+// cities can't actually do anything.
 export const captainCreateSchema = z.object({
   fullName: fullNameField,
   phone: phoneField,
   email: emailField,
   cityIds: z
     .array(uuidField)
-    .length(2, 'Exactly 2 cities must be assigned')
+    .min(1, 'Assign at least 1 city')
+    .max(2, 'A captain can own at most 2 cities')
     .refine((ids) => new Set(ids).size === ids.length, {
       message: 'Cities must be distinct',
     }),

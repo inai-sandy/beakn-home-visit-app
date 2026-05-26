@@ -56,24 +56,53 @@ export interface OtherCityRequestRow {
 }
 
 /**
- * Returns Other-bucket requests currently in Submitted (not yet routed).
- * Sorted oldest-first so the admin handles the longest-waiting requests
- * first.
+ * Returns paginated Other-bucket requests currently in Submitted (not yet
+ * routed), plus the total count for pagination. Sorted oldest-first so
+ * the admin handles the longest-waiting requests first. Optional `search`
+ * narrows on customer name + phone + state + address (case-insensitive
+ * substring match).
  */
-export async function loadOtherCityQueue(): Promise<OtherCityRequestRow[]> {
+export async function loadOtherCityQueue(args: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+}): Promise<{ rows: OtherCityRequestRow[]; total: number }> {
   const [otherCity] = await db
     .select({ id: cities.id })
     .from(cities)
     .where(eq(cities.name, 'Other'))
     .limit(1);
-  if (!otherCity) return [];
+  if (!otherCity) return { rows: [], total: 0 };
 
   const [submittedStage] = await db
     .select({ id: statusStages.id })
     .from(statusStages)
     .where(eq(statusStages.code, 'SUBMITTED'))
     .limit(1);
-  if (!submittedStage) return [];
+  if (!submittedStage) return { rows: [], total: 0 };
+
+  const term = args.search?.trim().toLowerCase() ?? '';
+  const baseWhere = and(
+    eq(visitRequests.cityId, otherCity.id),
+    eq(visitRequests.statusStageId, submittedStage.id),
+    isNull(visitRequests.cancelledAt),
+    isNull(visitRequests.assignedCaptainUserId),
+    term.length > 0
+      ? sql`(LOWER(${visitRequests.customerName}) LIKE ${`%${term}%`}
+            OR LOWER(${visitRequests.customerPhone}) LIKE ${`%${term}%`}
+            OR LOWER(COALESCE(${visitRequests.customerState}, '')) LIKE ${`%${term}%`}
+            OR LOWER(${visitRequests.address}) LIKE ${`%${term}%`})`
+      : sql`TRUE`,
+  );
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`COUNT(*)::int` })
+    .from(visitRequests)
+    .where(baseWhere);
+
+  const pageSize = args.pageSize ?? 20;
+  const page = Math.max(1, args.page ?? 1);
+  const offset = (page - 1) * pageSize;
 
   const rows = await db
     .select({
@@ -88,20 +117,15 @@ export async function loadOtherCityQueue(): Promise<OtherCityRequestRow[]> {
       createdAt: visitRequests.createdAt,
     })
     .from(visitRequests)
-    .where(
-      and(
-        eq(visitRequests.cityId, otherCity.id),
-        eq(visitRequests.statusStageId, submittedStage.id),
-        isNull(visitRequests.cancelledAt),
-        isNull(visitRequests.assignedCaptainUserId),
-      ),
-    )
-    .orderBy(visitRequests.createdAt);
+    .where(baseWhere)
+    .orderBy(visitRequests.createdAt)
+    .limit(pageSize)
+    .offset(offset);
 
-  return rows.map((r) => ({
-    ...r,
-    interest: r.interest ?? [],
-  }));
+  return {
+    rows: rows.map((r) => ({ ...r, interest: r.interest ?? [] })),
+    total,
+  };
 }
 
 /** Active captains, ordered by name. Drives the routing dropdown. */

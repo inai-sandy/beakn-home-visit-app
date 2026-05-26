@@ -1,7 +1,7 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -29,6 +30,7 @@ import {
   routeOtherCityRequestAction,
   type OtherCityRequestRow,
 } from '@/lib/admin/other-city-queue';
+import type { PageRange } from '@/lib/pagination';
 
 interface Captain {
   id: string;
@@ -38,6 +40,9 @@ interface Captain {
 interface Props {
   requests: OtherCityRequestRow[];
   captains: Captain[];
+  total: number;
+  pageRange: PageRange;
+  currentSearch: string;
 }
 
 interface ModalState {
@@ -46,12 +51,45 @@ interface ModalState {
   reason: string;
 }
 
-export function OtherCityQueueClient({ requests, captains }: Props) {
+export function OtherCityQueueClient({
+  requests,
+  captains,
+  total,
+  pageRange,
+  currentSearch,
+}: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [modal, setModal] = useState<ModalState | null>(null);
+  const [searchInput, setSearchInput] = useState(currentSearch);
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
+
+  // Debounced search → URL ?q=
+  useEffect(() => {
+    const term = searchInput.trim();
+    if (term === currentSearch) return;
+    const handle = setTimeout(() => {
+      const next = new URLSearchParams(searchParams?.toString() ?? '');
+      if (term.length > 0) next.set('q', term);
+      else next.delete('q');
+      next.delete('page'); // reset to page 1 on new search
+      startTransition(() =>
+        router.push(`/admin/operations/other-city?${next.toString()}`),
+      );
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput, currentSearch, router, searchParams]);
+
+  function goToPage(page: number) {
+    const next = new URLSearchParams(searchParams?.toString() ?? '');
+    if (page === 1) next.delete('page');
+    else next.set('page', String(page));
+    startTransition(() =>
+      router.push(`/admin/operations/other-city?${next.toString()}`),
+    );
+  }
 
   async function onConfirm() {
     if (!modal || busy) return;
@@ -78,30 +116,67 @@ export function OtherCityQueueClient({ requests, captains }: Props) {
     }
   }
 
+  const searchBar = (
+    <div className="relative">
+      <Icon
+        name="search"
+        size="sm"
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        type="search"
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+        placeholder="Search by name / phone / state / address"
+        className="h-11 pl-9"
+        aria-label="Search Other-city queue"
+      />
+    </div>
+  );
+
+  if (total === 0 && currentSearch.length === 0) {
+    return (
+      <div className="space-y-4">
+        {searchBar}
+        <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
+          <Icon
+            name="priority_high"
+            size="lg"
+            className="text-muted-foreground/50 mx-auto mb-3"
+            aria-hidden
+          />
+          <h2 className="text-base font-semibold tracking-tight">
+            No Other-city requests in queue
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+            New requests from cities outside the service area land here. The
+            queue is empty right now.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (requests.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed bg-card/50 p-12 text-center">
-        <Icon
-          name="priority_high"
-          size="lg"
-          className="text-muted-foreground/50 mx-auto mb-3"
-          aria-hidden
-        />
-        <h2 className="text-base font-semibold tracking-tight">
-          No Other-city requests in queue
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-          New requests from cities outside the service area land here. The
-          queue is empty right now.
-        </p>
+      <div className="space-y-4">
+        {searchBar}
+        <div className="rounded-2xl border border-dashed bg-card/50 p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            No Other-city requests match "{currentSearch}".
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {searchBar}
       <p className="text-sm text-muted-foreground">
-        {requests.length} pending request{requests.length === 1 ? '' : 's'}
+        Showing {pageRange.from}–{pageRange.to} of {total} pending request
+        {total === 1 ? '' : 's'}
       </p>
       <ul className="space-y-3">
         {requests.map((r) => (
@@ -164,6 +239,37 @@ export function OtherCityQueueClient({ requests, captains }: Props) {
           </li>
         ))}
       </ul>
+
+      {pageRange.totalPages > 1 && (
+        <nav
+          className="flex items-center justify-between gap-2 pt-2"
+          aria-label="Pagination"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => goToPage(pageRange.page - 1)}
+            disabled={pageRange.page <= 1 || isPending}
+          >
+            <Icon name="chevron_left" size="xs" />
+            Previous
+          </Button>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            Page {pageRange.page} of {pageRange.totalPages}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => goToPage(pageRange.page + 1)}
+            disabled={pageRange.page >= pageRange.totalPages || isPending}
+          >
+            Next
+            <Icon name="chevron_right" size="xs" />
+          </Button>
+        </nav>
+      )}
 
       <Dialog
         open={modal !== null}

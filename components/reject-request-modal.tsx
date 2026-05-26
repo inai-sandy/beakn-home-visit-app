@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +15,8 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { createFetchAction } from "@/lib/api/fetch-action";
+import { useServerMutation } from "@/lib/hooks/use-server-mutation";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -24,12 +25,23 @@ import { cn } from "@/lib/utils";
 //
 // Captain (or super_admin) sends the request back from
 // PENDING_CAPTAIN_APPROVAL to INSTALLATION_SCHEDULED. Reason is
-// MANDATORY (50–500 chars) — the assigned exec needs to know what to
-// fix before re-advancing. HVA-136 useTransition pattern baked in.
+// MANDATORY (50–500 chars).
+//
+// 2026-05-26: migrated from hand-rolled useTransition to useServerMutation
+// via the new createFetchAction wrapper. Same /reject API route, same
+// behaviour — the refresh-required pattern now lives in one place.
 // =============================================================================
 
 const REASON_MIN = 50;
 const REASON_MAX = 500;
+
+const rejectRequestAction = createFetchAction<{
+  requestId: string;
+  reason: string;
+}>({
+  urlFor: (input) => `/api/requests/${input.requestId}/reject`,
+  bodyFor: (input) => JSON.stringify({ reason: input.reason }),
+});
 
 export interface RejectRequestModalProps {
   requestId: string;
@@ -44,55 +56,30 @@ export function RejectRequestModal({
   open,
   onClose,
 }: RejectRequestModalProps) {
-  const router = useRouter();
   const [reason, setReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
+
+  const { mutate, isPending: busy } = useServerMutation(rejectRequestAction, {
+    onSuccess: () => {
+      toast.success(
+        `Sent ${customerName}'s order back to Installation Scheduled.`,
+      );
+      setReason("");
+      onClose();
+    },
+    onError: (err) => setGeneralError(err),
+    suppressErrorToast: false,
+  });
 
   const trimmed = reason.trim();
   const reasonValid =
     trimmed.length >= REASON_MIN && trimmed.length <= REASON_MAX;
   const canSubmit = !busy && reasonValid;
 
-  async function onConfirm() {
+  function onConfirm() {
     if (!canSubmit) return;
-    setSubmitting(true);
     setGeneralError(null);
-    try {
-      const res = await fetch(`/api/requests/${requestId}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: trimmed }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-      };
-      if (!res.ok || !j.ok) {
-        setGeneralError(
-          j.message ?? j.error ?? `Rejection failed (${res.status}).`,
-        );
-        toast.error(j.message ?? j.error ?? "Could not request changes.");
-        return;
-      }
-      toast.success(
-        `Sent ${customerName}'s order back to Installation Scheduled.`,
-      );
-      setReason("");
-      onClose();
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      setGeneralError(
-        err instanceof Error ? `Network error: ${err.message}` : "Network error",
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    void mutate({ requestId, reason: trimmed });
   }
 
   function handleOpenChange(nextOpen: boolean) {

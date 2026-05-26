@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,19 +15,27 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { createFetchAction } from "@/lib/api/fetch-action";
+import { useServerMutation } from "@/lib/hooks/use-server-mutation";
 
 // =============================================================================
 // HVA-137: shared "Approve & complete order" modal
 // =============================================================================
 //
-// Captain (or super_admin) confirms approval at PENDING_CAPTAIN_APPROVAL.
-// Optional note (≤ 500 chars). On confirm posts to
-// /api/requests/[id]/approve and refreshes — HVA-136 useTransition
-// pattern holds the buttons disabled across both the POST and the RSC
-// reconciliation. Used from both /requests/[id] and /captain/approvals.
+// 2026-05-26: migrated to useServerMutation via createFetchAction.
+// Same /approve API route + behaviour as before.
 // =============================================================================
 
 const NOTE_MAX = 500;
+
+const approveRequestAction = createFetchAction<{
+  requestId: string;
+  note?: string;
+}>({
+  urlFor: (input) => `/api/requests/${input.requestId}/approve`,
+  bodyFor: (input) =>
+    JSON.stringify(input.note ? { note: input.note } : {}),
+});
 
 export interface ApproveRequestModalProps {
   requestId: string;
@@ -43,49 +50,23 @@ export function ApproveRequestModal({
   open,
   onClose,
 }: ApproveRequestModalProps) {
-  const router = useRouter();
   const [note, setNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [generalError, setGeneralError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const busy = submitting || isPending;
 
-  async function onConfirm() {
-    if (busy) return;
-    setSubmitting(true);
-    setGeneralError(null);
-    try {
-      const trimmed = note.trim();
-      const res = await fetch(`/api/requests/${requestId}/approve`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(trimmed === "" ? {} : { note: trimmed }),
-      });
-      const j = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        message?: string;
-      };
-      if (!res.ok || !j.ok) {
-        setGeneralError(
-          j.message ?? j.error ?? `Approval failed (${res.status}).`,
-        );
-        toast.error(j.message ?? j.error ?? "Could not approve.");
-        return;
-      }
+  const { mutate, isPending: busy } = useServerMutation(approveRequestAction, {
+    onSuccess: () => {
       toast.success(`Approved ${customerName}'s order.`);
       setNote("");
       onClose();
-      startTransition(() => {
-        router.refresh();
-      });
-    } catch (err) {
-      setGeneralError(
-        err instanceof Error ? `Network error: ${err.message}` : "Network error",
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    },
+    onError: (err) => setGeneralError(err),
+  });
+
+  function onConfirm() {
+    if (busy) return;
+    setGeneralError(null);
+    const trimmed = note.trim();
+    void mutate({ requestId, note: trimmed === "" ? undefined : trimmed });
   }
 
   function handleOpenChange(nextOpen: boolean) {

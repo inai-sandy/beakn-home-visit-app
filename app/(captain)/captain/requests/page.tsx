@@ -98,6 +98,7 @@ export default async function CaptainRequestsListPage({
       : undefined;
 
   const { rows, total, bucketCounts } = await fetchCaptainRequests({
+    captainUserId: isAdmin ? undefined : actor.id,
     cityIds: myCityIds,
     isSuperAdmin: isAdmin,
     bucket: activeBucket,

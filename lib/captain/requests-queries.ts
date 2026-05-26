@@ -9,6 +9,7 @@ import {
   emptyBucketCounts,
   type CaptainRequestBucket,
 } from '@/lib/captain/request-buckets';
+import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
 import { computePageRange, DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 import type { RequestRow } from '@/components/requests/types';
@@ -32,7 +33,11 @@ import type { RequestRow } from '@/components/requests/types';
 // =============================================================================
 
 export interface FetchRequestsParams {
-  /** Captain's city scope. Pass [] for super_admin (skips the scope filter entirely). */
+  /** Captain's own user id (used for team-scope visibility). */
+  captainUserId?: string;
+  /** Captain's city scope — used as the unaccepted-but-pending-in-my-cities
+   *  fallback in the team-scope visibility helper. Pass [] for super_admin
+   *  (skips the scope filter entirely). */
   cityIds: string[];
   isSuperAdmin: boolean;
   bucket: CaptainRequestBucket;
@@ -154,6 +159,7 @@ export async function fetchCaptainRequests(
  * count rollup uses the *exact* same scope filter as the row query.
  */
 export function buildRequestsScopeWhere(params: {
+  captainUserId?: string;
   cityIds: string[];
   isSuperAdmin: boolean;
   search?: string;
@@ -162,9 +168,23 @@ export function buildRequestsScopeWhere(params: {
 }) {
   const clauses: ReturnType<typeof eq>[] = [];
 
-  // Scope. Captain limited to own cities; super_admin unscoped.
+  // 2026-05-26 team-scope: captain sees requests they accepted
+  // (assigned_captain_user_id = me) PLUS unassigned-but-pending-in-my-
+  // cities (so newly submitted requests in owned cities are still
+  // discoverable). City-only matches where another captain accepted
+  // are excluded. Super_admin remains unscoped. Legacy callers
+  // (existing tests) that don't supply captainUserId fall back to
+  // pure city scope so we don't break the test surface.
   if (!params.isSuperAdmin) {
-    clauses.push(inArray(visitRequests.cityId, params.cityIds));
+    if (params.captainUserId) {
+      clauses.push(
+        buildCaptainRequestVisibilityWhere(params.captainUserId, {
+          captainCityIds: params.cityIds,
+        }),
+      );
+    } else {
+      clauses.push(inArray(visitRequests.cityId, params.cityIds));
+    }
   }
 
   if (params.cityFilter) {

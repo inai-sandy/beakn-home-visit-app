@@ -14,9 +14,14 @@ import type { PageRange } from '@/lib/pagination';
 
 interface Props {
   pageRange: PageRange;
+  /** PR13 2026-05-27: customizable for the exec finance page (/finance). */
+  basePath?: string;
 }
 
-export function FinanceListPaginationNav({ pageRange }: Props) {
+export function FinanceListPaginationNav({
+  pageRange,
+  basePath = '/captain/collections',
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -27,9 +32,7 @@ export function FinanceListPaginationNav({ pageRange }: Props) {
     else next.set('page', String(toPage));
     const qs = next.toString();
     startTransition(() =>
-      router.push(
-        qs.length > 0 ? `/captain/collections?${qs}` : '/captain/collections',
-      ),
+      router.push(qs.length > 0 ? `${basePath}?${qs}` : basePath),
     );
   }
 

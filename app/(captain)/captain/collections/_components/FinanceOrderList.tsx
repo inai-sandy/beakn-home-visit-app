@@ -59,6 +59,8 @@ interface Props {
   pageRange: PageRange;
   section: FinanceSection;
   currentSort: FinanceListSort;
+  /** PR13 2026-05-27: customizable basePath for the exec finance page. */
+  basePath?: string;
 }
 
 export function FinanceOrderList({
@@ -66,6 +68,7 @@ export function FinanceOrderList({
   pageRange,
   section,
   currentSort,
+  basePath = '/captain/collections',
 }: Props) {
   if (pageRange.total === 0) {
     return (
@@ -103,7 +106,7 @@ export function FinanceOrderList({
             Showing {pageRange.from}–{pageRange.to} of {pageRange.total}
           </p>
         </div>
-        <FinanceListSortToggle currentSort={currentSort} />
+        <FinanceListSortToggle currentSort={currentSort} basePath={basePath} />
       </header>
 
       {/* Mobile cards */}
@@ -238,7 +241,10 @@ export function FinanceOrderList({
 
       {pageRange.totalPages > 1 && (
         <div className="px-5 py-3 border-t">
-          <FinanceListPaginationNav pageRange={pageRange} />
+          <FinanceListPaginationNav
+            pageRange={pageRange}
+            basePath={basePath}
+          />
         </div>
       )}
     </section>

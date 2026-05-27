@@ -610,6 +610,8 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </header>
           <CopyTrackingLink
             url={`${trackingBaseUrl}/track/${reqRow.trackingToken}`}
+            shareTitle={`Track your Beakn visit — ${reqRow.customerName}`}
+            shareText={`Hi ${reqRow.customerName}, here's the link to track your Beakn visit request.`}
           />
         </section>
 

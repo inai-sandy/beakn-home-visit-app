@@ -83,12 +83,14 @@ interface Props {
 }
 
 export function FinanceSnapshot({ snapshot }: Props) {
-  const { orderBook, pipeline, receivedPaise, outstandingPaise } = snapshot;
+  const { orderBook, pipeline, receivedPaise, totalQuotedPaise, outstandingPaise } =
+    snapshot;
 
   const collectionPct =
-    orderBook.totalPaise > 0
-      ? Math.round((receivedPaise / orderBook.totalPaise) * 100)
+    totalQuotedPaise > 0
+      ? Math.round((receivedPaise / totalQuotedPaise) * 100)
       : 0;
+  const totalQuoteCount = orderBook.count + pipeline.count;
 
   return (
     <section
@@ -113,9 +115,9 @@ export function FinanceSnapshot({ snapshot }: Props) {
         label="Received"
         amountPaise={receivedPaise}
         subline={
-          orderBook.totalPaise > 0
-            ? `${collectionPct}% of Order Book collected`
-            : 'No order book yet'
+          totalQuotedPaise > 0
+            ? `${collectionPct}% of total quoted collected`
+            : 'No quotations yet'
         }
         icon="account_balance_wallet"
         tone="emerald"
@@ -128,7 +130,7 @@ export function FinanceSnapshot({ snapshot }: Props) {
             ? 'Credit owed to customer'
             : outstandingPaise === 0
               ? 'Fully collected'
-              : `Across ${orderBook.count} order${orderBook.count === 1 ? '' : 's'}`
+              : `Across ${totalQuoteCount} quote${totalQuoteCount === 1 ? '' : 's'}`
         }
         icon={outstandingPaise < 0 ? 'sync_alt' : 'hourglass_top'}
         tone="rose"

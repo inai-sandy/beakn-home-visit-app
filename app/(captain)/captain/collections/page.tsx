@@ -11,6 +11,7 @@ import {
   loadFinanceOrderList,
   loadFinanceSnapshot,
   loadFinanceTeamRoster,
+  parseFinanceListSort,
   parseFinanceSection,
 } from '@/lib/captain/finance-queries';
 import { parsePage } from '@/lib/pagination';
@@ -61,6 +62,7 @@ interface PageProps {
     city?: string;
     q?: string;
     page?: string;
+    sort?: string;
   }>;
 }
 
@@ -79,6 +81,7 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
   const cityFilter = sp.city && sp.city !== 'all' ? sp.city : undefined;
   const search = (sp.q ?? '').trim();
   const page = parsePage(sp.page);
+  const sort = parseFinanceListSort(sp.sort);
 
   const [snapshot, buckets, list, team, captainCities] = await Promise.all([
     loadFinanceSnapshot({
@@ -103,6 +106,7 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
       cityFilter,
       search,
       page,
+      sort,
     }),
     loadFinanceTeamRoster(user.id, isAdmin),
     isAdmin ? Promise.resolve([]) : loadCaptainCities(user.id),
@@ -158,6 +162,7 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
           rows={list.rows}
           pageRange={list.pageRange}
           section={section}
+          currentSort={sort}
         />
       </div>
     </main>

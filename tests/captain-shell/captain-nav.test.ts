@@ -71,7 +71,7 @@ describe('HVA-152: shared captain nav config', () => {
         {
           "href": "/captain/collections",
           "icon": "payments",
-          "label": "Pending Collections",
+          "label": "Finance",
         },
         {
           "href": "/captain/reports",
@@ -160,7 +160,7 @@ describe('HVA-152: resolveCaptainPageTitle', () => {
     expect(resolveCaptainPageTitle('/captain/dashboard')).toBe('Dashboard');
     expect(resolveCaptainPageTitle('/captain/requests')).toBe('Requests');
     expect(resolveCaptainPageTitle('/captain/approvals')).toBe('Pending Approvals');
-    expect(resolveCaptainPageTitle('/captain/collections')).toBe('Pending Collections');
+    expect(resolveCaptainPageTitle('/captain/collections')).toBe('Finance');
   });
 
   it('descendant pathnames resolve to the parent label', () => {

@@ -202,10 +202,23 @@ describe('Test #1 — loadTeamPerformance aggregates across team', () => {
     await insertTask({ execId: execB.id, dayPlanId: planB.id, taskType: 'Outlet visit', status: 'completed' });
     await insertTask({ execId: execB.id, dayPlanId: planB.id, taskType: 'Sales pitch', status: 'postponed' });
 
-    // One inbound payment each.
-    const req = await seedVisitRequest({ cityId: city.id, statusStageCode: 'SUBMITTED' });
-    await insertInboundPayment({ visitRequestId: req.id, execId: execA.id, amountPaise: 50_000_00 });
-    await insertInboundPayment({ visitRequestId: req.id, execId: execB.id, amountPaise: 25_000_00 });
+    // One inbound payment each. PR12-FIX4 (2026-05-27): captain
+    // dashboard attribution moved from `recorded_by_user_id` to
+    // `visit_request.assigned_exec_user_id`. Tests now seed one
+    // request per exec so each payment lands on the right exec via
+    // the visit-request join.
+    const reqA = await seedVisitRequest({
+      cityId: city.id,
+      statusStageCode: 'SUBMITTED',
+      assignedExecUserId: execA.id,
+    });
+    const reqB = await seedVisitRequest({
+      cityId: city.id,
+      statusStageCode: 'SUBMITTED',
+      assignedExecUserId: execB.id,
+    });
+    await insertInboundPayment({ visitRequestId: reqA.id, execId: execA.id, amountPaise: 50_000_00 });
+    await insertInboundPayment({ visitRequestId: reqB.id, execId: execB.id, amountPaise: 25_000_00 });
 
     const perf = await loadTeamPerformance(captain.id, todayFilter);
 

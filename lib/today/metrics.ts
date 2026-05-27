@@ -137,15 +137,22 @@ export async function loadDayCloseMetrics(args: {
   //    outbound rows (refunds carry a negative meaning; the "amount
   //    collected" metric is gross inbound).
   // -------------------------------------------------------------------------
+  // 2026-05-27 fix: attribute "Revenue today" to the request's assigned
+  // exec, not the clicker. If a captain or admin records a payment on
+  // behalf of the exec, it should still land in the exec's hero metric.
+  // The visit-request join + assignedExecUserId predicate makes the
+  // attribution match real-world ownership.
   const [paymentAgg] = await db
     .select({
       total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
       cnt: sqlBuilder<number>`COUNT(*)::int`,
     })
     .from(payments)
+    .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
     .where(
       and(
-        eq(payments.recordedByUserId, execUserId),
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
         eq(payments.paymentDate, istDateStr),
         eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),

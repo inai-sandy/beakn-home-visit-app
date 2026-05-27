@@ -192,12 +192,17 @@ async function loadWindowAggregates(args: {
         ),
       )
       .groupBy(tasks.status, tasks.taskType),
+    // 2026-05-27: attribute quotations to the request's assigned exec,
+    // not whoever clicked Submit. Captain-submitted quotations on
+    // behalf of an exec correctly count toward the team total now.
     db
       .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
       .from(quotations)
+      .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
       .where(
         and(
-          inArray(quotations.submittedByUserId, execIds as string[]),
+          inArray(visitRequests.assignedExecUserId, execIds as string[]),
+          isNull(visitRequests.cancelledAt),
           sqlBuilder`${quotations.submittedAt}::date >= ${from}::date`,
           sqlBuilder`${quotations.submittedAt}::date <= ${to}::date`,
         ),
@@ -759,24 +764,31 @@ export async function loadTeamExecStatuses(
     )
     .groupBy(tasks.execUserId, tasks.status, tasks.taskType);
 
+  // 2026-05-27: per-exec collections roll up by the request's assigned
+  // exec (not the clicker). Captain or admin recording on behalf still
+  // lands in the right exec's bucket.
   const paymentRows = await db
     .select({
-      execUserId: payments.recordedByUserId,
+      execUserId: visitRequests.assignedExecUserId,
       total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
     })
     .from(payments)
+    .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
     .where(
       and(
-        inArray(payments.recordedByUserId, execIds),
+        inArray(visitRequests.assignedExecUserId, execIds),
+        isNull(visitRequests.cancelledAt),
         gte(payments.paymentDate, from),
         lte(payments.paymentDate, to),
         eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
       ),
     )
-    .groupBy(payments.recordedByUserId);
+    .groupBy(visitRequests.assignedExecUserId);
   const collectionsByExec = new Map(
-    paymentRows.map((p) => [p.execUserId, Number(p.total ?? 0)]),
+    paymentRows
+      .filter((p): p is { execUserId: string; total: string | null } => p.execUserId !== null)
+      .map((p) => [p.execUserId, Number(p.total ?? 0)]),
   );
 
   // Overdue is always reference-to-today, regardless of selected window

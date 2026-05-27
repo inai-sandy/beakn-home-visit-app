@@ -162,16 +162,22 @@ export async function loadDayCloseMetrics(args: {
   const inboundPaymentCount = paymentAgg?.cnt ?? 0;
 
   // -------------------------------------------------------------------------
-  // 3. Quotations submitted today (Δ3 — using submittedAt + submittedByUserId).
+  // 3. Quotations submitted today
   // -------------------------------------------------------------------------
+  // 2026-05-27: attribute via visit_request.assigned_exec_user_id, not
+  // quotations.submitted_by_user_id. If a captain or admin submits a
+  // quotation on behalf of the exec, the exec should still see it on
+  // their hero. Same attribution model as Revenue today.
   const [quotationAgg] = await db
     .select({
       cnt: sqlBuilder<number>`COUNT(*)::int`,
     })
     .from(quotations)
+    .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
     .where(
       and(
-        eq(quotations.submittedByUserId, execUserId),
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
         sqlBuilder`${quotations.submittedAt}::date = ${istDateStr}::date`,
       ),
     );

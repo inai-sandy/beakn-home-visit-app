@@ -17,6 +17,7 @@ import { parsePage } from '@/lib/pagination';
 
 import { FinanceAgingBuckets } from './_components/FinanceAgingBuckets';
 import { FinanceFiltersBar } from './_components/FinanceFiltersBar';
+import { FinanceMethodologyNote } from './_components/FinanceMethodologyNote';
 import { FinanceOrderList } from './_components/FinanceOrderList';
 import { FinanceSnapshot } from './_components/FinanceSnapshot';
 
@@ -138,6 +139,8 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
         </header>
 
         <FinanceSnapshot snapshot={snapshot} />
+
+        <FinanceMethodologyNote />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <FinanceAgingBuckets buckets={buckets} />

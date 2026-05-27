@@ -8,6 +8,7 @@ import {
   ilike,
   inArray,
   isNull,
+  lt,
   lte,
   ne,
   sql,
@@ -28,33 +29,44 @@ import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
 import { computePageRange, DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 // =============================================================================
-// PR12 2026-05-26: captain finance dashboard queries
+// PR12 2026-05-26 (revised 2026-05-27): captain finance dashboard queries
 // =============================================================================
 //
-// Two financial axes per request:
+// Two financial axes per request, both keyed by the EXISTENCE of a
+// quotation row — not the status stage. The earlier scope (Pipeline =
+// exact QUOTATION_GIVEN, Order Book = >= ORDER_CONFIRMED) silently
+// dropped any quotation saved before the request had advanced past
+// VISIT_SCHEDULED. Field reality: execs save the quotation at the
+// customer's home before the system moves the stage forward, so a
+// freshly-quoted ₹25,000 request at VISIT_SCHEDULED was invisible.
 //
-//   Quotation Pipeline = quotation exists AND status = QUOTATION_GIVEN
-//                        (seq 5). Captain treats this as "potential
-//                        revenue not yet committed by the customer."
+//   Quotation Pipeline = quotation exists AND sequence_number < 6
+//                        (i.e. SUBMITTED..QUOTATION_GIVEN). "Money in
+//                        motion, customer hasn't confirmed yet."
 //
-//   Order Book         = quotation exists AND status >= ORDER_CONFIRMED
-//                        (seq 6 through 10). Customer signed off; the
-//                        money WILL come.
+//   Order Book         = quotation exists AND sequence_number >= 6
+//                        (ORDER_CONFIRMED..ORDER_EXECUTED_SUCCESSFULLY).
+//                        "Customer confirmed; money is committed."
 //
 // Both sets exclude cancelled requests. Quotation-less requests aren't
 // in scope (no money figure yet). Voided payments are excluded from
 // totals via payments.voided_at IS NULL.
 //
+// Received counts ALL inbound − outbound payments on quoted requests
+// regardless of stage. Field execs collect deposits against pre-
+// confirmation quotes (₹5,000 against a ₹25,000 quote at
+// VISIT_SCHEDULED, per the 2026-05-27 walk). Restricting Received to
+// >= ORDER_CONFIRMED would hide those deposits.
+//
+// Outstanding = (Order Book + Pipeline) − Received. Can go negative
+// when refunds exceed inbound (customer has credit). The UI surfaces
+// that as "credit owed" rather than flooring to 0.
+//
 // Captain scope follows the existing team-scope rule
 // (lib/captain/team-scope.ts) — super_admin sees the unrestricted set.
-//
-// Outstanding can go NEGATIVE when refunds exceed inbound (customer
-// has credit). The UI surfaces that as "credit owed" rather than
-// flooring to 0.
 // =============================================================================
 
 const ORDER_BOOK_MIN_SEQ = 6; // ORDER_CONFIRMED and beyond
-const QUOTATION_PIPELINE_SEQ = 5; // QUOTATION_GIVEN exactly
 
 export type FinanceSection = 'all' | 'order_book' | 'pipeline';
 
@@ -66,11 +78,14 @@ export function parseFinanceSection(raw: unknown): FinanceSection {
 export interface FinanceSnapshot {
   orderBook: { totalPaise: number; count: number };
   pipeline: { totalPaise: number; count: number };
-  /** Net inbound − net outbound on Order Book rows only (pipeline isn't
-   *  paid yet by definition). Voided excluded. Can be > orderBook when
-   *  refunds outpace inbound — surfaced as negative outstanding. */
+  /** Net inbound − net outbound on ALL quoted requests (pipeline +
+   *  order book), voided excluded. Pre-confirmation deposits count
+   *  toward Received. Can exceed total quoted when refunds outpace
+   *  inbound — surfaced as negative outstanding. */
   receivedPaise: number;
-  /** Outstanding = orderBook − received. Can be negative ("credit owed"). */
+  /** Total of (order book + pipeline) value. */
+  totalQuotedPaise: number;
+  /** Outstanding = totalQuoted − received. Can be negative ("credit owed"). */
   outstandingPaise: number;
 }
 
@@ -146,10 +161,15 @@ function sectionPredicate(section: FinanceSection) {
     return gte(statusStages.sequenceNumber, ORDER_BOOK_MIN_SEQ);
   }
   if (section === 'pipeline') {
-    return eq(statusStages.sequenceNumber, QUOTATION_PIPELINE_SEQ);
+    // 2026-05-27 fix: anything BEFORE ORDER_CONFIRMED with a quotation
+    // counts as pipeline. Previous version required exact
+    // QUOTATION_GIVEN and silently dropped quotations saved at earlier
+    // stages (the live Singham case — seq=3 VISIT_SCHEDULED).
+    return lt(statusStages.sequenceNumber, ORDER_BOOK_MIN_SEQ);
   }
-  // 'all' = pipeline (5) + order book (6+) — i.e. quotation exists.
-  return gte(statusStages.sequenceNumber, QUOTATION_PIPELINE_SEQ);
+  // 'all' = every quoted request. The INNER JOIN with quotations
+  // already guarantees a quote exists; no further stage gate needed.
+  return undefined;
 }
 
 function searchPredicate(search: string | undefined) {
@@ -173,6 +193,7 @@ export async function loadFinanceSnapshot(
       orderBook: { totalPaise: 0, count: 0 },
       pipeline: { totalPaise: 0, count: 0 },
       receivedPaise: 0,
+      totalQuotedPaise: 0,
       outstandingPaise: 0,
     };
   }
@@ -183,6 +204,10 @@ export async function loadFinanceSnapshot(
     scope.cityIds,
   );
 
+  // 2026-05-27 fix: drop the stage-gate WHERE entirely. The INNER
+  // JOIN with quotations already restricts to quoted requests; we
+  // want EVERY quote regardless of stage so a fresh quote at
+  // VISIT_SCHEDULED still counts toward Pipeline.
   const where = and(
     isNull(visitRequests.cancelledAt),
     scopeWhere,
@@ -191,32 +216,31 @@ export async function loadFinanceSnapshot(
       : undefined,
     args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
     searchPredicate(args.search),
-    // Snapshot always reports both axes regardless of section — section
-    // toggle only narrows the order list.
-    gte(statusStages.sequenceNumber, QUOTATION_PIPELINE_SEQ),
   );
 
   const [aggRow] = await db
     .select({
       orderBookTotal: sql<number>`COALESCE(SUM(CASE WHEN ${statusStages.sequenceNumber} >= ${ORDER_BOOK_MIN_SEQ} THEN ${quotations.totalOrderValuePaise} ELSE 0 END), 0)::bigint`,
       orderBookCount: sql<number>`COUNT(*) FILTER (WHERE ${statusStages.sequenceNumber} >= ${ORDER_BOOK_MIN_SEQ})::int`,
-      pipelineTotal: sql<number>`COALESCE(SUM(CASE WHEN ${statusStages.sequenceNumber} = ${QUOTATION_PIPELINE_SEQ} THEN ${quotations.totalOrderValuePaise} ELSE 0 END), 0)::bigint`,
-      pipelineCount: sql<number>`COUNT(*) FILTER (WHERE ${statusStages.sequenceNumber} = ${QUOTATION_PIPELINE_SEQ})::int`,
+      pipelineTotal: sql<number>`COALESCE(SUM(CASE WHEN ${statusStages.sequenceNumber} < ${ORDER_BOOK_MIN_SEQ} THEN ${quotations.totalOrderValuePaise} ELSE 0 END), 0)::bigint`,
+      pipelineCount: sql<number>`COUNT(*) FILTER (WHERE ${statusStages.sequenceNumber} < ${ORDER_BOOK_MIN_SEQ})::int`,
     })
     .from(visitRequests)
     .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .where(where);
 
-  // Net received on Order Book rows only. Sub-query joins payments to
-  // each request and sums inbound minus outbound, ignoring voided.
+  // 2026-05-27 fix: Received now counts inbound − outbound on EVERY
+  // quoted request, not just Order Book. Pre-confirmation deposits
+  // (Singham case: ₹5,000 on a ₹25,000 quote at VISIT_SCHEDULED) are
+  // legitimate cash the captain has collected.
   const [payRow] = await db
     .select({
       received: sql<number>`COALESCE(SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END), 0)::bigint`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
-    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
     .where(
       and(
         isNull(payments.voidedAt),
@@ -226,13 +250,13 @@ export async function loadFinanceSnapshot(
           ? eq(visitRequests.assignedExecUserId, args.execFilter)
           : undefined,
         args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
-        gte(statusStages.sequenceNumber, ORDER_BOOK_MIN_SEQ),
       ),
     );
 
   const orderBookTotal = Number(aggRow?.orderBookTotal ?? 0);
   const pipelineTotal = Number(aggRow?.pipelineTotal ?? 0);
   const receivedPaise = Number(payRow?.received ?? 0);
+  const totalQuotedPaise = orderBookTotal + pipelineTotal;
 
   return {
     orderBook: {
@@ -244,12 +268,16 @@ export async function loadFinanceSnapshot(
       count: aggRow?.pipelineCount ?? 0,
     },
     receivedPaise,
-    outstandingPaise: orderBookTotal - receivedPaise,
+    totalQuotedPaise,
+    // Outstanding now spans BOTH axes — a deposit on a pre-confirmation
+    // quote reduces the captain's "money owed" total even though the
+    // order isn't yet on the books in the strict sense.
+    outstandingPaise: totalQuotedPaise - receivedPaise,
   };
 }
 
 // -----------------------------------------------------------------------------
-// Aging buckets — Order Book only (pipeline has no aging)
+// Aging buckets — every quoted request with positive outstanding
 // -----------------------------------------------------------------------------
 
 export async function loadFinanceAgingBuckets(
@@ -286,7 +314,6 @@ export async function loadFinanceAgingBuckets(
     })
     .from(visitRequests)
     .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
-    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .where(
       and(
         isNull(visitRequests.cancelledAt),
@@ -296,7 +323,10 @@ export async function loadFinanceAgingBuckets(
           : undefined,
         args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
         searchPredicate(args.search),
-        gte(statusStages.sequenceNumber, ORDER_BOOK_MIN_SEQ),
+        // 2026-05-27 fix: drop the ORDER_CONFIRMED gate. Aging applies
+        // to every outstanding quote, not just confirmed orders — a
+        // 30-day-old pre-confirmation quote with no deposit is just as
+        // important to follow up on.
       ),
     );
 

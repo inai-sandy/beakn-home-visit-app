@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
+import { BackButton } from '@/components/ui/back-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -176,12 +177,14 @@ export default async function CaptainContactDetailPage({ params }: PageProps) {
     <main className="min-h-svh bg-background pb-24">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-5">
         <div className="flex items-center justify-between gap-2">
-          <Button asChild variant="ghost" size="sm" className="-ml-2">
-            <Link href="/captain/contacts">
-              <Icon name="arrow_back" size="sm" />
-              Contacts
-            </Link>
-          </Button>
+          <BackButton
+            fallback="/captain/contacts"
+            variant="ghost"
+            size="sm"
+            className="-ml-2"
+          >
+            Contacts
+          </BackButton>
           {editable && editContactPayload && (
             <EditContactButton
               contact={editContactPayload}

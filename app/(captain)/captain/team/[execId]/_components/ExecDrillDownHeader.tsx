@@ -1,8 +1,6 @@
-import Link from 'next/link';
-
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
+import { BackButton } from '@/components/ui/back-button';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 
 import { MarkUnavailableToggle } from './MarkUnavailableToggle';
@@ -51,16 +49,12 @@ export function ExecDrillDownHeader({ exec, cities, quickStats }: Props) {
     <>
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 h-14 flex items-center gap-3">
-          <Button
-            asChild
-            variant="ghost"
+          <BackButton
+            fallback="/captain/team"
+            ariaLabel="Back to My Team"
             size="icon"
             className="h-11 w-11 shrink-0"
-          >
-            <Link href="/captain/team" aria-label="Back to My Team">
-              <Icon name="arrow_back" size="sm" />
-            </Link>
-          </Button>
+          />
           <p className="text-base font-semibold tracking-tight truncate flex-1">
             {exec.fullName}
           </p>

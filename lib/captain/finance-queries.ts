@@ -122,6 +122,11 @@ interface BaseFilters {
   execFilter?: string;
   cityFilter?: string;
   search?: string;
+  /** PR13 2026-05-27: exec self-view. When set, OVERRIDES the captain
+   *  team-scope visibility and pins to a single assigned_exec_user_id
+   *  — the exec sees only their own requests. captainUserId +
+   *  isSuperAdmin are ignored when this is set. */
+  forceExecScope?: string;
 }
 
 export type FinanceListSort =
@@ -155,7 +160,13 @@ interface ListFilters extends BaseFilters {
 async function resolveScope(
   captainUserId: string,
   isSuperAdmin: boolean,
+  forceExecScope?: string,
 ) {
+  // PR13 2026-05-27: exec self-view skips the captain city lookup —
+  // the visibility is pinned by assigned_exec_user_id = me directly.
+  if (forceExecScope) {
+    return { allowed: true as const, cityIds: [] as string[] };
+  }
   if (isSuperAdmin) {
     return { allowed: true as const, cityIds: [] as string[] };
   }
@@ -168,7 +179,13 @@ function buildScopePredicate(
   captainUserId: string,
   isSuperAdmin: boolean,
   cityIds: string[],
+  forceExecScope?: string,
 ) {
+  // PR13 2026-05-27: exec self-view pins by assigned_exec instead of
+  // routing through the captain team-scope helper.
+  if (forceExecScope) {
+    return eq(visitRequests.assignedExecUserId, forceExecScope);
+  }
   if (isSuperAdmin) return undefined;
   return buildCaptainRequestVisibilityWhere(captainUserId, {
     captainCityIds: cityIds,
@@ -206,7 +223,7 @@ function searchPredicate(search: string | undefined) {
 export async function loadFinanceSnapshot(
   args: BaseFilters,
 ): Promise<FinanceSnapshot> {
-  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin);
+  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin, args.forceExecScope);
   if (!scope.allowed) {
     return {
       orderBook: { totalPaise: 0, count: 0 },
@@ -221,6 +238,7 @@ export async function loadFinanceSnapshot(
     args.captainUserId,
     args.isSuperAdmin,
     scope.cityIds,
+    args.forceExecScope,
   );
 
   // 2026-05-27 fix: drop the stage-gate WHERE entirely. The INNER
@@ -302,7 +320,7 @@ export async function loadFinanceSnapshot(
 export async function loadFinanceAgingBuckets(
   args: BaseFilters,
 ): Promise<FinanceAgingBucket[]> {
-  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin);
+  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin, args.forceExecScope);
   if (!scope.allowed) {
     return [
       { key: 'zeroToSeven', label: '0–7 days', outstandingPaise: 0, count: 0 },
@@ -315,6 +333,7 @@ export async function loadFinanceAgingBuckets(
     args.captainUserId,
     args.isSuperAdmin,
     scope.cityIds,
+    args.forceExecScope,
   );
 
   // Per-request totals, then bucket in JS — keeps the SQL portable and
@@ -431,7 +450,7 @@ function sortOrderBy(sort: FinanceListSort) {
 export async function loadFinanceOrderList(
   args: ListFilters,
 ): Promise<{ rows: FinanceOrderRow[]; total: number; pageRange: ReturnType<typeof computePageRange> }> {
-  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin);
+  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin, args.forceExecScope);
   if (!scope.allowed) {
     return {
       rows: [],
@@ -443,6 +462,7 @@ export async function loadFinanceOrderList(
     args.captainUserId,
     args.isSuperAdmin,
     scope.cityIds,
+    args.forceExecScope,
   );
   const sectionWhere = sectionPredicate(args.section ?? 'all');
   const execUser = alias(users, 'finance_exec_user');
@@ -584,13 +604,14 @@ export interface PaymentCalendarEvent {
 export async function loadPaymentCalendarEvents(
   args: BaseFilters & { fromIso: string; toIso: string },
 ): Promise<PaymentCalendarEvent[]> {
-  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin);
+  const scope = await resolveScope(args.captainUserId, args.isSuperAdmin, args.forceExecScope);
   if (!scope.allowed) return [];
 
   const scopeWhere = buildScopePredicate(
     args.captainUserId,
     args.isSuperAdmin,
     scope.cityIds,
+    args.forceExecScope,
   );
   const execUser = alias(users, 'pay_exec_user');
 

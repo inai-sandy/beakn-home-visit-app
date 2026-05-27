@@ -35,9 +35,14 @@ const SORT_LABELS: Record<FinanceListSort, string> = {
 
 interface Props {
   currentSort: FinanceListSort;
+  /** PR13 2026-05-27: customizable basePath for the exec finance page. */
+  basePath?: string;
 }
 
-export function FinanceListSortToggle({ currentSort }: Props) {
+export function FinanceListSortToggle({
+  currentSort,
+  basePath = '/captain/collections',
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -49,9 +54,7 @@ export function FinanceListSortToggle({ currentSort }: Props) {
     params.delete('page'); // reset to page 1 on sort change
     const qs = params.toString();
     startTransition(() =>
-      router.push(
-        qs.length > 0 ? `/captain/collections?${qs}` : '/captain/collections',
-      ),
+      router.push(qs.length > 0 ? `${basePath}?${qs}` : basePath),
     );
   }
 

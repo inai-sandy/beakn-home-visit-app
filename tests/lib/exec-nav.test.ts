@@ -85,6 +85,7 @@ describe('EXEC_DRAWER_NAV', () => {
       'Tasks',
       'Contacts',
       'Requests',
+      'Finance',
       'Resources',
       'Announcements',
       'Profile',

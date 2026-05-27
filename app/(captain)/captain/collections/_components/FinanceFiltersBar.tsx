@@ -38,6 +38,9 @@ interface Props {
   currentExec: string;
   currentCity: string;
   currentSearch: string;
+  /** PR13 2026-05-27: base path the URL pushes target. Defaults to
+   *  '/captain/collections'; the exec finance page passes '/finance'. */
+  basePath?: string;
 }
 
 export function FinanceFiltersBar({
@@ -47,6 +50,7 @@ export function FinanceFiltersBar({
   currentExec,
   currentCity,
   currentSearch,
+  basePath = '/captain/collections',
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -64,9 +68,7 @@ export function FinanceFiltersBar({
     if (nonPage) next.delete('page');
     const qs = next.toString();
     startTransition(() =>
-      router.push(
-        qs.length > 0 ? `/captain/collections?${qs}` : '/captain/collections',
-      ),
+      router.push(qs.length > 0 ? `${basePath}?${qs}` : basePath),
     );
   }
 
@@ -106,22 +108,24 @@ export function FinanceFiltersBar({
             aria-label="Search finance"
           />
         </div>
-        <Select
-          value={currentExec}
-          onValueChange={(v) => push({ exec: v === 'all' ? null : v })}
-        >
-          <SelectTrigger className="h-11 lg:w-52" aria-label="Filter by exec">
-            <SelectValue placeholder="All execs" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All execs</SelectItem>
-            {team.map((t) => (
-              <SelectItem key={t.userId} value={t.userId}>
-                {t.fullName}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {team.length > 0 && (
+          <Select
+            value={currentExec}
+            onValueChange={(v) => push({ exec: v === 'all' ? null : v })}
+          >
+            <SelectTrigger className="h-11 lg:w-52" aria-label="Filter by exec">
+              <SelectValue placeholder="All execs" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All execs</SelectItem>
+              {team.map((t) => (
+                <SelectItem key={t.userId} value={t.userId}>
+                  {t.fullName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {cities.length > 1 && (
           <Select
             value={currentCity}

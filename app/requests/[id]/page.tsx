@@ -27,6 +27,7 @@ import {
   loadNotesForEntity,
 } from "@/lib/notes/queries";
 
+import { CopyTrackingLink } from "@/app/submitted/[token]/copy-tracking-link";
 import { AdminHelpSection } from "@/components/admin-help/AdminHelpSection";
 import { NotesSection } from "@/components/notes/NotesSection";
 import { RescheduleButton } from "@/components/reschedule/RescheduleButton";
@@ -166,6 +167,9 @@ export default async function RequestDetailPage({ params }: PageProps) {
       cancelledByUserId: visitRequests.cancelledByUserId,
       // HVA-159: editable scheduling field.
       visitScheduledAt: visitRequests.visitScheduledAt,
+      // HVA-145: surface tracking URL so captain/exec can re-share with
+      // customer if the original link is lost.
+      trackingToken: visitRequests.trackingToken,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -378,6 +382,11 @@ export default async function RequestDetailPage({ params }: PageProps) {
     }
   }
 
+  // HVA-145: base URL matches other notification composers — env override for
+  // staging/local, defaults to prod.
+  const trackingBaseUrl =
+    process.env.BETTER_AUTH_URL ?? "https://visits.beakn.in";
+
   // HVA-191: fallback to the role's requests list (not the dashboard) when there
   // is no browser history. router.back() handles the common case.
   const backFallback = isRole(role)
@@ -583,6 +592,25 @@ export default async function RequestDetailPage({ params }: PageProps) {
               </Button>
             )}
           </div>
+        </section>
+
+        {/* HVA-145: tracking link for captain/exec to re-share with the
+            customer if they lose the original. */}
+        <section
+          aria-label="Customer tracking link"
+          className="rounded-3xl border bg-card p-6 shadow-sm space-y-3"
+        >
+          <header className="space-y-1">
+            <h2 className="text-lg font-semibold tracking-tight">
+              Customer tracking link
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Share this with the customer to view their request status.
+            </p>
+          </header>
+          <CopyTrackingLink
+            url={`${trackingBaseUrl}/track/${reqRow.trackingToken}`}
+          />
         </section>
 
         {/* HVA-73 PR 2: append-only notes timeline for the request. */}

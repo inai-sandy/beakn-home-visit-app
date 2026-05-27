@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
+import { BackButton } from "@/components/ui/back-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -377,7 +378,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
     }
   }
 
-  const backHref = isRole(role) ? ROLE_HOME[role] : "/";
+  // HVA-191: fallback to the role's requests list (not the dashboard) when there
+  // is no browser history. router.back() handles the common case.
+  const backFallback = isRole(role)
+    ? role === "captain"
+      ? "/captain/requests"
+      : role === "sales_executive"
+        ? "/requests"
+        : ROLE_HOME[role]
+    : "/";
   const submittedIst = formatIstDateTime(reqRow.createdAt);
   const cancelledIst = formatIstDateTime(reqRow.cancelledAt);
   const terminalMeta = reqRow.cancelledAt
@@ -437,19 +446,11 @@ export default async function RequestDetailPage({ params }: PageProps) {
           survives long scrolls. Doesn't reflow the card stack below. */}
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 h-14 flex items-center gap-3">
-          <Button
-            asChild
-            variant="ghost"
+          <BackButton
+            fallback={backFallback}
             size="icon"
             className="h-11 w-11 shrink-0"
-          >
-            <Link
-              href={backHref}
-              aria-label="Back"
-            >
-              <Icon name="arrow_back" size="sm" />
-            </Link>
-          </Button>
+          />
           <p className="text-base font-semibold tracking-tight truncate flex-1">
             {reqRow.customerName}
           </p>

@@ -11,6 +11,7 @@ import {
   subDays,
 } from 'date-fns';
 
+import { BackButton } from '@/components/ui/back-button';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { getServerSession } from '@/lib/auth-server';
@@ -161,12 +162,14 @@ export default async function CaptainPaymentCalendarPage({
               event to drill into the customer request.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/captain/collections">
-              <Icon name="arrow_back" size="xs" />
-              Back to Finance
-            </Link>
-          </Button>
+          <BackButton
+            fallback="/captain/collections"
+            variant="outline"
+            size="sm"
+            iconSize="xs"
+          >
+            Back to Finance
+          </BackButton>
         </header>
 
         <section

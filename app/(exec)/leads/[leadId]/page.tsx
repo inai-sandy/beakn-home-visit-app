@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
+import { BackButton } from '@/components/ui/back-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -306,12 +307,14 @@ export default async function LeadDetailPage({ params }: PageProps) {
         {/* Header: back + edit pencil + avatar + name */}
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-2">
-            <Button asChild variant="ghost" size="sm" className="-ml-2">
-              <Link href="/leads">
-                <Icon name="arrow_back" size="sm" />
-                Contacts
-              </Link>
-            </Button>
+            <BackButton
+              fallback="/leads"
+              variant="ghost"
+              size="sm"
+              className="-ml-2"
+            >
+              Contacts
+            </BackButton>
             {editable && (
               <EditContactButton
                 contact={editContactPayload}

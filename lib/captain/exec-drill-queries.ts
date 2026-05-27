@@ -13,7 +13,11 @@ import {
   resolveDateFilter,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
-import { loadDayCloseMetrics, type DayCloseMetrics } from '@/lib/today/metrics';
+import {
+  loadDayCloseMetrics,
+  loadFinancialMetricsForDate,
+  type DayCloseMetrics,
+} from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
 
 // =============================================================================
@@ -361,16 +365,10 @@ export async function loadExecDayClose(
     cursor = offsetIstDate(cursor, 1);
   }
 
-  if (plans.length === 0) {
-    return {
-      mode,
-      metrics: mode === 'single' ? null : EMPTY_METRICS,
-      daysWithPlan: 0,
-      daysInWindow,
-    };
-  }
-
   if (mode === 'single') {
+    if (plans.length === 0) {
+      return { mode, metrics: null, daysWithPlan: 0, daysInWindow };
+    }
     const plan = plans[0];
     const metrics = await loadDayCloseMetrics({
       execUserId,
@@ -381,18 +379,35 @@ export async function loadExecDayClose(
     return { mode, metrics, daysWithPlan: 1, daysInWindow };
   }
 
-  // Range mode: load each plan's metrics in parallel and aggregate.
-  // At calendar-max 31 days this is bounded; production team sizes are
-  // small. If the matrix grows we'd push aggregation into SQL.
+  // 2026-05-27 PR14: range mode aggregates EVERY date in the window,
+  // not just dates with plans. Days without a plan still contribute
+  // financial metrics (revenue / quotations / orders / visits) via
+  // `loadFinancialMetricsForDate`. Without this, today's payments on
+  // a no-plan day silently dropped from the Weekly Report — see the
+  // 2026-05-27 walk where Singham's ₹5,000 (paid today, no plan) was
+  // invisible on Veera's Weekly Report while showing correctly on
+  // the Finance dashboard.
+  const planByDate = new Map(plans.map((p) => [p.planDate, p]));
+  const dates: string[] = [];
+  {
+    let cursorD = from;
+    while (cursorD <= to) {
+      dates.push(cursorD);
+      cursorD = offsetIstDate(cursorD, 1);
+    }
+  }
   const perDay = await Promise.all(
-    plans.map((p) =>
-      loadDayCloseMetrics({
-        execUserId,
-        dayPlanId: p.id,
-        dayPlanSubmittedAt: p.submittedAt,
-        istDateStr: p.planDate,
-      }),
-    ),
+    dates.map((d) => {
+      const plan = planByDate.get(d);
+      return plan
+        ? loadDayCloseMetrics({
+            execUserId,
+            dayPlanId: plan.id,
+            dayPlanSubmittedAt: plan.submittedAt,
+            istDateStr: plan.planDate,
+          })
+        : loadFinancialMetricsForDate({ execUserId, istDateStr: d });
+    }),
   );
   return {
     mode,

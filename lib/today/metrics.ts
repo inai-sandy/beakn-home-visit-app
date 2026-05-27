@@ -75,6 +75,120 @@ export interface TargetCell {
   status: TargetStatus;
 }
 
+/**
+ * 2026-05-27 PR14: financial-only metrics for a single IST date.
+ *
+ * Same predicates as loadDayCloseMetrics (assigned-exec attribution
+ * for revenue / quotations / orders / visits) but WITHOUT the
+ * day_plan dependency. Used by the Weekly Report aggregator to
+ * include money/quotation/order activity on dates where the exec
+ * didn't formally Start-Day. Task counts return all zero because
+ * tasks live under day_plans by design.
+ *
+ * Visits comes from tasks-with-completed-status-on-this-date — those
+ * are scoped to (tasks.exec_user_id, task_date) and don't strictly
+ * need a day_plan join to show up. Day-plan-less visit tasks are
+ * rare in practice but they'd still count.
+ */
+export async function loadFinancialMetricsForDate(args: {
+  execUserId: string;
+  istDateStr: string;
+}): Promise<DayCloseMetrics> {
+  const { execUserId, istDateStr } = args;
+
+  // Revenue
+  const [paymentAgg] = await db
+    .select({
+      total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
+      cnt: sqlBuilder<number>`COUNT(*)::int`,
+    })
+    .from(payments)
+    .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
+        eq(payments.paymentDate, istDateStr),
+        eq(payments.direction, 'inbound'),
+        isNull(payments.voidedAt),
+      ),
+    );
+  const amountCollectedPaise = Number(paymentAgg?.total ?? 0);
+  const inboundPaymentCount = paymentAgg?.cnt ?? 0;
+
+  // Quotations
+  const [quotationAgg] = await db
+    .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
+    .from(quotations)
+    .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
+        sqlBuilder`${quotations.submittedAt}::date = ${istDateStr}::date`,
+      ),
+    );
+  const quotationsCount = quotationAgg?.cnt ?? 0;
+
+  // Orders closed
+  const [ordersAgg] = await db
+    .select({
+      cnt: sqlBuilder<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+    })
+    .from(requestStatusHistory)
+    .innerJoin(statusStages, eq(statusStages.id, requestStatusHistory.toStatusStageId))
+    .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
+        sqlBuilder`${requestStatusHistory.changedAt}::date = ${istDateStr}::date`,
+      ),
+    );
+  const ordersClosed = ordersAgg?.cnt ?? 0;
+
+  // Visits — completed visit-type tasks anchored to this date.
+  const visitTaskRows = await db
+    .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.execUserId, execUserId),
+        eq(tasks.taskDate, istDateStr),
+        eq(tasks.status, 'completed'),
+        inArray(
+          tasks.taskType,
+          VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],
+        ),
+      ),
+    );
+  const visitsCompleted = visitTaskRows[0]?.cnt ?? 0;
+
+  const revenueRupees = amountCollectedPaise / 100;
+
+  return {
+    taskCounts: {
+      done: 0,
+      postponed: 0,
+      pending: 0,
+      totalAtSubmission: 0,
+      addedDuringDay: 0,
+      fastCompletionCount: 0,
+    },
+    amountCollectedPaise,
+    inboundPaymentCount,
+    quotationsCount,
+    targets: {
+      revenue: { actual: revenueRupees, target: null, status: 'no_target' },
+      visits: { actual: visitsCompleted, target: null, status: 'no_target' },
+      quotations: { actual: quotationsCount, target: null, status: 'no_target' },
+      orders: { actual: ordersClosed, target: null, status: 'no_target' },
+      conversionPct: { actual: null, target: null, status: 'no_target' },
+      taskCompletionPct: { actual: null, target: null, status: 'no_target' },
+    },
+  };
+}
+
 export async function loadDayCloseMetrics(args: {
   execUserId: string;
   dayPlanId: string;

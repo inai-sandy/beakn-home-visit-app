@@ -156,14 +156,21 @@ async function loadWindowAggregates(args: {
   }
 
   const [paymentAgg, taskAgg, quotationAgg, ordersAgg] = await Promise.all([
+    // 2026-05-27 fix: attribute payments to the request's ASSIGNED exec,
+    // not to whoever physically clicked Record Payment. Walk-bug: Arjun
+    // (captain) recorded ₹5,000 on Singham (Veera's request) and the
+    // team's Revenue tile showed ₹0 — because Arjun isn't on his own
+    // team. The visit-request join makes the attribution match reality.
     db
       .select({
         total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
       })
       .from(payments)
+      .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
       .where(
         and(
-          inArray(payments.recordedByUserId, execIds as string[]),
+          inArray(visitRequests.assignedExecUserId, execIds as string[]),
+          isNull(visitRequests.cancelledAt),
           gte(payments.paymentDate, from),
           lte(payments.paymentDate, to),
           eq(payments.direction, 'inbound'),

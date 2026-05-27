@@ -32,7 +32,7 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // in this ticket; edit lands in PR 3.
   { href: '/captain/contacts', label: 'Contacts', icon: 'contacts' },
   { href: '/captain/approvals', label: 'Pending Approvals', icon: 'task_alt' },
-  { href: '/captain/collections', label: 'Pending Collections', icon: 'payments' },
+  { href: '/captain/collections', label: 'Finance', icon: 'payments' },
   { href: '/captain/reports', label: 'Reports', icon: 'monitoring' },
   { href: '/captain/resources', label: 'Resources', icon: 'folder' },
   { href: '/captain/announcements', label: 'Announcements', icon: 'campaign' },

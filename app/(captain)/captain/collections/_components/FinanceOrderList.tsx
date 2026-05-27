@@ -5,12 +5,14 @@ import { Icon } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 
 import type {
+  FinanceListSort,
   FinanceOrderRow,
   FinanceSection,
 } from '@/lib/captain/finance-queries';
 import type { PageRange } from '@/lib/pagination';
 
 import { FinanceListPaginationNav } from './FinanceListPaginationNav';
+import { FinanceListSortToggle } from './FinanceListSortToggle';
 
 // =============================================================================
 // PR12 2026-05-26: paginated finance order list
@@ -56,9 +58,15 @@ interface Props {
   rows: FinanceOrderRow[];
   pageRange: PageRange;
   section: FinanceSection;
+  currentSort: FinanceListSort;
 }
 
-export function FinanceOrderList({ rows, pageRange, section }: Props) {
+export function FinanceOrderList({
+  rows,
+  pageRange,
+  section,
+  currentSort,
+}: Props) {
   if (pageRange.total === 0) {
     return (
       <section
@@ -86,13 +94,16 @@ export function FinanceOrderList({ rows, pageRange, section }: Props) {
       aria-label="Orders"
       className="rounded-3xl border bg-card shadow-sm overflow-hidden"
     >
-      <header className="flex items-baseline justify-between gap-3 px-5 pt-5 pb-2">
-        <h2 className="text-base font-semibold tracking-tight">
-          Orders &amp; quotations
-        </h2>
-        <p className="text-[11px] text-muted-foreground tabular-nums">
-          Showing {pageRange.from}–{pageRange.to} of {pageRange.total}
-        </p>
+      <header className="flex items-center justify-between gap-3 px-5 pt-5 pb-3 flex-wrap">
+        <div className="space-y-0.5">
+          <h2 className="text-base font-semibold tracking-tight">
+            Orders &amp; quotations
+          </h2>
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            Showing {pageRange.from}–{pageRange.to} of {pageRange.total}
+          </p>
+        </div>
+        <FinanceListSortToggle currentSort={currentSort} />
       </header>
 
       {/* Mobile cards */}

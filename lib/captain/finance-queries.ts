@@ -124,9 +124,28 @@ interface BaseFilters {
   search?: string;
 }
 
+export type FinanceListSort =
+  | 'outstanding_desc'
+  | 'date_desc'
+  | 'date_asc'
+  | 'value_desc';
+
+export function parseFinanceListSort(raw: unknown): FinanceListSort {
+  if (
+    raw === 'date_desc' ||
+    raw === 'date_asc' ||
+    raw === 'value_desc' ||
+    raw === 'outstanding_desc'
+  ) {
+    return raw;
+  }
+  return 'outstanding_desc';
+}
+
 interface ListFilters extends BaseFilters {
   page?: number;
   pageSize?: number;
+  sort?: FinanceListSort;
 }
 
 // -----------------------------------------------------------------------------
@@ -383,6 +402,32 @@ export async function loadFinanceAgingBuckets(
 // Order list — paginated rows
 // -----------------------------------------------------------------------------
 
+// Returns the ORDER BY clauses for a given sort key. Outsourced so the
+// list query stays readable. Tie-breakers chosen for stability:
+//   outstanding_desc → biggest money chase first, oldest quote next
+//   date_desc        → newest quote first, biggest outstanding next
+//   date_asc         → oldest quote first, biggest outstanding next
+//   value_desc       → biggest order value first, oldest quote next
+function sortOrderBy(sort: FinanceListSort) {
+  const outstandingExpr = sql`${quotations.totalOrderValuePaise} - COALESCE((
+    SELECT SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END)
+    FROM ${payments}
+    WHERE ${payments.visitRequestId} = ${visitRequests.id}
+      AND ${payments.voidedAt} IS NULL
+  ), 0)`;
+  if (sort === 'date_desc') {
+    return [desc(quotations.submittedAt), desc(outstandingExpr)];
+  }
+  if (sort === 'date_asc') {
+    return [asc(quotations.submittedAt), desc(outstandingExpr)];
+  }
+  if (sort === 'value_desc') {
+    return [desc(quotations.totalOrderValuePaise), asc(quotations.submittedAt)];
+  }
+  // outstanding_desc — default
+  return [desc(outstandingExpr), asc(quotations.submittedAt)];
+}
+
 export async function loadFinanceOrderList(
   args: ListFilters,
 ): Promise<{ rows: FinanceOrderRow[]; total: number; pageRange: ReturnType<typeof computePageRange> }> {
@@ -454,19 +499,7 @@ export async function loadFinanceOrderList(
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .leftJoin(execUser, eq(execUser.id, visitRequests.assignedExecUserId))
     .where(baseWhere)
-    // Default sort: outstanding desc (money to chase first), then
-    // oldest quotation first as a tie-breaker.
-    .orderBy(
-      desc(
-        sql`${quotations.totalOrderValuePaise} - COALESCE((
-          SELECT SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END)
-          FROM ${payments}
-          WHERE ${payments.visitRequestId} = ${visitRequests.id}
-            AND ${payments.voidedAt} IS NULL
-        ), 0)`,
-      ),
-      asc(quotations.submittedAt),
-    )
+    .orderBy(...sortOrderBy(args.sort ?? 'outstanding_desc'))
     .limit(pageRange.pageSize)
     .offset(pageRange.offset);
 

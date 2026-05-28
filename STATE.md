@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-28 (HVA-128 — drop misleading "or assigned captain is inactive" clause from HVA-42 escalation email)
+**Last updated:** 2026-05-28 (HVA-192/193/195/196 cleanup bundle — stale files deleted, snapshot comment clarified, Caddyfile bind-mount documented)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-28 | HVA-192/193/195/196 | Cleanup bundle. (192) Deleted untracked `.env.local.bak` from prod working dir — never committed, `.gitignore` already excludes `.env*`. (193) Deleted `scripts/align-migrations-table-hva111.sql` after verifying no runtime references; `docs/migrations.md` historical note updated. (195) Clarified the byte-identical-snapshot comment in `app/(captain)/layout.tsx` — the actual regression guard is `tests/captain-shell/captain-nav.test.ts` (nav-config shape, not DOM-level snapshot). (196) Diagnostic: confirmed Caddyfile IS bind-mounted from `/opt/beakn-home-visit-app/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro` — old "no bind-mount" memory was wrong. Updated MEMORY → caddy-infra with verified state + new edit protocol (just edit the host file, run `caddy reload`; no docker cp needed). Drift between repo + live file noted (live has Hermes Agent block not in committed snapshot) — separate decision before syncing. |
 | 2026-05-28 | HVA-128 | Drop misleading "(or the assigned captain is inactive)" clause from HVA-42 escalation email — the routing code only checks `cities.captain_routing_email` non-empty; it never reads `users.is_active` on the linked captain (intentional decoupling per HVA-42 design). Email copy also clarified: "Please assign a captain to this city" → "Please set a routing email for this city in admin settings" (the missing thing is the routing column, not the captain assignment). Pure copy fix in `lib/email-templates/captain-new-request.ts`. |
 | 2026-05-28 | HVA-129 | HVA-127 polish — two changes: (1) `/captain/requests` "Open" pill renamed to "New" per Sandeep's original spec; URL key stays as `?bucket=open` for backward compatibility so deep links don't break. (2) Captain sidebar (both desktop + mobile drawer) gains badge counts next to Requests / Pending Approvals / Finance. Counts come from new `lib/captain/sidebar-counts.ts` using the same team-scope visibility as the underlying list pages, so the badge "6" matches what the captain sees on click-through. Layout fans out the count query in parallel with the unread-announcements count via Promise.all so the sidebar doesn't serialize them. Cancelled requests excluded everywhere. Super_admin (no city assignments) sees no badges. |
 | 2026-05-28 | HVA-197 | Sandeep on prod: "in the request page, Buttom Four buttons are not properly aligned. They are not looking good." Root cause: three different heights in play on the action-button row (h-9 for Advance default, h-11 for Rollback/Reassign, h-12 for everything else) plus inconsistent text-sm/text-base and px-4/px-5 padding. When 3-4 buttons rendered together (e.g. captain on PENDING_CAPTAIN_APPROVAL sees Rollback + Reassign + Reject + Approve), the row looked ragged. **Fix**: standardised all action buttons to `h-12 px-5 text-base font-medium`. Variant + color differences kept for hierarchy. 3 files touched: advance-status-button.tsx, rollback-status-button.tsx, reassign-request-button.tsx. |
@@ -143,11 +144,7 @@ For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 �
 
 ## Cleanup tickets to file (from recon)
 
-- Delete `.env.local.bak` at repo root (stale backup)
-- Delete `scripts/align-migrations-table-hva111.sql` if HVA-111 is fully past
-- Rename `app/dev/logout-test/actions.ts` → `lib/auth/logout-action.ts` (production-load-bearing despite the dev path)
-- Verify or remove stale captain mobile-shell snapshot test comment in `app/(captain)/layout.tsx`
-- Verify Caddyfile bind-mount status (MEMORY → caddy-infra flagged this as pending)
+- Rename `app/dev/logout-test/actions.ts` → `lib/auth/logout-action.ts` (production-load-bearing despite the dev path) — HVA-194
 
 ---
 

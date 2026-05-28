@@ -65,5 +65,5 @@ The prod hashes for 0000–0005 were originally written by `drizzle-kit migrate`
 ## Phase 1 / Phase 2 audit
 
 - Phase 1 diagnosis (2026-05-17): Linear HVA-111 body, "AC compliance" section.
-- Phase 2 alignment script: `scripts/align-migrations-table-hva111.sql`. Run once against prod to backfill 0006–0011 hashes. Idempotent (`WHERE NOT EXISTS`), kept in repo for audit.
+- Phase 2 alignment script ran once against prod to backfill 0006–0011 hashes (idempotent `WHERE NOT EXISTS`). Source file removed in HVA-193 (2026-05-28) — script lifecycle complete, kept here as historical note.
 - Snapshot: `/tmp/prod-snapshot-pre-hva111.sql` (kept in `/tmp` for the duration of the ship; not committed).

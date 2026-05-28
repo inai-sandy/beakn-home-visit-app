@@ -88,9 +88,8 @@ export default async function CaptainLayout({
         the wrapper transparent at desktop sizes so <CaptainSidebar>'s
         sticky/flex positioning works exactly as it did pre-HVA-152 —
         the wrapper is functionally invisible to the flex layout at lg+,
-        and `display: none` at smaller viewports. Desktop render output
-        is byte-identical to the pre-HVA-152 baseline (snapshot test
-        proves it).
+        and `display: none` at smaller viewports. Nav-config regression
+        guarded by tests/captain-shell/captain-nav.test.ts.
       */}
       <div className="hidden lg:contents">
         <CaptainSidebar

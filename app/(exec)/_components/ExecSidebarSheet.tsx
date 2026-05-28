@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 
-import { logoutAction } from '@/app/dev/logout-test/actions';
+import { logoutAction } from '@/lib/auth/logout-action';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';

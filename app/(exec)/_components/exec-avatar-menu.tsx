@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useTransition } from "react";
 
-import { logoutAction } from "@/app/dev/logout-test/actions";
+import { logoutAction } from "@/lib/auth/logout-action";
 import {
   DropdownMenu,
   DropdownMenuContent,

@@ -48,7 +48,7 @@ describe('RequestBucketTabs link mode (Server → Client boundary)', () => {
     // deepEqual assertion (functions become undefined under JSON).
     const bucketTabSpecs = [
       { key: 'all', label: 'All', count: 7 },
-      { key: 'open', label: 'Open', count: 1 },
+      { key: 'open', label: 'New', count: 1 },
       { key: 'assigned', label: 'Assigned', count: 4 },
       { key: 'completed', label: 'Completed', count: 1 },
       { key: 'cancelled', label: 'Cancelled', count: 1 },

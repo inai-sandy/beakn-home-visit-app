@@ -247,6 +247,9 @@ const EMPTY_METRICS: DayCloseMetrics = {
     addedDuringDay: 0,
     fastCompletionCount: 0,
   },
+  variancePct: null,
+  estimatedTotalMinutes: 0,
+  actualTotalMinutes: 0,
   amountCollectedPaise: 0,
   inboundPaymentCount: 0,
   quotationsCount: 0,
@@ -272,6 +275,9 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
       addedDuringDay: 0,
       fastCompletionCount: 0,
     },
+    variancePct: null,
+    estimatedTotalMinutes: 0,
+    actualTotalMinutes: 0,
     amountCollectedPaise: 0,
     inboundPaymentCount: 0,
     quotationsCount: 0,
@@ -292,6 +298,8 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
     merged.taskCounts.totalAtSubmission += p.taskCounts.totalAtSubmission;
     merged.taskCounts.addedDuringDay += p.taskCounts.addedDuringDay;
     merged.taskCounts.fastCompletionCount += p.taskCounts.fastCompletionCount;
+    merged.estimatedTotalMinutes += p.estimatedTotalMinutes;
+    merged.actualTotalMinutes += p.actualTotalMinutes;
     merged.amountCollectedPaise += p.amountCollectedPaise;
     merged.inboundPaymentCount += p.inboundPaymentCount;
     merged.quotationsCount += p.quotationsCount;
@@ -330,6 +338,12 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
       target: null,
       status: 'no_target',
     };
+  }
+  // HVA-63: variance across the window = done / totalAtSubmission.
+  if (merged.taskCounts.totalAtSubmission > 0) {
+    merged.variancePct = Math.round(
+      (merged.taskCounts.done / merged.taskCounts.totalAtSubmission) * 100,
+    );
   }
   return merged;
 }

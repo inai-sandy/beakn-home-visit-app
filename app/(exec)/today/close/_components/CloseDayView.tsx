@@ -21,8 +21,29 @@ import {
 } from '@/components/today/DayCloseMetricTiles';
 
 import type { DayCloseMetrics } from '@/lib/today/metrics';
+import { computeDayVerdict, type VerdictKind } from '@/lib/today/verdict';
 
 import { closeDayAction } from '../../actions';
+
+const VERDICT_RING_CLASS: Record<VerdictKind, string> = {
+  green: 'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-500/40',
+  yellow: 'bg-amber-100 text-amber-700 ring-2 ring-amber-500/40',
+  red: 'bg-rose-100 text-rose-700 ring-2 ring-rose-500/40',
+};
+
+const VERDICT_ICON: Record<VerdictKind, string> = {
+  green: 'sentiment_very_satisfied',
+  yellow: 'sentiment_neutral',
+  red: 'sentiment_dissatisfied',
+};
+
+function formatMinutes(mins: number): string {
+  if (mins <= 0) return '0m';
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
 
 // =============================================================================
 // HVA-64: Close the Day client wrapper
@@ -80,36 +101,68 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
   const { taskCounts, amountCollectedPaise, inboundPaymentCount, quotationsCount } =
     metrics;
   const rupees = amountCollectedPaise / 100;
+  // HVA-64 sticky-header verdict — derived from target metrics. Pure helper;
+  // safe to call on every render since the inputs are server-fetched and
+  // memo-equivalent for the lifetime of this component.
+  const verdict = computeDayVerdict(metrics);
 
   return (
     <main className="min-h-svh bg-background pb-32">
-      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
-        <header className="space-y-2">
-          <div className="flex items-center justify-center">
-            <div className="h-24 w-24 rounded-full bg-primary/10 flex items-center justify-center">
-              <Icon name="flag" size="lg" className="text-primary" />
-            </div>
+      {/* HVA-64 sticky verdict header — stays visible while the user scrolls
+          through the breakdown below so the "headline" + traffic-light stay
+          in view as context. */}
+      <header
+        className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur"
+        aria-label="Day verdict"
+      >
+        <div className="mx-auto max-w-2xl px-4 sm:px-6 py-4 flex items-center gap-4">
+          <div
+            className={`h-20 w-20 sm:h-24 sm:w-24 rounded-full flex items-center justify-center shrink-0 ${VERDICT_RING_CLASS[verdict.kind]}`}
+            aria-label={`Verdict: ${verdict.kind}`}
+          >
+            <Icon name={VERDICT_ICON[verdict.kind]} size="lg" />
           </div>
-          <h1 className="text-center text-3xl font-semibold tracking-tight">
-            Close the Day
-          </h1>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {closed ? 'Day closed' : 'Close the Day'}
+            </p>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight truncate">
+              {verdict.headline}
+            </h1>
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {verdict.oneLiner}
+            </p>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+        {closed && (
           <p className="text-center text-sm text-muted-foreground">
-            {closed
-              ? 'Day already closed. This is a read-only summary.'
-              : "Here's how today shaped up. Confirm to close out."}
+            Day already closed. This is a read-only summary.
           </p>
-        </header>
+        )}
 
         {/* 6-metric grid (HVA-167 — extracted to a shared component;
             render output is byte-identical for the single-day mode). */}
         <DayCloseMetricTiles metrics={metrics} mode="single" />
 
-        {/* Plan vs Actual */}
+        {/* Plan vs Actual — HVA-63 surface for variance + time tracking. */}
         <section
           aria-label="Plan vs Actual"
           className="rounded-2xl border bg-card p-5 space-y-3"
         >
-          <h2 className="text-sm font-semibold">Plan vs Actual</h2>
+          <header className="flex items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">Plan vs Actual</h2>
+            {metrics.variancePct !== null && (
+              <span className="text-sm font-semibold tabular-nums">
+                {metrics.variancePct}%{' '}
+                <span className="text-xs font-normal text-muted-foreground">
+                  of plan
+                </span>
+              </span>
+            )}
+          </header>
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <dt className="text-xs text-muted-foreground">Done</dt>
@@ -126,6 +179,18 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
             <div>
               <dt className="text-xs text-muted-foreground">Added during day</dt>
               <dd className="text-lg font-semibold">{taskCounts.addedDuringDay}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Estimated time</dt>
+              <dd className="text-lg font-semibold tabular-nums">
+                {formatMinutes(metrics.estimatedTotalMinutes)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Actual time</dt>
+              <dd className="text-lg font-semibold tabular-nums">
+                {formatMinutes(metrics.actualTotalMinutes)}
+              </dd>
             </div>
             {taskCounts.fastCompletionCount > 0 && (
               <div className="col-span-2">

@@ -13,7 +13,7 @@ import {
 import { getConfig } from '@/lib/config';
 
 import { compareConversionPct, compareToTarget, type TargetStatus } from './targets';
-import { isFastCompletion } from './time';
+import { isFastCompletion, parseEstimatedMinutes } from './time';
 
 // =============================================================================
 // HVA-64: Close the Day server-side metric queries
@@ -52,6 +52,13 @@ export interface DayCloseMetrics {
     addedDuringDay: number;
     fastCompletionCount: number;
   };
+  // HVA-63: plan-vs-actual variance + time tracking aggregates.
+  /** done / totalAtSubmission as a %; null when no tasks were planned. */
+  variancePct: number | null;
+  /** Sum of bucket-parsed estimated_time across all tasks for the day, in minutes. */
+  estimatedTotalMinutes: number;
+  /** Sum of bucket-parsed actual_time across completed tasks for the day, in minutes. */
+  actualTotalMinutes: number;
   // Money
   amountCollectedPaise: number;
   inboundPaymentCount: number;
@@ -175,6 +182,10 @@ export async function loadFinancialMetricsForDate(args: {
       addedDuringDay: 0,
       fastCompletionCount: 0,
     },
+    // HVA-63: no day_plan → no variance signal and no time-tracking sum.
+    variancePct: null,
+    estimatedTotalMinutes: 0,
+    actualTotalMinutes: 0,
     amountCollectedPaise,
     inboundPaymentCount,
     quotationsCount,
@@ -224,9 +235,15 @@ export async function loadDayCloseMetrics(args: {
     fastCompletionCount: 0,
   };
   let visitsCompleted = 0;
+  // HVA-63: aggregate per-day time totals (estimated vs actual). Bucket-string
+  // parsing returns null on unknown values — those rows contribute 0, never NaN.
+  let estimatedTotalMinutes = 0;
+  let actualTotalMinutes = 0;
   for (const t of todayTasks) {
+    estimatedTotalMinutes += parseEstimatedMinutes(t.estimatedTime) ?? 0;
     if (t.status === 'completed') {
       taskCounts.done += 1;
+      actualTotalMinutes += parseEstimatedMinutes(t.actualTime) ?? 0;
       if (isFastCompletion(t.estimatedTime, t.actualTime)) {
         taskCounts.fastCompletionCount += 1;
       }
@@ -244,6 +261,10 @@ export async function loadDayCloseMetrics(args: {
       taskCounts.totalAtSubmission += 1;
     }
   }
+  const variancePct =
+    taskCounts.totalAtSubmission === 0
+      ? null
+      : Math.round((taskCounts.done / taskCounts.totalAtSubmission) * 100);
 
   // -------------------------------------------------------------------------
   // 2. Money — SUM inbound payments recorded by this exec on this IST day.
@@ -394,6 +415,9 @@ export async function loadDayCloseMetrics(args: {
 
   return {
     taskCounts,
+    variancePct,
+    estimatedTotalMinutes,
+    actualTotalMinutes,
     amountCollectedPaise,
     inboundPaymentCount,
     quotationsCount,

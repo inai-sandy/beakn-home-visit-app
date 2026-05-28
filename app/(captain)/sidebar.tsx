@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { CAPTAIN_NAV_ITEMS } from "@/lib/captain/nav";
+import type { CaptainSidebarCounts } from "@/lib/captain/sidebar-counts";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -38,6 +39,8 @@ interface SidebarProps {
   cities: SidebarCity[];
   /** HVA-156: unread-count badge next to the Announcements item. */
   unreadAnnouncementsCount?: number;
+  /** HVA-129: badge counts for Requests / Pending Approvals / Finance. */
+  sidebarCounts?: CaptainSidebarCounts;
 }
 
 // HVA-152: NAV_ITEMS extracted to lib/captain/nav.ts so the mobile drawer
@@ -50,6 +53,7 @@ export function CaptainSidebar({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  sidebarCounts,
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -150,6 +154,45 @@ export function CaptainSidebar({
                         {unreadAnnouncementsCount > 99
                           ? "99+"
                           : unreadAnnouncementsCount}
+                      </Badge>
+                    )}
+                  {/* HVA-129: action-queue badges. Same outline pill as the
+                      announcements badge so the sidebar reads as one
+                      consistent counter style. */}
+                  {item.href === "/captain/requests" &&
+                    (sidebarCounts?.newRequestsCount ?? 0) > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] tabular-nums border-primary/50 text-primary"
+                        aria-label={`${sidebarCounts!.newRequestsCount} new requests`}
+                      >
+                        {sidebarCounts!.newRequestsCount > 99
+                          ? "99+"
+                          : sidebarCounts!.newRequestsCount}
+                      </Badge>
+                    )}
+                  {item.href === "/captain/approvals" &&
+                    (sidebarCounts?.pendingApprovalsCount ?? 0) > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] tabular-nums border-primary/50 text-primary"
+                        aria-label={`${sidebarCounts!.pendingApprovalsCount} pending approvals`}
+                      >
+                        {sidebarCounts!.pendingApprovalsCount > 99
+                          ? "99+"
+                          : sidebarCounts!.pendingApprovalsCount}
+                      </Badge>
+                    )}
+                  {item.href === "/captain/collections" &&
+                    (sidebarCounts?.outstandingFinanceCount ?? 0) > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] tabular-nums border-primary/50 text-primary"
+                        aria-label={`${sidebarCounts!.outstandingFinanceCount} outstanding finance items`}
+                      >
+                        {sidebarCounts!.outstandingFinanceCount > 99
+                          ? "99+"
+                          : sidebarCounts!.outstandingFinanceCount}
                       </Badge>
                     )}
                 </Link>

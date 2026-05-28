@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { resolveCaptainPageTitle } from '@/lib/captain/nav';
+import type { CaptainSidebarCounts } from '@/lib/captain/sidebar-counts';
 
 import { CaptainSidebarSheet } from './CaptainSidebarSheet';
 
@@ -30,12 +31,15 @@ interface Props {
   cities: Array<{ id: string; name: string }>;
   /** HVA-156: unread-count badge next to the Announcements item. */
   unreadAnnouncementsCount?: number;
+  /** HVA-129: badge counts for Requests / Pending Approvals / Finance. */
+  sidebarCounts?: CaptainSidebarCounts;
 }
 
 export function CaptainMobileTopbar({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  sidebarCounts,
 }: Props) {
   const pathname = usePathname() ?? '/captain/dashboard';
   const title = resolveCaptainPageTitle(pathname);
@@ -49,6 +53,7 @@ export function CaptainMobileTopbar({
         captainName={captainName}
         cities={cities}
         unreadAnnouncementsCount={unreadAnnouncementsCount}
+        sidebarCounts={sidebarCounts}
       />
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}

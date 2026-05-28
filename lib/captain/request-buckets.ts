@@ -56,9 +56,12 @@ export function isCaptainRequestBucket(
   );
 }
 
+// HVA-129: 'open' bucket key kept for URL stability (?bucket=open still works)
+// but the user-facing label is "New" — matches Sandeep's original Q1 spec
+// during the flow audit. Submitted + unassigned = the captain's action queue.
 export const BUCKET_LABELS: Record<CaptainRequestBucket, string> = {
   all: 'All',
-  open: 'Open',
+  open: 'New',
   assigned: 'Assigned',
   completed: 'Completed',
   cancelled: 'Cancelled',

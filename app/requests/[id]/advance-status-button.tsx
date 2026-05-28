@@ -72,7 +72,7 @@ export function AdvanceStatusButton({
         type="button"
         onClick={onClick}
         disabled={busy}
-        className="w-full sm:w-auto"
+        className="w-full sm:w-auto h-12 px-5 text-base font-medium"
       >
         {busy ? (
           <>

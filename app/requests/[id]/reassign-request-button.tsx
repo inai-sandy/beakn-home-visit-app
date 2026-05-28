@@ -41,7 +41,7 @@ export function ReassignRequestButton({
         variant="outline"
         onClick={() => setOpen(true)}
         disabled={candidates.length === 0}
-        className="w-full sm:w-auto h-11 px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+        className="w-full sm:w-auto h-12 px-5 text-base font-medium text-muted-foreground hover:text-foreground"
       >
         <Icon name="swap_horiz" size="sm" />
         <span>Reassign Exec</span>

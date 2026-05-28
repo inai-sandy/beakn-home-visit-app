@@ -53,7 +53,7 @@ export function RollbackStatusButton({
         type="button"
         variant="outline"
         onClick={() => setOpen(true)}
-        className="w-full sm:w-auto h-11 px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+        className="w-full sm:w-auto h-12 px-5 text-base font-medium text-muted-foreground hover:text-foreground"
       >
         <Icon name="undo" size="sm" />
         <span>Go back to {previousStage.name}</span>

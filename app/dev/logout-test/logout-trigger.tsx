@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
-import { logoutAction } from "./actions";
+import { logoutAction } from "@/lib/auth/logout-action";
 import { LogoutConfirmationModal } from "./logout-confirmation-modal";
 
 // =============================================================================

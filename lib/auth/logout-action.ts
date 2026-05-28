@@ -12,18 +12,10 @@ import { isRole, type Role } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { log } from '@/lib/logger';
 
-// =============================================================================
-// HVA-28: Logout Server Action
-// =============================================================================
-//
-// Lives under /app/dev/logout-test/ for now because the spec'd trigger
-// location (Profile screen) doesn't exist yet — that's HVA-76. When HVA-76
-// lands, MOVE this file to a shared location (e.g. lib/actions/logout.ts or
-// app/(profile)/actions.ts) and update both call sites. No behaviour change
-// needed; the action is route-agnostic.
+// HVA-28: production logout server action.
 //
 // Cleanup is intentionally layered. Any one of (1) (2) (3) is sufficient to
-// invalidate the session, but doing all three insulates us from BA Next.js
+// invalidate the session, but doing all three insulates us from Better-Auth
 // integration quirks (e.g. cookies() being write-able only in specific
 // runtime contexts, or BA's signOut silently no-op'ing if the cookie reader
 // can't find the token). Each step is idempotent and try/caught so failure
@@ -31,9 +23,7 @@ import { log } from '@/lib/logger';
 //
 // Audit row is non-blocking by lib/audit contract — never throws. Whether it
 // actually persists depends on `audit_enabled_events` config containing
-// 'logout' (added to the schema default in lib/config-schema.ts; if a deploy
-// has an older seeded value, the live config row needs a one-time UPDATE).
-// =============================================================================
+// 'logout'.
 
 export async function logoutAction(): Promise<void> {
   const reqHeaders = await headersFn();
@@ -64,7 +54,7 @@ export async function logoutAction(): Promise<void> {
   //    its cookie-clear ran but its DB-delete didn't. Idempotent — if BA
   //    already deleted the row, this affects zero rows. Even if the cookie
   //    survives in the browser, an absent session row makes proxy.ts treat
-  //    the next request as unauthenticated, so AC #2 still holds.
+  //    the next request as unauthenticated.
   try {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
   } catch (err) {

@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-28 (HVA-192/193/195/196 cleanup bundle — stale files deleted, snapshot comment clarified, Caddyfile bind-mount documented)
+**Last updated:** 2026-05-28 (HVA-194 — logout action moved from app/dev/logout-test/actions.ts → lib/auth/logout-action.ts)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-28 | HVA-194 | Moved the production logout server action from `app/dev/logout-test/actions.ts` → `lib/auth/logout-action.ts`. The action was load-bearing in prod (every sidebar + drawer + admin-footer + exec-avatar-menu imports it) but lived under a path that looked dev-only — misleading. All 7 import sites updated (5 production sidebars/menus + 1 dev page trigger + the file itself moved). Old file deleted. No behaviour change — same function, same callers, just an import-path rename. `proxy.ts` still blocks `/dev/*` HTTP routes in prod; the server-action mechanism doesn't depend on route accessibility. |
 | 2026-05-28 | HVA-192/193/195/196 | Cleanup bundle. (192) Deleted untracked `.env.local.bak` from prod working dir — never committed, `.gitignore` already excludes `.env*`. (193) Deleted `scripts/align-migrations-table-hva111.sql` after verifying no runtime references; `docs/migrations.md` historical note updated. (195) Clarified the byte-identical-snapshot comment in `app/(captain)/layout.tsx` — the actual regression guard is `tests/captain-shell/captain-nav.test.ts` (nav-config shape, not DOM-level snapshot). (196) Diagnostic: confirmed Caddyfile IS bind-mounted from `/opt/beakn-home-visit-app/infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro` — old "no bind-mount" memory was wrong. Updated MEMORY → caddy-infra with verified state + new edit protocol (just edit the host file, run `caddy reload`; no docker cp needed). Drift between repo + live file noted (live has Hermes Agent block not in committed snapshot) — separate decision before syncing. |
 | 2026-05-28 | HVA-128 | Drop misleading "(or the assigned captain is inactive)" clause from HVA-42 escalation email — the routing code only checks `cities.captain_routing_email` non-empty; it never reads `users.is_active` on the linked captain (intentional decoupling per HVA-42 design). Email copy also clarified: "Please assign a captain to this city" → "Please set a routing email for this city in admin settings" (the missing thing is the routing column, not the captain assignment). Pure copy fix in `lib/email-templates/captain-new-request.ts`. |
 | 2026-05-28 | HVA-129 | HVA-127 polish — two changes: (1) `/captain/requests` "Open" pill renamed to "New" per Sandeep's original spec; URL key stays as `?bucket=open` for backward compatibility so deep links don't break. (2) Captain sidebar (both desktop + mobile drawer) gains badge counts next to Requests / Pending Approvals / Finance. Counts come from new `lib/captain/sidebar-counts.ts` using the same team-scope visibility as the underlying list pages, so the badge "6" matches what the captain sees on click-through. Layout fans out the count query in parallel with the unread-announcements count via Promise.all so the sidebar doesn't serialize them. Cancelled requests excluded everywhere. Super_admin (no city assignments) sees no badges. |
@@ -144,7 +145,7 @@ For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 �
 
 ## Cleanup tickets to file (from recon)
 
-- Rename `app/dev/logout-test/actions.ts` → `lib/auth/logout-action.ts` (production-load-bearing despite the dev path) — HVA-194
+(All STATE.md-tracked cleanup tickets shipped in HVA-192/193/194/195/196.)
 
 ---
 

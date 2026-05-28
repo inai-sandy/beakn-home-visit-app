@@ -19,7 +19,9 @@
     "icons:generate": "tsx scripts/generate-icons.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -55,6 +57,7 @@
   },
   "devDependencies": {
     "@material/material-color-utilities": "0.3.0",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@testcontainers/postgresql": "^11.14.0",
     "@types/node": "^20",

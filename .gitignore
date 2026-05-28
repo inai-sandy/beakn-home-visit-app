@@ -43,3 +43,10 @@ next-env.d.ts
 
 # claude code (local agent settings, not project state)
 .claude/
+
+# playwright (HVA-151) — generated artifacts. Visual baselines under
+# tests/e2e/**/*-snapshots/ are committed deliberately.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

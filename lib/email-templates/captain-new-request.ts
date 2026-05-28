@@ -60,9 +60,9 @@ function preambleHtml(input: CaptainNewRequestInput): string {
         </p>
         <p style="margin:0 0 12px 0;">
           A new home-visit request came in for <strong>${escapeText(input.city)}</strong>,
-          but the city has no captain routing email configured (or the
-          assigned captain is inactive). Please assign a captain to this
-          city, then forward this request to them.
+          but the city has no captain routing email configured. Please set
+          a routing email for this city in admin settings, then forward this
+          request to the captain.
         </p>`;
     case 'captain':
     default:

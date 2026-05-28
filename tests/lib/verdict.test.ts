@@ -7,8 +7,13 @@ import { computeDayVerdict } from '@/lib/today/verdict';
 
 const EMPTY_TARGET = { actual: 0, target: null, status: 'no_target' as const };
 
+// Omit<Partial<...>, 'targets'> drops the strict `targets` shape from the
+// outer Partial so the inner `Partial<DayCloseMetrics['targets']>` isn't
+// intersected back into a fully-required form. Without the Omit, TS
+// collapses the intersection to the full strict shape — which is what was
+// happening before HVA-151 surfaced this via a corrected tsc check.
 function buildMetrics(
-  overrides: Partial<DayCloseMetrics> & {
+  overrides: Omit<Partial<DayCloseMetrics>, 'targets'> & {
     targets?: Partial<DayCloseMetrics['targets']>;
   } = {},
 ): DayCloseMetrics {

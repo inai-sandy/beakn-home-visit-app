@@ -2,25 +2,28 @@
 
 import { usePathname } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
-import { Icon } from "@/components/ui/icon";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { resolveExecPageTitle } from "@/lib/exec-nav";
 
-// =============================================================================
-// HVA-115 / HVA-51: exec shell desktop top bar
-// =============================================================================
+import type { InAppNotificationRow } from "@/lib/notifications/in-app-queries";
+
+// HVA-115 / HVA-51: exec shell desktop top bar.
+// HVA-52: real notification bell replaces the HVA-48 placeholder.
 //
-// Desktop-only since HVA-51 (lg:flex). Mobile gets ExecMobileTopbar which
-// hosts the hamburger drawer trigger + page title + avatar dropdown.
-// Desktop here keeps the notification bell placeholder; identity + logout
-// live in the persistent ExecSidebar footer.
-// =============================================================================
+// Desktop-only since HVA-51 (lg:flex). Identity + logout live in the
+// persistent ExecSidebar footer.
 
 interface ExecTopbarProps {
   fullName: string;
+  unreadInAppCount: number;
+  initialNotifications: InAppNotificationRow[];
 }
 
-export function ExecTopbar({ fullName: _fullName }: ExecTopbarProps) {
+export function ExecTopbar({
+  fullName: _fullName,
+  unreadInAppCount,
+  initialNotifications,
+}: ExecTopbarProps) {
   const pathname = usePathname() ?? "/today";
   const title = resolveExecPageTitle(pathname);
 
@@ -33,16 +36,10 @@ export function ExecTopbar({ fullName: _fullName }: ExecTopbarProps) {
       </div>
 
       <div className="flex items-center gap-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Notifications"
-          className="h-10 w-10"
-          title="Notifications (badge coming in HVA-48)"
-        >
-          <Icon name="notifications" size="sm" />
-        </Button>
+        <NotificationBell
+          unreadCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
+        />
       </div>
     </header>
   );

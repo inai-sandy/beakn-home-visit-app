@@ -7,6 +7,10 @@ import { cities, salesExecutives, users } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
 import { countUnreadAnnouncementsForUser } from "@/lib/content/queries";
 import { decideExecAccess } from "@/lib/exec-authz";
+import {
+  loadRecentInAppNotifications,
+  loadUnreadInAppCount,
+} from "@/lib/notifications/in-app-queries";
 
 import { ExecBottomNav } from "./_components/exec-bottom-nav";
 import { ExecMobileTopbar } from "./_components/ExecMobileTopbar";
@@ -79,10 +83,14 @@ export default async function ExecLayout({
 
   // HVA-156: drives the unread-count badge on the Announcements item in
   // both the mobile drawer + desktop sidebar.
-  const unreadAnnouncementsCount = await countUnreadAnnouncementsForUser(
-    user.id,
-    user.role,
-  );
+  // HVA-52: in-app notification bell — count + initial drawer payload.
+  // All three fan out in parallel so the layout TTFB stays bounded.
+  const [unreadAnnouncementsCount, unreadInAppCount, initialNotifications] =
+    await Promise.all([
+      countUnreadAnnouncementsForUser(user.id, user.role),
+      loadUnreadInAppCount(user.id),
+      loadRecentInAppNotifications(user.id, 20),
+    ]);
 
   return (
     <div className="min-h-svh flex bg-background">
@@ -102,8 +110,14 @@ export default async function ExecLayout({
           captainName={execRow?.captainName ?? null}
           cities={cityRows}
           unreadAnnouncementsCount={unreadAnnouncementsCount}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
         />
-        <ExecTopbar fullName={fullName} />
+        <ExecTopbar
+          fullName={fullName}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
+        />
         {/*
           Content area is a plain <div>: each child page renders its own
           <main> already (see /today). Two <main> per document is invalid

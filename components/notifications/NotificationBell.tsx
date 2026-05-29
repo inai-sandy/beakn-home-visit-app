@@ -24,6 +24,12 @@ import type { InAppNotificationRow } from '@/lib/notifications/in-app-queries';
 import { cn } from '@/lib/utils';
 
 import { getEventTypeIcon } from './event-type-icon';
+import { useNotificationPoll } from './use-notification-poll';
+
+// HVA-53: cap how many new items get individual toasts on a single tick. A
+// quiet day = at most 1; a noisy day (multiple rules fire on one event) =
+// the user sees one toast per item up to this cap, then a summary toast.
+const MAX_TOASTS_PER_TICK = 3;
 
 // HVA-52: Reusable in-app notification bell.
 //
@@ -45,25 +51,74 @@ interface Props {
 }
 
 export function NotificationBell({
-  unreadCount,
+  unreadCount: initialUnreadCount,
   initialNotifications,
   triggerClassName,
 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState(initialNotifications);
+  const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isPending, startTransition] = useTransition();
 
+  // HVA-53: poll-driven live updates. Initial cursor is the newest item the
+  // server already gave us (+1ms baked in by the route handler when the
+  // initial fetch happens; here we approximate with new Date().toISOString()
+  // since the SSR payload doesn't carry an explicit cursor).
+  useNotificationPoll({
+    initialCursor:
+      items.length > 0
+        ? new Date(items[0].createdAt.getTime() + 1).toISOString()
+        : new Date().toISOString(),
+    drawerOpen: open,
+    onTick: (response) => {
+      // Always reconcile the badge — even on a quiet tick the unread count
+      // may have changed (e.g. user marked items read in another tab).
+      setUnreadCount(response.unreadCount);
+      if (response.newItems.length === 0) return;
+      // Prepend the new items into the local list, capped at 50 so the
+      // drawer doesn't grow unbounded between full reloads.
+      setItems((prev) => {
+        const merged = [...response.newItems, ...prev];
+        return merged.slice(0, 50);
+      });
+      // Fire toasts. One toast per item up to the cap; if we got more, a
+      // single summary toast captures the rest so the user knows there's
+      // more in the drawer.
+      const toShow = response.newItems.slice(0, MAX_TOASTS_PER_TICK);
+      for (const item of toShow) {
+        toast(item.title, {
+          description: item.body,
+          action: item.linkUrl
+            ? {
+                label: 'Open',
+                onClick: () => {
+                  router.push(item.linkUrl!);
+                },
+              }
+            : undefined,
+        });
+      }
+      const remaining = response.newItems.length - toShow.length;
+      if (remaining > 0) {
+        toast(`${remaining} more notification${remaining === 1 ? '' : 's'}`, {
+          description: 'Open the bell to see them all.',
+        });
+      }
+    },
+  });
+
   function onItemClick(item: InAppNotificationRow) {
-    // Optimistically mark this item read in the local list so the dot
-    // disappears immediately. The Server Action settles the DB; we revalidate
-    // the layout after so the bell badge refreshes.
+    // Optimistically mark this item read in the local list so the dot + the
+    // bell badge update immediately. The Server Action settles the DB; the
+    // next poll tick reconciles.
     if (item.readAt === null) {
       setItems((prev) =>
         prev.map((r) =>
           r.id === item.id ? { ...r, readAt: new Date() } : r,
         ),
       );
+      setUnreadCount((c) => Math.max(0, c - 1));
     }
     startTransition(async () => {
       const result = await markNotificationReadAction(item.id);
@@ -84,6 +139,7 @@ export function NotificationBell({
         r.readAt === null ? { ...r, readAt: new Date() } : r,
       ),
     );
+    setUnreadCount(0);
     startTransition(async () => {
       const result = await markAllNotificationsReadAction();
       if (!result.ok) {

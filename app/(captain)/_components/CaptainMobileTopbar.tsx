@@ -2,10 +2,10 @@
 
 import { usePathname } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/ui/icon';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { resolveCaptainPageTitle } from '@/lib/captain/nav';
 import type { CaptainSidebarCounts } from '@/lib/captain/sidebar-counts';
+import type { InAppNotificationRow } from '@/lib/notifications/in-app-queries';
 
 import { CaptainSidebarSheet } from './CaptainSidebarSheet';
 
@@ -33,6 +33,9 @@ interface Props {
   unreadAnnouncementsCount?: number;
   /** HVA-129: badge counts for Requests / Pending Approvals / Finance. */
   sidebarCounts?: CaptainSidebarCounts;
+  /** HVA-79: in-app notification bell. */
+  unreadInAppCount?: number;
+  initialNotifications?: InAppNotificationRow[];
 }
 
 export function CaptainMobileTopbar({
@@ -40,6 +43,8 @@ export function CaptainMobileTopbar({
   cities,
   unreadAnnouncementsCount = 0,
   sidebarCounts,
+  unreadInAppCount = 0,
+  initialNotifications = [],
 }: Props) {
   const pathname = usePathname() ?? '/captain/dashboard';
   const title = resolveCaptainPageTitle(pathname);
@@ -58,16 +63,11 @@ export function CaptainMobileTopbar({
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}
       </h1>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label="Notifications (coming in HVA-79)"
-        disabled
-        className="h-11 w-11 rounded-full text-muted-foreground/70 disabled:opacity-60"
-      >
-        <Icon name="notifications" size="sm" />
-      </Button>
+      <NotificationBell
+        unreadCount={unreadInAppCount}
+        initialNotifications={initialNotifications}
+        triggerClassName="h-11 w-11"
+      />
     </header>
   );
 }

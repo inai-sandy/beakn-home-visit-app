@@ -6,11 +6,13 @@ import { usePathname } from "next/navigation";
 import { useTransition } from "react";
 
 import { logoutAction } from "@/lib/auth/logout-action";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { CAPTAIN_NAV_ITEMS } from "@/lib/captain/nav";
 import type { CaptainSidebarCounts } from "@/lib/captain/sidebar-counts";
+import type { InAppNotificationRow } from "@/lib/notifications/in-app-queries";
 import { cn } from "@/lib/utils";
 
 // =============================================================================
@@ -41,6 +43,9 @@ interface SidebarProps {
   unreadAnnouncementsCount?: number;
   /** HVA-129: badge counts for Requests / Pending Approvals / Finance. */
   sidebarCounts?: CaptainSidebarCounts;
+  /** HVA-79: in-app notification bell. */
+  unreadInAppCount?: number;
+  initialNotifications?: InAppNotificationRow[];
 }
 
 // HVA-152: NAV_ITEMS extracted to lib/captain/nav.ts so the mobile drawer
@@ -54,6 +59,8 @@ export function CaptainSidebar({
   cities,
   unreadAnnouncementsCount = 0,
   sidebarCounts,
+  unreadInAppCount = 0,
+  initialNotifications = [],
 }: SidebarProps) {
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -74,17 +81,15 @@ export function CaptainSidebar({
             priority
             className="rounded-md shrink-0"
           />
-          {/* HVA-79 will fill in the bell badge count + SSE wiring. Stub icon
-              today so the slot exists. Non-interactive on purpose. */}
-          <button
-            type="button"
-            aria-label="Notifications (coming in HVA-79)"
-            disabled
-            className="ml-auto h-8 w-8 inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 disabled:opacity-60"
-            data-stub="notification-bell"
-          >
-            <Icon name="notifications" size="sm" />
-          </button>
+          {/* HVA-79: real bell, reusing the role-agnostic component from
+              HVA-52. SSE wiring lands separately in HVA-55 (Phase 2). */}
+          <div className="ml-auto">
+            <NotificationBell
+              unreadCount={unreadInAppCount}
+              initialNotifications={initialNotifications}
+              triggerClassName="h-8 w-8"
+            />
+          </div>
         </div>
         <div className="space-y-1">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">

@@ -59,6 +59,29 @@ export const notificationsQueue = pgTable(
 );
 
 // Per-user inbox surfaced by HVA-52 drawer.
+// HVA-54: persisted browser Web Push subscriptions. One row per (user,
+// endpoint). The cryptographic material (p256dh + auth) is needed by the
+// web-push library to encrypt the push payload server-side.
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('push_subscriptions_endpoint_unique').on(table.endpoint),
+    index('push_subscriptions_user_idx').on(table.userId),
+  ],
+);
+
 export const inAppNotifications = pgTable(
   'in_app_notifications',
   {

@@ -34,6 +34,12 @@ ENV DATABASE_URL=postgres://build:build@localhost:5432/build
 ARG NEXT_PUBLIC_TURNSTILE_SITE_KEY=build-time-placeholder-set-at-deploy
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
+# HVA-54: VAPID public key for Web Push subscription. Same NEXT_PUBLIC_*
+# rule — inlined at build, validated in scripts/deploy.sh against the
+# live .env.local before publish.
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=build-time-placeholder-set-at-deploy
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
+
 RUN pnpm build
 
 # ---------- Stage 3: runtime ----------

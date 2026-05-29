@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { sendViaDiscord } from './channels/discord';
 import { sendViaEmail } from './channels/email';
 import { sendViaInApp, type AdapterArgs, type AdapterResult } from './channels/in-app';
+import { sendViaWebPush } from './channels/web-push';
 import { sendViaWhatsApp } from './channels/whatsapp';
 
 // =============================================================================
@@ -222,6 +223,11 @@ async function userTargetForChannel(
     // In-app target IS the user_id.
     return { ok: true, target: userId };
   }
+  // HVA-54: web push also targets a user_id; the adapter looks up every
+  // push_subscriptions row for that user and fans out per device.
+  if (channel === 'push') {
+    return { ok: true, target: userId };
+  }
   const [row] = await db
     .select({ email: users.email, phone: users.phone })
     .from(users)
@@ -269,6 +275,11 @@ async function invokeChannel(
         return await sendViaWhatsApp(args);
       case 'discord':
         return await sendViaDiscord(args);
+      // HVA-54: 'push' is the enum literal in notification_channel; the
+      // adapter name is web_push to disambiguate from "is this an in-app
+      // push" reading. notification_rules seeds with channel='push'.
+      case 'push':
+        return await sendViaWebPush(args);
       default:
         return { status: 'failed', error: `unknown_channel:${channel}` };
     }

@@ -6,6 +6,10 @@ import { cities } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
 import { loadCaptainSidebarCounts } from "@/lib/captain/sidebar-counts";
 import { countUnreadAnnouncementsForUser } from "@/lib/content/queries";
+import {
+  loadRecentInAppNotifications,
+  loadUnreadInAppCount,
+} from "@/lib/notifications/in-app-queries";
 
 import { CaptainMobileTopbar } from "./_components/CaptainMobileTopbar";
 import { CaptainSidebar } from "./sidebar";
@@ -75,10 +79,17 @@ export default async function CaptainLayout({
   // HVA-156: drives the unread-count badge on the Announcements item in
   // both the mobile drawer + desktop sidebar.
   // HVA-129: badge counts for Requests / Pending Approvals / Finance.
-  // Both queries fan out in parallel so the layout doesn't serialize them.
-  const [unreadAnnouncementsCount, sidebarCounts] = await Promise.all([
+  // HVA-79: in-app notification bell count + initial drawer payload.
+  const [
+    unreadAnnouncementsCount,
+    sidebarCounts,
+    unreadInAppCount,
+    initialNotifications,
+  ] = await Promise.all([
     countUnreadAnnouncementsForUser(user.id, user.role),
     loadCaptainSidebarCounts(user.id),
+    loadUnreadInAppCount(user.id),
+    loadRecentInAppNotifications(user.id, 20),
   ]);
 
   return (
@@ -97,6 +108,8 @@ export default async function CaptainLayout({
           cities={myCities}
           unreadAnnouncementsCount={unreadAnnouncementsCount}
           sidebarCounts={sidebarCounts}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
         />
       </div>
 
@@ -112,6 +125,8 @@ export default async function CaptainLayout({
           cities={myCities}
           unreadAnnouncementsCount={unreadAnnouncementsCount}
           sidebarCounts={sidebarCounts}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
         />
 
         {/*

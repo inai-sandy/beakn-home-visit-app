@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { countPendingAdminHelpMessages } from "@/lib/admin-help/actions";
 import { decideAdminAccess } from "@/lib/admin-authz";
 import { getServerSession } from "@/lib/auth-server";
+import {
+  loadRecentInAppNotifications,
+  loadUnreadInAppCount,
+} from "@/lib/notifications/in-app-queries";
 
 import { AdminSidebar } from "./_components/admin-sidebar";
 import { AdminTopbar } from "./_components/admin-topbar";
@@ -51,11 +55,22 @@ export default async function AdminLayout({
 
   // Better-Auth exposes the user's name as `name` on session.user (mapped
   // to our `full_name` column via lib/auth.ts user.fields.name = 'fullName').
-  const user = session!.user as { name?: string; role: string; email?: string };
+  const user = session!.user as {
+    id: string;
+    name?: string;
+    role: string;
+    email?: string;
+  };
   const displayName = user.name ?? user.email ?? "Admin";
 
   // HVA-77 + HVA-94: drives the Admin Help Inbox sidebar badge.
-  const pendingHelpCount = await countPendingAdminHelpMessages();
+  // HVA-87: in-app notification bell on the admin topbar.
+  const [pendingHelpCount, unreadInAppCount, initialNotifications] =
+    await Promise.all([
+      countPendingAdminHelpMessages(),
+      loadUnreadInAppCount(user.id),
+      loadRecentInAppNotifications(user.id, 20),
+    ]);
 
   return (
     <div className="min-h-svh flex bg-background">
@@ -71,7 +86,10 @@ export default async function AdminLayout({
         <main>.
       */}
       <div className="flex-1 flex flex-col min-w-0">
-        <AdminTopbar />
+        <AdminTopbar
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
+        />
         <div className="flex-1 overflow-x-auto">{children}</div>
       </div>
     </div>

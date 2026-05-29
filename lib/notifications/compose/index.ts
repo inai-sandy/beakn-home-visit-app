@@ -34,6 +34,16 @@ import {
   composeRequestRolledBackInApp,
   type RequestRolledBackContext,
 } from './request-rolled-back';
+import {
+  composeRequestCancelledByCustomerForAdmin,
+  composeRequestCancelledByCustomerForCaptain,
+  type RequestCancelledByCustomerContext,
+} from './request-cancelled-by-customer';
+import {
+  composeRequestRescheduledForAdmin,
+  composeRequestRescheduledForCaptain,
+  type RequestRescheduledContext,
+} from './request-rescheduled';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -80,6 +90,33 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     composeRequestApprovedInApp(ctx as unknown as RequestApprovedContext),
   'request.rejected': (ctx) =>
     composeRequestRejectedInApp(ctx as unknown as RequestRejectedContext),
+  // 2026-05-29: customer-side events. Captain + admin variants resolve
+  // from the recipientRole the engine stamps onto context. New rules in
+  // migration 0046 seed both audiences for each event.
+  'request.cancelled_by_customer': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeRequestCancelledByCustomerForAdmin(
+        ctx as unknown as RequestCancelledByCustomerContext,
+      );
+    }
+    return composeRequestCancelledByCustomerForCaptain(
+      ctx as unknown as RequestCancelledByCustomerContext,
+    );
+  },
+  'request.rescheduled': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeRequestRescheduledForAdmin(
+        ctx as unknown as RequestRescheduledContext,
+      );
+    }
+    return composeRequestRescheduledForCaptain(
+      ctx as unknown as RequestRescheduledContext,
+    );
+  },
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

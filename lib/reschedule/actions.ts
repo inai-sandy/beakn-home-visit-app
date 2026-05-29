@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { db } from '@/db/client';
 import {
+  cities,
   requestRescheduleHistory,
   statusStages,
   visitRequests,
@@ -184,9 +185,14 @@ async function commonReschedule(
       statusStageCode: statusStages.code,
       cancelledAt: visitRequests.cancelledAt,
       customerName: visitRequests.customerName,
+      // 2026-05-29: city join so request.rescheduled dispatch can resolve
+      // the captain_owning_city recipient + render the city.
+      cityCaptainUserId: cities.captainUserId,
+      cityName: cities.name,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.id, args.requestId))
     .limit(1);
   if (!reqRow) return { ok: false, error: 'Request not found' };
@@ -254,6 +260,10 @@ async function commonReschedule(
       toVisitScheduledAt: args.toAt.toISOString(),
       reason: args.reason,
       customerName: reqRow.customerName,
+      // 2026-05-29: needed for the captain_owning_city recipient resolver
+      // + the composer's "in <city>" suffix.
+      cityCaptainUserId: reqRow.cityCaptainUserId,
+      cityName: reqRow.cityName,
     });
   } catch {
     // Never block the response.

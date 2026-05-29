@@ -2,7 +2,10 @@
 
 import { usePathname } from 'next/navigation';
 
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { resolveExecPageTitle } from '@/lib/exec-nav';
+
+import type { InAppNotificationRow } from '@/lib/notifications/in-app-queries';
 
 import { ExecAvatarMenu } from './exec-avatar-menu';
 import { ExecSidebarSheet } from './ExecSidebarSheet';
@@ -26,6 +29,9 @@ interface Props {
   captainName: string | null;
   cities: Array<{ id: string; name: string }>;
   unreadAnnouncementsCount?: number;
+  /** HVA-52: drives the bell badge + drawer feed on mobile. */
+  unreadInAppCount?: number;
+  initialNotifications?: InAppNotificationRow[];
 }
 
 export function ExecMobileTopbar({
@@ -33,6 +39,8 @@ export function ExecMobileTopbar({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  unreadInAppCount = 0,
+  initialNotifications = [],
 }: Props) {
   const pathname = usePathname() ?? '/today';
   const title = resolveExecPageTitle(pathname);
@@ -51,6 +59,10 @@ export function ExecMobileTopbar({
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}
       </h1>
+      <NotificationBell
+        unreadCount={unreadInAppCount}
+        initialNotifications={initialNotifications}
+      />
       <ExecAvatarMenu fullName={fullName} />
     </header>
   );

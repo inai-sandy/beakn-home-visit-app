@@ -49,6 +49,7 @@ fi
 # -----------------------------------------------------------------------------
 REQUIRED_BUILD_ARGS=(
   NEXT_PUBLIC_TURNSTILE_SITE_KEY
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY
 )
 
 # Known placeholder values that must NOT be in the live build. Keep in sync

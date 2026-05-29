@@ -1,5 +1,5 @@
 // Beakn Service Worker
-// Cache version: beakn-v2-hva146 (HVA-146, 2026-05-17)
+// Cache version: beakn-v3-hva54 (HVA-54, 2026-05-29)
 //
 // Strategy:
 //   /api/*                          → bypass SW entirely
@@ -18,7 +18,7 @@
 // NOT included (deferred):
 //   - push handlers — HVA-54 owns Web Push subscription + onpush/onnotificationclick.
 
-const CACHE_VERSION = 'beakn-v2-hva146';
+const CACHE_VERSION = 'beakn-v3-hva54';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -147,3 +147,66 @@ async function staleWhileRevalidate(req) {
     .catch(() => null);
   return cached ?? (await network) ?? Response.error();
 }
+
+// =============================================================================
+// HVA-54: Web Push handlers
+// =============================================================================
+//
+// `push` fires when the OS push service delivers a payload encrypted with
+// the user's subscription keys. Server (lib/notifications/channels/web-push.ts)
+// sends { title, body, linkUrl, eventType }. We render an OS-level
+// notification and stash the linkUrl on `data` so the `notificationclick`
+// handler can route to it.
+//
+// `notificationclick` focuses an existing tab for that linkUrl if one is
+// open; otherwise opens a fresh tab. Both paths close the OS notification.
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    if (event.data) payload = event.data.json();
+  } catch {
+    // Bad payload — show a generic notification rather than dropping it.
+  }
+  const title = payload.title || 'Beakn';
+  const options = {
+    body: payload.body || '',
+    icon: '/icon-192x192.png',
+    badge: '/icon-192x192.png',
+    data: { linkUrl: payload.linkUrl || '/', eventType: payload.eventType || null },
+    // Tag so multiple pushes for the same request don't pile up — newer
+    // replaces older. Falls back to eventType when no requestId in payload.
+    tag: payload.eventType || 'beakn',
+    renotify: true,
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.linkUrl) || '/';
+  event.waitUntil(
+    (async () => {
+      const allClients = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      // Prefer focusing an existing tab so the click feels like an in-app
+      // jump rather than opening a duplicate.
+      for (const client of allClients) {
+        const url = new URL(client.url);
+        if (url.pathname === targetUrl || client.url.endsWith(targetUrl)) {
+          await client.focus();
+          if ('navigate' in client) await client.navigate(targetUrl);
+          return;
+        }
+      }
+      if (allClients.length > 0) {
+        await allClients[0].focus();
+        if ('navigate' in allClients[0]) await allClients[0].navigate(targetUrl);
+        return;
+      }
+      await self.clients.openWindow(targetUrl);
+    })(),
+  );
+});

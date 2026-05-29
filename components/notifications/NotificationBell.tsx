@@ -24,6 +24,7 @@ import type { InAppNotificationRow } from '@/lib/notifications/in-app-queries';
 import { cn } from '@/lib/utils';
 
 import { getEventTypeIcon } from './event-type-icon';
+import { PushSubscribeToggle } from './PushSubscribeToggle';
 import { useNotificationPoll } from './use-notification-poll';
 
 // HVA-53: cap how many new items get individual toasts on a single tick. A
@@ -195,6 +196,11 @@ export function NotificationBell({
             >
               Mark all as read
             </Button>
+          </div>
+          {/* HVA-54: opt-in/out toggle for browser push notifications. Renders
+              null on unsupported browsers (no PushManager / SW). */}
+          <div className="pt-2">
+            <PushSubscribeToggle />
           </div>
         </SheetHeader>
 

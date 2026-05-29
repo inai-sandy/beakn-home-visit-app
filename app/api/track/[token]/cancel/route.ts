@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { db } from '@/db/client';
 import {
+  cities,
   requestStatusHistory,
   statusStages,
   visitRequests,
@@ -114,10 +115,17 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       assignedExecUserId: visitRequests.assignedExecUserId,
       assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityId: visitRequests.cityId,
+      // 2026-05-29: include cityCaptainUserId + cityName so the
+      // request.cancelled_by_customer dispatch can resolve the
+      // captain_owning_city recipient role + render the city in the
+      // composer's body.
+      cityCaptainUserId: cities.captainUserId,
+      cityName: cities.name,
       customerName: visitRequests.customerName,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.trackingToken, token))
     .limit(1);
   if (!reqRow) {
@@ -223,6 +231,10 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     await dispatchNotification('request.cancelled_by_customer', {
       requestId: reqRow.id,
       cityId: reqRow.cityId,
+      // 2026-05-29: needed for the captain_owning_city recipient resolver
+      // + the composer's "in <city>" suffix.
+      cityCaptainUserId: reqRow.cityCaptainUserId,
+      cityName: reqRow.cityName,
       assignedExecUserId: reqRow.assignedExecUserId,
       assignedCaptainUserId: reqRow.assignedCaptainUserId,
       customerName: reqRow.customerName,

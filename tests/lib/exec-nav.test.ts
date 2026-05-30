@@ -78,6 +78,7 @@ describe('isExecNavItemActive', () => {
 
 describe('EXEC_DRAWER_NAV', () => {
   it('exposes drawer destinations in locked order (HVA-71 added Calendar)', () => {
+    // HVA-199: 'Assist' inserted between Requests and Finance.
     expect(EXEC_DRAWER_NAV.map((i) => i.label)).toEqual([
       'Dashboard',
       'Today',
@@ -85,6 +86,7 @@ describe('EXEC_DRAWER_NAV', () => {
       'Tasks',
       'Contacts',
       'Requests',
+      'Assist',
       'Finance',
       'Resources',
       'Announcements',

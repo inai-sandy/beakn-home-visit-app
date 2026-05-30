@@ -62,6 +62,9 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Tasks', icon: 'checklist', href: '/tasks' },
   { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
+  // HVA-199: assist requests — exec submits material requests; captain
+  // / admin processes through a 4-stage workflow.
+  { label: 'Assist', icon: 'support_agent', href: '/assist' },
   // PR13 2026-05-27: exec self-view of the finance dashboard (mirror
   // of /captain/collections scoped to assigned_exec = me).
   { label: 'Finance', icon: 'payments', href: '/finance' },

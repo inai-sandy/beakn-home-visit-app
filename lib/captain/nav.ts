@@ -32,6 +32,8 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // in this ticket; edit lands in PR 3.
   { href: '/captain/contacts', label: 'Contacts', icon: 'contacts' },
   { href: '/captain/approvals', label: 'Pending Approvals', icon: 'task_alt' },
+  // HVA-199: assist requests from the captain's team execs.
+  { href: '/captain/assist', label: 'Assist Requests', icon: 'support_agent' },
   { href: '/captain/collections', label: 'Finance', icon: 'payments' },
   { href: '/captain/reports', label: 'Reports', icon: 'monitoring' },
   { href: '/captain/resources', label: 'Resources', icon: 'folder' },

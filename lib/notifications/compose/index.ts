@@ -56,6 +56,20 @@ import {
   composeRequestPendingApprovalForCaptain,
   type RequestPendingApprovalContext,
 } from './request-pending-approval';
+import {
+  composeAssistApprovedForAdmin,
+  composeAssistApprovedForExec,
+  composeAssistCreatedForAdmin,
+  composeAssistCreatedForCaptain,
+  composeAssistDispatchedForAdmin,
+  composeAssistDispatchedForExec,
+  composeAssistProcessingForAdmin,
+  composeAssistProcessingForExec,
+  composeAssistRejectedForAdmin,
+  composeAssistRejectedForExec,
+  type AssistCreatedContext,
+  type AssistStatusChangeContext,
+} from './assist-events';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -162,6 +176,67 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     }
     return composeRequestPendingApprovalForCaptain(
       ctx as unknown as RequestPendingApprovalContext,
+    );
+  },
+  // HVA-199 — assist domain. recipientRole drives the variant.
+  'assist.created': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeAssistCreatedForAdmin(
+        ctx as unknown as AssistCreatedContext,
+      );
+    }
+    return composeAssistCreatedForCaptain(
+      ctx as unknown as AssistCreatedContext,
+    );
+  },
+  'assist.approved': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeAssistApprovedForAdmin(
+        ctx as unknown as AssistStatusChangeContext,
+      );
+    }
+    return composeAssistApprovedForExec(
+      ctx as unknown as AssistStatusChangeContext,
+    );
+  },
+  'assist.processing': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeAssistProcessingForAdmin(
+        ctx as unknown as AssistStatusChangeContext,
+      );
+    }
+    return composeAssistProcessingForExec(
+      ctx as unknown as AssistStatusChangeContext,
+    );
+  },
+  'assist.dispatched': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeAssistDispatchedForAdmin(
+        ctx as unknown as AssistStatusChangeContext,
+      );
+    }
+    return composeAssistDispatchedForExec(
+      ctx as unknown as AssistStatusChangeContext,
+    );
+  },
+  'assist.rejected': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeAssistRejectedForAdmin(
+        ctx as unknown as AssistStatusChangeContext,
+      );
+    }
+    return composeAssistRejectedForExec(
+      ctx as unknown as AssistStatusChangeContext,
     );
   },
 };

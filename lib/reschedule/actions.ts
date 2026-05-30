@@ -264,6 +264,8 @@ async function commonReschedule(
       // + the composer's "in <city>" suffix.
       cityCaptainUserId: reqRow.cityCaptainUserId,
       cityName: reqRow.cityName,
+      // 2026-05-30: engine resolver for exec_assigned reads context.execUserId.
+      execUserId: reqRow.assignedExecUserId,
     });
   } catch {
     // Never block the response.

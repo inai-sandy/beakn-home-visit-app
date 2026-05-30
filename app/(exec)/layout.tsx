@@ -12,6 +12,8 @@ import {
   loadUnreadInAppCount,
 } from "@/lib/notifications/in-app-queries";
 
+import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
+
 import { ExecBottomNav } from "./_components/exec-bottom-nav";
 import { ExecMobileTopbar } from "./_components/ExecMobileTopbar";
 import { ExecSidebar } from "./_components/exec-sidebar";
@@ -118,6 +120,9 @@ export default async function ExecLayout({
           unreadInAppCount={unreadInAppCount}
           initialNotifications={initialNotifications}
         />
+        {/* 2026-05-30: first-time push prompt banner. Auto-hides once the
+            user opts in or dismisses. */}
+        <PushPromptBanner />
         {/*
           Content area is a plain <div>: each child page renders its own
           <main> already (see /today). Two <main> per document is invalid

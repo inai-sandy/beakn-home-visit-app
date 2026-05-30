@@ -37,13 +37,25 @@ import {
 import {
   composeRequestCancelledByCustomerForAdmin,
   composeRequestCancelledByCustomerForCaptain,
+  composeRequestCancelledByCustomerForExec,
   type RequestCancelledByCustomerContext,
 } from './request-cancelled-by-customer';
 import {
   composeRequestRescheduledForAdmin,
   composeRequestRescheduledForCaptain,
+  composeRequestRescheduledForExec,
   type RequestRescheduledContext,
 } from './request-rescheduled';
+import {
+  composeRequestCreatedForAdmin,
+  composeRequestCreatedForCaptain,
+  type RequestCreatedContext,
+} from './request-created';
+import {
+  composeRequestPendingApprovalForAdmin,
+  composeRequestPendingApprovalForCaptain,
+  type RequestPendingApprovalContext,
+} from './request-pending-approval';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -101,6 +113,11 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
         ctx as unknown as RequestCancelledByCustomerContext,
       );
     }
+    if (role === 'exec_assigned') {
+      return composeRequestCancelledByCustomerForExec(
+        ctx as unknown as RequestCancelledByCustomerContext,
+      );
+    }
     return composeRequestCancelledByCustomerForCaptain(
       ctx as unknown as RequestCancelledByCustomerContext,
     );
@@ -113,8 +130,38 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
         ctx as unknown as RequestRescheduledContext,
       );
     }
+    if (role === 'exec_assigned') {
+      return composeRequestRescheduledForExec(
+        ctx as unknown as RequestRescheduledContext,
+      );
+    }
     return composeRequestRescheduledForCaptain(
       ctx as unknown as RequestRescheduledContext,
+    );
+  },
+  // 2026-05-30: high-value missing dispatches surfaced during prod feedback.
+  'request.created': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeRequestCreatedForAdmin(
+        ctx as unknown as RequestCreatedContext,
+      );
+    }
+    return composeRequestCreatedForCaptain(
+      ctx as unknown as RequestCreatedContext,
+    );
+  },
+  'request.pending_approval': (ctx) => {
+    const role =
+      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
+    if (role === 'super_admin') {
+      return composeRequestPendingApprovalForAdmin(
+        ctx as unknown as RequestPendingApprovalContext,
+      );
+    }
+    return composeRequestPendingApprovalForCaptain(
+      ctx as unknown as RequestPendingApprovalContext,
     );
   },
 };

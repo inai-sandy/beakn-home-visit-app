@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 // Side-effect import: registers the captain-new-request handler against
 // the request.submitted event. Must run before the first emit() below.
 import '@/lib/notifications';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import { verifyTurnstile } from '@/lib/turnstile';
 import {
   customerRequestSchema,
@@ -305,7 +306,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   //    after admin removed a city) — surface as 400 + fieldErrors.city
   //    so the form can re-render the dropdown and show the error.
   const [cityRow] = await db
-    .select({ id: cities.id })
+    .select({
+      id: cities.id,
+      // 2026-05-30: include captainUserId so the request.created dispatch
+      // below can resolve captain_owning_city without an extra round trip.
+      captainUserId: cities.captainUserId,
+    })
     .from(cities)
     .where(eq(cities.name, parsed.data.city))
     .limit(1);
@@ -452,6 +458,24 @@ export async function POST(req: Request): Promise<NextResponse> {
     interest: parsed.data.interest,
     submittedAt: new Date().toISOString(),
     requestIdHeader: requestId,
+  });
+
+  // 2026-05-30: in-app + push fan-out for captain + admin. Captain pings
+  // via captain_owning_city (needs cityCaptainUserId); admin via super_admin.
+  // Fire-and-forget — never block the customer's HTTP response.
+  setImmediate(() => {
+    dispatchNotification('request.created', {
+      requestId: insertedId,
+      customerName: parsed.data.name,
+      cityName: parsed.data.city,
+      cityCaptainUserId: cityRow.captainUserId,
+      bhk: parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk),
+    }).catch((err) => {
+      reqLog.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'customer_request_notification_dispatch_failed',
+      );
+    });
   });
 
   // HVA-143: invalidate the client Router Cache so the captain's

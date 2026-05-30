@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { notificationRules, users } from '@/db/schema';
+import { notificationPreferences, notificationRules, users } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 
@@ -258,6 +258,31 @@ async function userTargetForChannel(
 }
 
 // =============================================================================
+// Per-user preference check
+// =============================================================================
+
+async function isUserOptedOut(
+  userId: string,
+  eventType: string,
+  channel: string,
+): Promise<boolean> {
+  // 2026-05-30: per-user override. Only a row with enabled=false means
+  // "skip". Anything else (no row, or enabled=true) falls through.
+  const [row] = await db
+    .select({ enabled: notificationPreferences.enabled })
+    .from(notificationPreferences)
+    .where(
+      and(
+        eq(notificationPreferences.userId, userId),
+        eq(notificationPreferences.eventType, eventType),
+        eq(notificationPreferences.channel, channel as never),
+      ),
+    )
+    .limit(1);
+  return row?.enabled === false;
+}
+
+// =============================================================================
 // Channel adapter dispatch
 // =============================================================================
 
@@ -351,6 +376,27 @@ export async function dispatchNotification(
           error: recipient.reason ?? 'recipient_not_resolved',
         });
         continue;
+      }
+
+      // 2026-05-30: per-user opt-out check. notification_preferences row
+      // with enabled=false for (user, eventType, channel) → skip. Absence
+      // of a row → fall through to default behaviour (deliver).
+      if (recipient.userId !== null) {
+        const optedOut = await isUserOptedOut(
+          recipient.userId,
+          eventType,
+          rule.channel,
+        );
+        if (optedOut) {
+          deliveries.push({
+            channel: rule.channel,
+            recipientRole: rule.recipientRole,
+            resolvedTarget: null,
+            status: 'skipped',
+            error: 'user_opted_out',
+          });
+          continue;
+        }
       }
 
       // Address resolution: user_id → channel-specific address (in_app

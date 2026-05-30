@@ -237,6 +237,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       cityName: reqRow.cityName,
       assignedExecUserId: reqRow.assignedExecUserId,
       assignedCaptainUserId: reqRow.assignedCaptainUserId,
+      // 2026-05-30: engine resolver for exec_assigned reads context.execUserId.
+      // Alias the assignedExecUserId in so exec gets pinged too.
+      execUserId: reqRow.assignedExecUserId,
       customerName: reqRow.customerName,
       reasonCode: reason,
       reasonNote: note ?? null,

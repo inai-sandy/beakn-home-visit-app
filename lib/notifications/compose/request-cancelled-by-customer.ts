@@ -59,3 +59,14 @@ export function composeRequestCancelledByCustomerForAdmin(
     linkUrl: `/requests/${ctx.requestId}`,
   };
 }
+
+export function composeRequestCancelledByCustomerForExec(
+  ctx: RequestCancelledByCustomerContext,
+): InAppBody {
+  const reason = reasonSuffix(ctx.reasonCode, ctx.reasonNote);
+  return {
+    title: `${ctx.customerName} cancelled their visit`,
+    body: `Customer cancelled the request you were handling.${reason}`,
+    linkUrl: `/requests/${ctx.requestId}`,
+  };
+}

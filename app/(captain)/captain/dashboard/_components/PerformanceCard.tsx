@@ -79,15 +79,15 @@ function MetricTile({
   tooltip: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4 space-y-1.5">
+    <div className="rounded-2xl border bg-card p-4 space-y-1.5 min-w-0">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1 min-w-0 truncate">
           {label}
           <InfoTooltip iconOnly>{tooltip}</InfoTooltip>
         </p>
         {showTrafficLights ? (
           metric.status === 'no_target' ? (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-[10px] shrink-0">
               No target
             </Badge>
           ) : (
@@ -95,7 +95,7 @@ function MetricTile({
           )
         ) : null}
       </div>
-      <p className="text-2xl font-semibold tracking-tight">
+      <p className="text-2xl font-semibold tracking-tight tabular-nums truncate">
         {formatActual(format, metric.actual)}
       </p>
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
@@ -122,12 +122,16 @@ export function PerformanceCard({ performance }: { performance: TeamPerformance 
       aria-label="Performance"
       className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
     >
-      <header>
-        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1">
-          {performance.showTrafficLights ? "Today's Performance" : 'Performance'}
+      <header className="min-w-0">
+        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1 max-w-full">
+          <span className="truncate">
+            {performance.showTrafficLights ? "Today's Performance" : 'Performance'}
+          </span>
           <InfoTooltip iconOnly>{cardTooltip}</InfoTooltip>
         </h2>
-        <p className="text-xs text-muted-foreground">{performance.comparisonLabel}.</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {performance.comparisonLabel}.
+        </p>
       </header>
       <div className="grid grid-cols-2 gap-3">
         <MetricTile

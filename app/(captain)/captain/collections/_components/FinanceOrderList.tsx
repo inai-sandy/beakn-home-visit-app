@@ -117,43 +117,46 @@ export function FinanceOrderList({
               href={`/requests/${r.requestId}`}
               className="block rounded-2xl border bg-card hover:bg-muted/40 transition-colors p-4 space-y-2"
             >
-              <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                <p className="text-sm font-semibold tracking-tight">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-semibold tracking-tight min-w-0 truncate">
                   {r.customerName}
                 </p>
-                <Badge variant="outline" className="text-[10px] capitalize">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] capitalize shrink-0"
+                >
                   {isPipelineSeq(r.sequenceNumber) ? 'Quotation' : 'Order'}
                 </Badge>
               </div>
-              <div className="text-[11px] text-muted-foreground capitalize">
+              <div className="text-[11px] text-muted-foreground capitalize break-words">
                 {stageLabel(r.stageName)} · {r.cityName}
                 {r.execName ? ` · ${r.execName}` : ''}
                 {r.ageDays > 0 ? ` · ${r.ageDays}d old` : ''}
               </div>
               <div className="grid grid-cols-3 gap-2 pt-1 text-xs">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Order
                   </p>
-                  <p className="font-mono tabular-nums">
+                  <p className="font-mono tabular-nums truncate">
                     {formatRupees(r.orderValuePaise)}
                   </p>
                 </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Received
                   </p>
-                  <p className="font-mono tabular-nums">
+                  <p className="font-mono tabular-nums truncate">
                     {formatRupees(r.receivedPaise)}
                   </p>
                 </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Outstanding
                   </p>
                   <p
                     className={cn(
-                      'font-mono tabular-nums',
+                      'font-mono tabular-nums truncate',
                       outstandingTone(r.outstandingPaise),
                     )}
                   >

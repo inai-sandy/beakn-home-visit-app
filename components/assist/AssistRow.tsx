@@ -38,21 +38,23 @@ export function AssistRow({ row, detailHref, showExec = false }: Props) {
             <AssistPriorityBadge priority={row.priority} />
           </div>
         </header>
-        <footer className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
+        <footer className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground flex-wrap">
+          <span className="inline-flex items-center gap-1 min-w-0">
             <Icon name="schedule" size="xs" />
-            {formatDistanceToNow(row.createdAt, { addSuffix: true })}
+            <span className="truncate">
+              {formatDistanceToNow(row.createdAt, { addSuffix: true })}
+            </span>
           </span>
           {showExec && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 min-w-0">
               <Icon name="person" size="xs" />
-              {row.exec.fullName}
+              <span className="truncate">{row.exec.fullName}</span>
             </span>
           )}
           {row.dispatchByDate && (
-            <span className="inline-flex items-center gap-1">
+            <span className="inline-flex items-center gap-1 min-w-0">
               <Icon name="event" size="xs" />
-              by {row.dispatchByDate}
+              <span className="truncate">by {row.dispatchByDate}</span>
             </span>
           )}
         </footer>

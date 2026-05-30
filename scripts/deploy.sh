@@ -110,12 +110,14 @@ for name in "${REQUIRED_BUILD_ARGS[@]}"; do
   echo "[deploy] verified $name baked into $match"
 done
 
-# Same verification for the HVA-76 computed args — guards against the
-# Dockerfile dropping the ARG/ENV lines silently.
+# Same verification for the HVA-76 computed args. These are read by the
+# profile pages, which are server components — so the inlined value lands
+# in /app/.next/standalone (server bundle), NOT /app/.next/static (client
+# bundle). Search both locations.
 for name_val in "NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA" "NEXT_PUBLIC_BUILD_DATE=$BUILD_DATE"; do
   name="${name_val%%=*}"
   value="${name_val#*=}"
-  match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$value' /app/.next/static 2>/dev/null | head -1" || true)
+  match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$value' /app/.next 2>/dev/null | head -1" || true)
   if [ -z "$match" ]; then
     echo "ERROR: $name was not embedded in the built bundle — check Dockerfile ARG/ENV wiring" >&2
     exit 1

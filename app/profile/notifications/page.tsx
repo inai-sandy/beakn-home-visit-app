@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { BackButton } from '@/components/ui/back-button';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { getServerSession } from '@/lib/auth-server';
-import { isRole } from '@/lib/auth/roles';
+import { ROLE_HOME, isRole } from '@/lib/auth/roles';
 import { loadUserNotificationPreferences } from '@/lib/notifications/preferences';
 
 import { NotificationPreferenceRow } from './_components/NotificationPreferenceRow';
@@ -60,9 +61,22 @@ export default async function NotificationSettingsPage() {
     byEvent.set(p.eventType, list);
   }
 
+  // Fallback when there's no browser history (deep link / fresh tab). Lands
+  // on the role's home — captain dashboard, exec /today, admin dashboard.
+  const backFallback = ROLE_HOME[role];
+
   return (
     <main className="min-h-svh bg-background pb-12">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+        <div className="flex items-center justify-between gap-2 -ml-2">
+          <BackButton
+            fallback={backFallback}
+            variant="ghost"
+            size="sm"
+          >
+            Back
+          </BackButton>
+        </div>
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">
             Notification settings

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 
 import { PerformanceCard } from '@/app/(captain)/captain/dashboard/_components/PerformanceCard';
 import { DayCloseMetricTiles } from '@/components/today/DayCloseMetricTiles';
+import { BestOfPeriodCards } from '@/components/dashboard/BestOfPeriodCards';
 import { LeadsEnrolledCard } from '@/components/dashboard/LeadsEnrolledCard';
 import { WeeklyReportCard } from '@/components/dashboard/WeeklyReportCard';
 import { db } from '@/db/client';
@@ -22,6 +23,7 @@ import {
   loadExecWeeklyReport,
 } from '@/lib/captain/exec-drill-queries';
 import {
+  loadExecBestOfPeriod,
   loadExecCompletedTasksToday,
   loadExecDashboardSummary,
   loadExecPendingTasks,
@@ -126,6 +128,12 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   const filter = parseDateFilter(raw);
   const istDate = getIstDateString();
 
+  // HVA-155 follow-up: Best-of-period cards always show a window's worth of
+  // data. Single-date dashboard mode silently maps to "last 7 days ending on
+  // the picked date" so the cards have something useful to render even when
+  // the user hasn't picked a range.
+  const bestOfWindow = resolveBestOfWindow(filter);
+
   // HVA-171: today's plan ONLY drives HeroMetrics (always-today snapshot).
   // The Day Closure tiles consume `dayCloseData` from loadExecDayClose
   // below, which respects the calendar filter (single + range).
@@ -145,6 +153,7 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     weekly,
     performance,
     leadsBreakdown,
+    bestOfPeriod,
     allOutcomeOptions,
     allPostponeReasons,
   ] = await Promise.all([
@@ -170,6 +179,11 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     loadExecWeeklyReport(user.id),
     loadExecPerformance(user.id, filter),
     loadExecLeadsBreakdown(user.id),
+    loadExecBestOfPeriod({
+      execUserId: user.id,
+      from: bestOfWindow.from,
+      to: bestOfWindow.to,
+    }),
     db
       .select({
         id: outcomeOptions.id,
@@ -259,6 +273,7 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
       </section>
       <WeeklyReportCard data={weekly} />
       <PerformanceCard performance={performance} />
+      <BestOfPeriodCards data={bestOfPeriod} windowLabel={bestOfWindow.label} />
       <LeadsEnrolledCard data={leadsBreakdown} />
     </main>
   );
@@ -301,4 +316,33 @@ function formatSelectedDateLabel(istDate: string): string {
     year: 'numeric',
     timeZone: 'UTC',
   });
+}
+
+// HVA-155 follow-up: resolve a {from, to, label} for the Best-of-period
+// cards. Single-date mode silently maps to a last-7-days window so the
+// cards always have useful data to render.
+function resolveBestOfWindow(filter: DateFilter): {
+  from: string;
+  to: string;
+  label: string;
+} {
+  if (filter.mode === 'range') {
+    return {
+      from: filter.from,
+      to: filter.to,
+      label: `${formatSelectedDateLabel(filter.from)} – ${formatSelectedDateLabel(filter.to)}`,
+    };
+  }
+  // Single-date → 7-day window ending on the picked date (inclusive).
+  const [y, m, d] = filter.date.split('-').map(Number);
+  const end = new Date(Date.UTC(y, m - 1, d));
+  const start = new Date(end);
+  start.setUTCDate(end.getUTCDate() - 6);
+  const toIsoDate = (date: Date): string =>
+    `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  return {
+    from: toIsoDate(start),
+    to: toIsoDate(end),
+    label: `Last 7 days ending ${formatSelectedDateLabel(filter.date)}`,
+  };
 }

@@ -1,7 +1,13 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { dayPlans, outcomeOptions, tasks } from '@/db/schema';
+import {
+  dayPlans,
+  outcomeOptions,
+  payments,
+  tasks,
+  visitRequests,
+} from '@/db/schema';
 import {
   loadPerformanceForExecIds,
   type DateFilter,
@@ -425,6 +431,171 @@ export async function loadExecPerformance(
   filter: DateFilter,
 ): Promise<TeamPerformance> {
   return loadPerformanceForExecIds([execUserId], filter);
+}
+
+// =============================================================================
+// HVA-155 follow-up — Best-of-period cards
+// =============================================================================
+//
+// Three small aggregations scoped to an exec over a date range:
+//   1. Best day (highest completion %, ties broken by most-tasks-done)
+//   2. Top customer (highest inbound collection sum)
+//   3. Best task type (highest completion %, ties broken by volume)
+//
+// Single-date mode at the dashboard collapses to "last 7 days ending on the
+// picked date" — the page does that windowing and passes a {from, to} pair
+// here. Range mode passes the user-picked range verbatim.
+// =============================================================================
+
+export interface BestDayResult {
+  /** YYYY-MM-DD in IST. */
+  date: string;
+  completionPct: number;
+  doneCount: number;
+  totalCount: number;
+}
+
+export interface TopCustomerResult {
+  customerName: string;
+  customerPhone: string;
+  totalCollectedPaise: number;
+  paymentCount: number;
+}
+
+export interface BestTaskTypeResult {
+  taskType: string;
+  completionPct: number;
+  doneCount: number;
+  totalCount: number;
+}
+
+export interface ExecBestOfPeriod {
+  bestDay: BestDayResult | null;
+  topCustomer: TopCustomerResult | null;
+  bestTaskType: BestTaskTypeResult | null;
+}
+
+export async function loadExecBestOfPeriod(args: {
+  execUserId: string;
+  from: string;
+  to: string;
+}): Promise<ExecBestOfPeriod> {
+  const { execUserId, from, to } = args;
+
+  // 1. Best day — group by task_date, completion % = done / total. Skip days
+  //    with zero tasks. Tie-break on done-count so a 100%-of-1 day doesn't
+  //    beat a 95%-of-20 day in the obvious-effort sense.
+  const dayRows = await db
+    .select({
+      taskDate: tasks.taskDate,
+      total: sql<number>`COUNT(*)::int`,
+      done: sql<number>`COUNT(*) FILTER (WHERE ${tasks.status} = 'completed')::int`,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.execUserId, execUserId),
+        gte(tasks.taskDate, from),
+        lte(tasks.taskDate, to),
+      ),
+    )
+    .groupBy(tasks.taskDate);
+
+  let bestDay: BestDayResult | null = null;
+  for (const r of dayRows) {
+    if (r.total === 0) continue;
+    const pct = (r.done / r.total) * 100;
+    if (
+      bestDay === null ||
+      pct > bestDay.completionPct ||
+      (pct === bestDay.completionPct && r.done > bestDay.doneCount)
+    ) {
+      bestDay = {
+        date: r.taskDate,
+        completionPct: pct,
+        doneCount: r.done,
+        totalCount: r.total,
+      };
+    }
+  }
+
+  // 2. Top customer — sum inbound payments for visit_requests where this
+  //    exec recorded the payment (`recorded_by_user_id`), in [from, to].
+  //    Voided payments are filtered out. Each customer aggregates by phone
+  //    (the dedup key, per locked decision) so different requests for the
+  //    same customer roll up together.
+  const customerRows = await db
+    .select({
+      customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise}), 0)::bigint`,
+      paymentCount: sql<number>`COUNT(*)::int`,
+    })
+    .from(payments)
+    .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
+    .where(
+      and(
+        eq(payments.recordedByUserId, execUserId),
+        eq(payments.direction, 'inbound'),
+        isNull(payments.voidedAt),
+        gte(payments.paymentDate, from),
+        lte(payments.paymentDate, to),
+      ),
+    )
+    .groupBy(visitRequests.customerPhone, visitRequests.customerName)
+    .orderBy(desc(sql`SUM(${payments.amountPaise})`))
+    .limit(1);
+
+  const topCustomer: TopCustomerResult | null =
+    customerRows.length > 0
+      ? {
+          customerName: customerRows[0].customerName,
+          customerPhone: customerRows[0].customerPhone,
+          // Postgres bigint comes back as string from node-postgres; coerce.
+          totalCollectedPaise: Number(customerRows[0].totalPaise),
+          paymentCount: customerRows[0].paymentCount,
+        }
+      : null;
+
+  // 3. Best task type — group by task_type, completion %. Same tie-break as
+  //    Best day. Tasks with status != completed and != pending (e.g.
+  //    postponed, cancelled) still count toward `total` so a type with lots
+  //    of postpones doesn't artificially win.
+  const typeRows = await db
+    .select({
+      taskType: tasks.taskType,
+      total: sql<number>`COUNT(*)::int`,
+      done: sql<number>`COUNT(*) FILTER (WHERE ${tasks.status} = 'completed')::int`,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.execUserId, execUserId),
+        gte(tasks.taskDate, from),
+        lte(tasks.taskDate, to),
+      ),
+    )
+    .groupBy(tasks.taskType);
+
+  let bestTaskType: BestTaskTypeResult | null = null;
+  for (const r of typeRows) {
+    if (r.total === 0) continue;
+    const pct = (r.done / r.total) * 100;
+    if (
+      bestTaskType === null ||
+      pct > bestTaskType.completionPct ||
+      (pct === bestTaskType.completionPct && r.done > bestTaskType.doneCount)
+    ) {
+      bestTaskType = {
+        taskType: r.taskType,
+        completionPct: pct,
+        doneCount: r.done,
+        totalCount: r.total,
+      };
+    }
+  }
+
+  return { bestDay, topCustomer, bestTaskType };
 }
 
 // =============================================================================

@@ -79,6 +79,18 @@ for name in "${REQUIRED_BUILD_ARGS[@]}"; do
 done
 
 # -----------------------------------------------------------------------------
+# Computed build-args (HVA-76 — Profile → App Version section).
+# These are NOT read from .env.local; they're derived fresh at deploy time
+# so every ship records its own commit + timestamp in the client bundle.
+# -----------------------------------------------------------------------------
+COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "[deploy] computed NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA"
+echo "[deploy] computed NEXT_PUBLIC_BUILD_DATE=$BUILD_DATE"
+BUILD_ARG_FLAGS+=("--build-arg" "NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA")
+BUILD_ARG_FLAGS+=("--build-arg" "NEXT_PUBLIC_BUILD_DATE=$BUILD_DATE")
+
+# -----------------------------------------------------------------------------
 # Build
 # -----------------------------------------------------------------------------
 echo "[deploy] docker build beakn-app:$IMAGE_TAG"
@@ -90,6 +102,19 @@ docker build "${BUILD_ARG_FLAGS[@]}" -t "beakn-app:$IMAGE_TAG" -f Dockerfile .
 # -----------------------------------------------------------------------------
 for name in "${REQUIRED_BUILD_ARGS[@]}"; do
   value=$(grep "^${name}=" "$ENV_FILE" | cut -d= -f2- | head -1)
+  match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$value' /app/.next/static 2>/dev/null | head -1" || true)
+  if [ -z "$match" ]; then
+    echo "ERROR: $name was not embedded in the built bundle — check Dockerfile ARG/ENV wiring" >&2
+    exit 1
+  fi
+  echo "[deploy] verified $name baked into $match"
+done
+
+# Same verification for the HVA-76 computed args — guards against the
+# Dockerfile dropping the ARG/ENV lines silently.
+for name_val in "NEXT_PUBLIC_COMMIT_SHA=$COMMIT_SHA" "NEXT_PUBLIC_BUILD_DATE=$BUILD_DATE"; do
+  name="${name_val%%=*}"
+  value="${name_val#*=}"
   match=$(docker run --rm --entrypoint sh "beakn-app:$IMAGE_TAG" -c "grep -rl '$value' /app/.next/static 2>/dev/null | head -1" || true)
   if [ -z "$match" ]; then
     echo "ERROR: $name was not embedded in the built bundle — check Dockerfile ARG/ENV wiring" >&2

@@ -11,6 +11,8 @@ import {
   loadUnreadInAppCount,
 } from "@/lib/notifications/in-app-queries";
 
+import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
+
 import { CaptainMobileTopbar } from "./_components/CaptainMobileTopbar";
 import { CaptainSidebar } from "./sidebar";
 
@@ -149,6 +151,9 @@ export default async function CaptainLayout({
             */}
           </div>
         </header>
+
+        {/* 2026-05-30: first-time push prompt banner. */}
+        <PushPromptBanner />
 
         <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
       </div>

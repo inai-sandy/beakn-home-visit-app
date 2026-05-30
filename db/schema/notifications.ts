@@ -82,6 +82,31 @@ export const pushSubscriptions = pgTable(
   ],
 );
 
+// 2026-05-30: per-user notification preference overrides.
+// Row exists with enabled=false → user opted out; absence → use rule's default.
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    channel: notificationChannelEnum('channel').notNull(),
+    enabled: boolean('enabled').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('notification_preferences_unique').on(
+      table.userId,
+      table.eventType,
+      table.channel,
+    ),
+    index('notification_preferences_user_idx').on(table.userId),
+  ],
+);
+
 export const inAppNotifications = pgTable(
   'in_app_notifications',
   {

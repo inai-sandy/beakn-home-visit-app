@@ -62,3 +62,15 @@ export function composeRequestRescheduledForAdmin(
     linkUrl: `/requests/${ctx.requestId}`,
   };
 }
+
+export function composeRequestRescheduledForExec(
+  ctx: RequestRescheduledContext,
+): InAppBody {
+  const when = formatIstWhen(ctx.toVisitScheduledAt);
+  const reason = reasonSuffix(ctx.reason);
+  return {
+    title: `${ctx.customerName} rescheduled`,
+    body: `New visit time: ${when}.${reason}`,
+    linkUrl: `/requests/${ctx.requestId}`,
+  };
+}

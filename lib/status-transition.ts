@@ -1,7 +1,8 @@
 import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
+import { cities, requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import { logEvent } from '@/lib/audit';
 import { type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
@@ -152,9 +153,15 @@ export async function transitionRequestStatus(
       currentStageCode: statusStages.code,
       currentStageSeq: statusStages.sequenceNumber,
       currentStageName: statusStages.name,
+      // 2026-05-30: customer + city + captain for the
+      // request.pending_approval dispatch below.
+      customerName: visitRequests.customerName,
+      cityName: cities.name,
+      cityCaptainUserId: cities.captainUserId,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.id, requestId))
     .limit(1);
 
@@ -331,18 +338,33 @@ export async function transitionRequestStatus(
     userAgent: userAgent ?? null,
   });
 
-  // 7. Notification engine STUB. TODO(HVA-48/HVA-49): dispatch
-  //    'request.status_changed' with { requestId, fromStage, toStage,
-  //    actorUserId }.
-  transitionLog.info(
-    {
-      requestId,
-      fromSeq: currentRow.currentStageSeq,
-      toSeq: nextRow.sequenceNumber,
-      notificationEngine: 'pending_HVA-48',
-    },
-    'status_transition_notification_pending',
-  );
+  // 2026-05-30: fire request.pending_approval whenever the new stage is
+  // PENDING_CAPTAIN_APPROVAL. Captain + admin care; exec is the actor so
+  // doesn't need a self-ping. Fire-and-forget — never block the response.
+  if (nextRow.code === 'PENDING_CAPTAIN_APPROVAL') {
+    setImmediate(() => {
+      dispatchNotification('request.pending_approval', {
+        requestId,
+        customerName: currentRow.customerName,
+        cityName: currentRow.cityName,
+        cityCaptainUserId: currentRow.cityCaptainUserId,
+      }).catch((err) => {
+        transitionLog.warn(
+          { err: err instanceof Error ? err.message : String(err), requestId },
+          'pending_approval_dispatch_failed',
+        );
+      });
+    });
+  } else {
+    transitionLog.info(
+      {
+        requestId,
+        fromSeq: currentRow.currentStageSeq,
+        toSeq: nextRow.sequenceNumber,
+      },
+      'status_transition_no_dispatch_for_this_target',
+    );
+  }
 
   return {
     ok: true,

@@ -8,6 +8,8 @@ import {
   loadUnreadInAppCount,
 } from "@/lib/notifications/in-app-queries";
 
+import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
+
 import { AdminSidebar } from "./_components/admin-sidebar";
 import { AdminTopbar } from "./_components/admin-topbar";
 import { AdminUserFooter } from "./_components/admin-user-footer";
@@ -90,6 +92,8 @@ export default async function AdminLayout({
           unreadInAppCount={unreadInAppCount}
           initialNotifications={initialNotifications}
         />
+        {/* 2026-05-30: first-time push prompt banner. */}
+        <PushPromptBanner />
         <div className="flex-1 overflow-x-auto">{children}</div>
       </div>
     </div>

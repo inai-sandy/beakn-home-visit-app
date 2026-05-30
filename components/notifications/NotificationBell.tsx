@@ -1,6 +1,7 @@
 'use client';
 
 import { formatDistanceToNow } from 'date-fns';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
@@ -199,8 +200,20 @@ export function NotificationBell({
           </div>
           {/* HVA-54: opt-in/out toggle for browser push notifications. Renders
               null on unsupported browsers (no PushManager / SW). */}
-          <div className="pt-2">
+          <div className="pt-2 flex items-center justify-between gap-2">
             <PushSubscribeToggle />
+            <Button
+              type="button"
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+            >
+              <Link href="/profile/notifications" onClick={() => setOpen(false)}>
+                <Icon name="tune" size="xs" />
+                Settings
+              </Link>
+            </Button>
           </div>
         </SheetHeader>
 

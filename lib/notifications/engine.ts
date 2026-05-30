@@ -439,6 +439,23 @@ export async function dispatchNotification(
           rule.channel,
         );
         if (!addr.ok) {
+          // HVA-132: surface address-resolution failures at warn level so
+          // "captain X has no email" is one grep away in prod logs, not
+          // buried in the audit_log only. The dispatch still records this
+          // as `status: 'skipped'` below — this is purely additional
+          // observability for the operator.
+          if (rule.channel === 'email' || rule.channel === 'whatsapp') {
+            engineLog.warn(
+              {
+                event: eventType,
+                channel: rule.channel,
+                recipientRole: rule.recipientRole,
+                userId: recipient.userId,
+                reason: addr.reason,
+              },
+              'recipient_address_unresolved',
+            );
+          }
           deliveries.push({
             channel: rule.channel,
             recipientRole: rule.recipientRole,

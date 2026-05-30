@@ -1,12 +1,19 @@
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
+  auditLog,
+  cities,
   dayPlans,
   leads,
   outcomeOptions,
+  payments,
+  quotations,
   salesExecutives,
+  statusStages,
   tasks,
+  users,
+  visitRequests,
 } from '@/db/schema';
 import {
   offsetIstDate,
@@ -500,4 +507,149 @@ export async function loadExecLeadsBreakdown(
     else bucket.notYetConverted = r.count;
   }
   return out;
+}
+
+// =============================================================================
+// HVA-83: drill-down tab helpers — Open Requests / Pending Collections / Audit
+// =============================================================================
+
+export interface ExecOpenRequestRow {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  cityName: string;
+  stageCode: string;
+  stageName: string;
+  sequenceNumber: number;
+  createdAt: Date;
+  visitScheduledAt: Date | null;
+}
+
+/** Open = not cancelled AND not at terminal positive stage. */
+export async function loadExecOpenRequests(
+  execUserId: string,
+): Promise<ExecOpenRequestRow[]> {
+  const rows = await db
+    .select({
+      id: visitRequests.id,
+      customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      cityName: cities.name,
+      stageCode: statusStages.code,
+      stageName: statusStages.name,
+      sequenceNumber: statusStages.sequenceNumber,
+      createdAt: visitRequests.createdAt,
+      visitScheduledAt: visitRequests.visitScheduledAt,
+    })
+    .from(visitRequests)
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
+        sql`${statusStages.code} != 'ORDER_EXECUTED_SUCCESSFULLY'`,
+      ),
+    )
+    .orderBy(asc(statusStages.sequenceNumber), desc(visitRequests.createdAt));
+  return rows;
+}
+
+export interface ExecPendingCollectionRow {
+  requestId: string;
+  customerName: string;
+  cityName: string;
+  quotedPaise: number;
+  paidPaise: number;
+  outstandingPaise: number;
+  quotedAt: Date;
+}
+
+/** Outstanding = SUM(quotation.total_order_value_paise) - SUM(inbound payments).
+ *  Listed only when outstanding > 0 and at least one quotation exists. */
+export async function loadExecPendingCollections(
+  execUserId: string,
+): Promise<ExecPendingCollectionRow[]> {
+  // Subquery: latest quotation per request (max submittedAt).
+  // Simpler aggregate: SUM payments inbound (not voided) per request.
+  const rows = await db
+    .select({
+      requestId: visitRequests.id,
+      customerName: visitRequests.customerName,
+      cityName: cities.name,
+      quotedPaise: sql<number>`COALESCE(SUM(DISTINCT ${quotations.totalOrderValuePaise}), 0)::bigint`,
+      paidPaise: sql<number>`COALESCE(SUM(CASE WHEN ${payments.direction} = 'inbound' AND ${payments.voidedAt} IS NULL THEN ${payments.amountPaise} ELSE 0 END), 0)::bigint`,
+      quotedAt: sql<Date>`MAX(${quotations.submittedAt})`,
+    })
+    .from(visitRequests)
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .leftJoin(payments, eq(payments.visitRequestId, visitRequests.id))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        isNull(visitRequests.cancelledAt),
+      ),
+    )
+    .groupBy(visitRequests.id, cities.name, visitRequests.customerName);
+
+  return rows
+    .map((r) => ({
+      requestId: r.requestId,
+      customerName: r.customerName,
+      cityName: r.cityName,
+      quotedPaise: Number(r.quotedPaise),
+      paidPaise: Number(r.paidPaise),
+      outstandingPaise: Number(r.quotedPaise) - Number(r.paidPaise),
+      quotedAt: r.quotedAt,
+    }))
+    .filter((r) => r.outstandingPaise > 0)
+    .sort((a, b) => b.outstandingPaise - a.outstandingPaise);
+}
+
+export interface ExecAuditRow {
+  id: string;
+  eventType: string;
+  targetEntityType: string | null;
+  targetEntityId: string | null;
+  createdAt: Date;
+  reason: string | null;
+}
+
+/** Exec-scoped audit trail. Paginated. Returns rows + a flag whether more
+ *  exist beyond this page. */
+export async function loadExecAuditTrail(args: {
+  execUserId: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<{ rows: ExecAuditRow[]; total: number }> {
+  const pageSize = args.pageSize ?? 25;
+  const page = Math.max(1, args.page ?? 1);
+  const offset = (page - 1) * pageSize;
+
+  const [rowsResult, totalResult] = await Promise.all([
+    db
+      .select({
+        id: auditLog.id,
+        eventType: auditLog.eventType,
+        targetEntityType: auditLog.targetEntityType,
+        targetEntityId: auditLog.targetEntityId,
+        createdAt: auditLog.createdAt,
+        reason: auditLog.reason,
+      })
+      .from(auditLog)
+      .where(eq(auditLog.actorUserId, args.execUserId))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ cnt: sql<number>`COUNT(*)::int` })
+      .from(auditLog)
+      .where(eq(auditLog.actorUserId, args.execUserId)),
+  ]);
+
+  return {
+    rows: rowsResult,
+    total: totalResult[0]?.cnt ?? 0,
+  };
 }

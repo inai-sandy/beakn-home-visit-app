@@ -40,6 +40,14 @@ ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$NEXT_PUBLIC_TURNSTILE_SITE_KEY
 ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY=build-time-placeholder-set-at-deploy
 ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
 
+# HVA-76: commit SHA + build date for the Profile → App Version section.
+# deploy.sh computes both fresh at every ship; placeholders here keep
+# local `docker build` working but the live deploy always overrides.
+ARG NEXT_PUBLIC_COMMIT_SHA=dev
+ENV NEXT_PUBLIC_COMMIT_SHA=$NEXT_PUBLIC_COMMIT_SHA
+ARG NEXT_PUBLIC_BUILD_DATE=dev
+ENV NEXT_PUBLIC_BUILD_DATE=$NEXT_PUBLIC_BUILD_DATE
+
 RUN pnpm build
 
 # ---------- Stage 3: runtime ----------

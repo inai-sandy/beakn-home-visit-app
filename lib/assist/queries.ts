@@ -56,6 +56,7 @@ export interface AssistRequestRow {
     customerName: string;
     cityName: string;
     stageCode: string;
+    stageName: string;
   } | null;
   itemCount: number;
 }
@@ -190,6 +191,7 @@ export async function loadAssistList(
       linkedCustomerName: visitRequests.customerName,
       linkedCityName: linkedRequestCity.name,
       linkedStageCode: linkedRequestStage.code,
+      linkedStageName: linkedRequestStage.name,
       itemCount: sql<number>`(
         SELECT COUNT(*)::int FROM ${assistRequestItems}
         WHERE ${assistRequestItems.assistRequestId} = ${assistRequests.id}
@@ -255,6 +257,7 @@ export async function loadAssistList(
           customerName: r.linkedCustomerName ?? '',
           cityName: r.linkedCityName ?? '',
           stageCode: r.linkedStageCode ?? '',
+          stageName: r.linkedStageName ?? '',
         }
       : null,
     itemCount: r.itemCount,
@@ -301,6 +304,7 @@ export async function loadAssistDetail(args: {
       linkedCustomerName: visitRequests.customerName,
       linkedCityName: linkedRequestCity.name,
       linkedStageCode: linkedRequestStage.code,
+      linkedStageName: linkedRequestStage.name,
     })
     .from(assistRequests)
     .leftJoin(users, eq(users.id, assistRequests.execUserId))
@@ -368,6 +372,7 @@ export async function loadAssistDetail(args: {
           customerName: headerRow.linkedCustomerName ?? '',
           cityName: headerRow.linkedCityName ?? '',
           stageCode: headerRow.linkedStageCode ?? '',
+          stageName: headerRow.linkedStageName ?? '',
         }
       : null,
     itemCount: itemsRaw.length,

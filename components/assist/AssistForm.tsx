@@ -9,17 +9,12 @@ import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   createAssistRequestAction,
   updateAssistRequestAction,
 } from '@/lib/assist/actions';
 import type { LinkableVisitRequestOption } from '@/lib/assist/queries';
+
+import { CustomerLinkSearch } from './CustomerLinkSearch';
 import {
   ASSIST_PRIORITY_LABELS,
   ASSIST_TYPE_LABELS,
@@ -46,13 +41,16 @@ interface InitialValues {
   dispatchByDate: string;
   priority: AssistPriority;
   message: string;
-  linkedVisitRequestId: string | null;
+  /** Full row shape so the picked-state UI can show name + city + stage. */
+  linkedVisitRequest: LinkableVisitRequestOption | null;
 }
 
 interface Props {
   mode: 'create' | 'edit';
   assistId?: string;
-  linkableVisitRequests: LinkableVisitRequestOption[];
+  /** Optional initial-suggestions list rendered by CustomerLinkSearch
+   *  on first focus, before the user types anything. */
+  initialCustomerSuggestions?: LinkableVisitRequestOption[];
   initial: InitialValues;
 }
 
@@ -64,7 +62,12 @@ interface DraftItem {
   quantity: string; // string in form state so empty doesn't NaN
 }
 
-export function AssistForm({ mode, assistId, linkableVisitRequests, initial }: Props) {
+export function AssistForm({
+  mode,
+  assistId,
+  initialCustomerSuggestions = [],
+  initial,
+}: Props) {
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<AssistType>(initial.type);
   const [items, setItems] = useState<DraftItem[]>(
@@ -79,8 +82,8 @@ export function AssistForm({ mode, assistId, linkableVisitRequests, initial }: P
   const [dispatchByDate, setDispatchByDate] = useState(initial.dispatchByDate);
   const [priority, setPriority] = useState<AssistPriority>(initial.priority);
   const [message, setMessage] = useState(initial.message);
-  const [linkedVisitRequestId, setLinkedVisitRequestId] = useState<string>(
-    initial.linkedVisitRequestId ?? 'none',
+  const [linkedCustomer, setLinkedCustomer] = useState<LinkableVisitRequestOption | null>(
+    initial.linkedVisitRequest,
   );
   const [isPending, startTransition] = useTransition();
 
@@ -126,8 +129,7 @@ export function AssistForm({ mode, assistId, linkableVisitRequests, initial }: P
         dispatchByDate.trim() === '' ? null : dispatchByDate.trim(),
       priority,
       message: message.trim() === '' ? null : message.trim(),
-      linkedVisitRequestId:
-        linkedVisitRequestId === 'none' ? null : linkedVisitRequestId,
+      linkedVisitRequestId: linkedCustomer?.id ?? null,
     };
 
     startTransition(async () => {
@@ -298,25 +300,14 @@ export function AssistForm({ mode, assistId, linkableVisitRequests, initial }: P
                 </fieldset>
 
                 <div className="space-y-1">
-                  <Label htmlFor="customer-link" className="text-xs text-muted-foreground">
+                  <Label className="text-xs text-muted-foreground">
                     Link to a customer (optional)
                   </Label>
-                  <Select
-                    value={linkedVisitRequestId}
-                    onValueChange={(v) => setLinkedVisitRequestId(v)}
-                  >
-                    <SelectTrigger id="customer-link" className="h-11">
-                      <SelectValue placeholder="No customer linked" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No customer linked</SelectItem>
-                      {linkableVisitRequests.map((vr) => (
-                        <SelectItem key={vr.id} value={vr.id}>
-                          {vr.customerName} — {vr.cityName} ({vr.stageName})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <CustomerLinkSearch
+                    value={linkedCustomer}
+                    onChange={setLinkedCustomer}
+                    initialSuggestions={initialCustomerSuggestions}
+                  />
                 </div>
 
                 <div className="space-y-1">

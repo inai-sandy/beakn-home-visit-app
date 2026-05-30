@@ -18,8 +18,12 @@ export default async function ExecAssistNewPage() {
   const role = (session.user as { role?: string }).role;
   if (role !== 'sales_executive' && role !== 'super_admin') redirect('/login');
 
-  const linkable = await loadLinkableVisitRequestsForExec({
+  // Small bootstrap list of the exec's most-recent linkable visit requests
+  // so the search popover has something to show on first focus before the
+  // user types. The full search hits /api/assist/linkable-customers.
+  const initialSuggestions = await loadLinkableVisitRequestsForExec({
     execUserId: session.user.id,
+    limit: 10,
   });
 
   return (
@@ -36,7 +40,7 @@ export default async function ExecAssistNewPage() {
         </header>
         <AssistForm
           mode="create"
-          linkableVisitRequests={linkable}
+          initialCustomerSuggestions={initialSuggestions}
           initial={{
             type: 'material_request',
             items: [],
@@ -44,7 +48,7 @@ export default async function ExecAssistNewPage() {
             dispatchByDate: '',
             priority: 'medium',
             message: '',
-            linkedVisitRequestId: null,
+            linkedVisitRequest: null,
           }}
         />
       </div>

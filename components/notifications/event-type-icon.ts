@@ -10,6 +10,12 @@ const ICON_BY_EVENT: Record<string, string> = {
   'request.rejected': 'cancel',
   'request.completed': 'task_alt',
   'request.escalated': 'priority_high',
+  // HVA-199 — assist domain events.
+  'assist.created': 'support_agent',
+  'assist.approved': 'check_circle',
+  'assist.processing': 'sync',
+  'assist.dispatched': 'local_shipping',
+  'assist.rejected': 'cancel',
 };
 
 export function getEventTypeIcon(eventType: string): string {

@@ -77,6 +77,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'help_center',
         href: '/admin/operations/admin-help',
       },
+      // HVA-199: global queue of all assist requests across teams.
+      {
+        label: 'Assist Requests',
+        icon: 'support_agent',
+        href: '/admin/operations/assist',
+      },
     ],
   },
   {

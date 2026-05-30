@@ -280,6 +280,14 @@ export const CONFIG_SCHEMA = {
       // afterState carries { scheduleId, startDate, endDate, reason? }.
       'exec_unavailability_scheduled',
       'exec_unavailability_schedule_removed',
+      // HVA-199 — exec submits material-request assist + captain/admin
+      // transitions through the 4-stage state machine. Five events; one
+      // per state change.
+      'assist.created',
+      'assist.approved',
+      'assist.processing',
+      'assist.dispatched',
+      'assist.rejected',
     ],
     editable: true,
   },

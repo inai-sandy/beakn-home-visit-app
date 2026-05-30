@@ -206,6 +206,18 @@ export function CaptainSidebarSheet({
                             : sidebarCounts!.outstandingFinanceCount}
                         </Badge>
                       )}
+                    {item.href === '/captain/assist' &&
+                      (sidebarCounts?.openAssistCount ?? 0) > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] tabular-nums border-primary/50 text-primary"
+                          aria-label={`${sidebarCounts!.openAssistCount} open assist requests`}
+                        >
+                          {sidebarCounts!.openAssistCount > 99
+                            ? '99+'
+                            : sidebarCounts!.openAssistCount}
+                        </Badge>
+                      )}
                   </Link>
                 </li>
               );

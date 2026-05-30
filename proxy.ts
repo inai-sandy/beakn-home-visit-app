@@ -137,10 +137,12 @@ function canAccess(pathname: string, role: string): boolean {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }
   // HVA-51 + HVA-170: drawer-only routes inherit the exec-only gate.
+  // HVA-199: /assist is exec-only too (captain has /captain/assist).
   if (
     pathname === '/tasks' || pathname.startsWith('/tasks/') ||
     pathname === '/resources' || pathname.startsWith('/resources/') ||
-    pathname === '/announcements' || pathname.startsWith('/announcements/')
+    pathname === '/announcements' || pathname.startsWith('/announcements/') ||
+    pathname === '/assist' || pathname.startsWith('/assist/')
   ) {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }

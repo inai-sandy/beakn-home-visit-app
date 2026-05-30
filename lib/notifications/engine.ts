@@ -200,6 +200,35 @@ async function resolveRecipients(
       }
       return rows.map((r) => ({ userId: r.id, directAddress: null }));
     }
+    // HVA-199: assist domain resolvers. Assist is exec-bound (not city-
+    // bound) — exec belongs to ONE captain regardless of which city the
+    // related request is in.
+    case 'assist_team_captain': {
+      const userId = context.assistCaptainUserId;
+      if (typeof userId !== 'string' || userId.length === 0) {
+        return [
+          {
+            userId: null,
+            directAddress: null,
+            reason: 'assistCaptainUserId missing from context',
+          },
+        ];
+      }
+      return [{ userId, directAddress: null }];
+    }
+    case 'assist_submitter': {
+      const userId = context.assistExecUserId;
+      if (typeof userId !== 'string' || userId.length === 0) {
+        return [
+          {
+            userId: null,
+            directAddress: null,
+            reason: 'assistExecUserId missing from context',
+          },
+        ];
+      }
+      return [{ userId, directAddress: null }];
+    }
     default:
       return [
         {

@@ -21,18 +21,24 @@ import {
   visitRequests,
 } from '@/db/schema';
 
+import { loadOpenAssistCountForCaptain } from '@/lib/assist/queries';
+
 import { buildCaptainRequestVisibilityWhere } from './team-scope';
 
 export interface CaptainSidebarCounts {
   newRequestsCount: number;
   pendingApprovalsCount: number;
   outstandingFinanceCount: number;
+  // HVA-199: unresolved assist requests (status NOT IN dispatched/rejected)
+  // for this captain's team.
+  openAssistCount: number;
 }
 
 const EMPTY_COUNTS: CaptainSidebarCounts = {
   newRequestsCount: 0,
   pendingApprovalsCount: 0,
   outstandingFinanceCount: 0,
+  openAssistCount: 0,
 };
 
 export async function loadCaptainSidebarCounts(
@@ -67,7 +73,7 @@ export async function loadCaptainSidebarCounts(
   const submittedStageId = submittedStage[0]?.id ?? null;
   const pendingApprovalStageId = pendingApprovalStage[0]?.id ?? null;
 
-  const [newRow, pendingRow, outstandingRow] = await Promise.all([
+  const [newRow, pendingRow, outstandingRow, openAssistCount] = await Promise.all([
     // New = SUBMITTED + unassigned + not cancelled, within visibility scope.
     submittedStageId
       ? db
@@ -122,11 +128,14 @@ export async function loadCaptainSidebarCounts(
           ), 0)`,
         ),
       ),
+    // HVA-199: open assist count (non-terminal statuses for team execs).
+    loadOpenAssistCountForCaptain(captainUserId),
   ]);
 
   return {
     newRequestsCount: newRow[0]?.cnt ?? 0,
     pendingApprovalsCount: pendingRow[0]?.cnt ?? 0,
     outstandingFinanceCount: outstandingRow[0]?.cnt ?? 0,
+    openAssistCount,
   };
 }

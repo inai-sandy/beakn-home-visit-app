@@ -14,3 +14,4 @@ export * from './audit';
 export * from './config';
 export * from './notes';
 export * from './content';
+export * from './assist';

@@ -177,9 +177,28 @@ export function NotificationBell({
           )}
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="w-full sm:max-w-md p-0">
+      {/* showCloseButton=false: the default Sheet close is a 16-px icon at
+          top-right that's hard to find / tap on mobile. We render an
+          explicit 44-px button in the header below instead. */}
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="w-full sm:max-w-md p-0"
+      >
         <SheetHeader className="px-5 py-4 border-b">
-          <SheetTitle>Notifications</SheetTitle>
+          <div className="flex items-center justify-between gap-2">
+            <SheetTitle>Notifications</SheetTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setOpen(false)}
+              aria-label="Close notifications"
+              className="h-10 w-10 -mr-2"
+            >
+              <Icon name="close" size="sm" />
+            </Button>
+          </div>
           <SheetDescription className="sr-only">
             Recent notifications for your account.
           </SheetDescription>

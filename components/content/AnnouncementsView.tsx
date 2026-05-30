@@ -49,6 +49,10 @@ interface Props {
    *  Acknowledge button is suppressed (admin manages, doesn't ack) and
    *  the ack rate "X/Y acknowledged" is appended to the metadata line. */
   renderRowOverlay?: (a: AnnouncementRow) => ReactNode;
+  /** HVA-120: show "X/Y acknowledged" on each row independently of
+   *  adminMode. Captain page sets this true so team managers can see
+   *  ack rates while still being able to acknowledge themselves. */
+  showAckRates?: boolean;
 }
 
 const importanceBadgeClass: Record<AnnouncementImportance, string> = {
@@ -73,8 +77,12 @@ export function AnnouncementsView({
   announcements,
   categories,
   renderRowOverlay,
+  showAckRates = false,
 }: Props) {
   const adminMode = renderRowOverlay !== undefined;
+  // Show ack rate when adminMode explicitly enables it (overlay set) OR
+  // when the caller asks for it (captain manager view).
+  const showAckMetadata = adminMode || showAckRates;
   const router = useRouter();
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
   const [importanceFilter, setImportanceFilter] = useState<string>(ALL);
@@ -247,7 +255,7 @@ export function AnnouncementsView({
                       month: 'short',
                       year: 'numeric',
                     })}
-                    {adminMode &&
+                    {showAckMetadata &&
                       a.ackTotal !== null &&
                       a.ackTotal > 0 && (
                         <>

@@ -7,6 +7,7 @@ import {
   loadAssistDetail,
   loadLinkableVisitRequestsForExec,
 } from '@/lib/assist/queries';
+
 import { getServerSession } from '@/lib/auth-server';
 
 export const dynamic = 'force-dynamic';
@@ -38,8 +39,12 @@ export default async function ExecAssistEditPage({ params }: PageProps) {
     redirect(`/assist/${id}`);
   }
 
-  const linkable = await loadLinkableVisitRequestsForExec({
+  // Bootstrap list of the most-recent linkable visit requests for this exec.
+  // The combobox uses it for the empty-query suggestion popover; live search
+  // hits /api/assist/linkable-customers as the user types.
+  const initialSuggestions = await loadLinkableVisitRequestsForExec({
     execUserId: session.user.id,
+    limit: 10,
   });
 
   return (
@@ -57,7 +62,7 @@ export default async function ExecAssistEditPage({ params }: PageProps) {
         <AssistForm
           mode="edit"
           assistId={id}
-          linkableVisitRequests={linkable}
+          initialCustomerSuggestions={initialSuggestions}
           initial={{
             type: detail.type,
             items: detail.items.map((it) => ({
@@ -68,7 +73,7 @@ export default async function ExecAssistEditPage({ params }: PageProps) {
             dispatchByDate: detail.dispatchByDate ?? '',
             priority: detail.priority,
             message: detail.message ?? '',
-            linkedVisitRequestId: detail.linkedRequest?.id ?? null,
+            linkedVisitRequest: detail.linkedRequest,
           }}
         />
       </div>

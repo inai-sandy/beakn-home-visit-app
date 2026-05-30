@@ -121,7 +121,7 @@ These are non-negotiable. Section 17 of the recon confirmed all 7 enforced in co
 - **Responsive via Tailwind hide/show classes** (`hidden lg:contents` + `lg:hidden`). Never replace a shell with a "responsive component."
 - **Two-sidebar pattern for portals:** desktop sidebar (`hidden lg:contents` wrapper) + mobile drawer (Sheet with `lg:hidden` trigger). Reference: `app/(captain)/_components/CaptainSidebarSheet.tsx`.
 - **No SSE / real-time / WebSocket.** Grep confirms zero usage. Phase 2 territory.
-- **No optimistic UI.** No `useOptimistic` usage. Server-action → revalidate → re-render is the pattern.
+- **Optimistic UI is opt-in, not the default.** Lifted partially per Sandeep on 2026-05-30 (HVA-150 review). Default pattern is still server-action → `revalidatePath` → `router.refresh()` via `useServerMutation`. **But:** for high-risk mutations where execs may double-submit (Add Task, Record Payment, Add Lead, Add Note), use the local `useState`-based pattern that `components/notes/NotesSection.tsx` already implements (append a `pending: true` row, replace with server-returned row on success, remove on failure). Do NOT use React's `useOptimistic` hook — the codebase pattern is plain `useState` + merge-by-id since the parent already owns the list. Comment each opt-in surface with `// HVA-150:` so the carve-out is auditable.
 - **`db/client.ts` is lazy.** Module exports a Proxy that initialises Drizzle on first method call. Don't "simplify" to top-level init — `next build` page-data collection breaks.
 
 ### Server action contract
@@ -249,7 +249,8 @@ Every feature PR must include a STATE.md update in the same PR. No separate micr
 - DO NOT add new dependencies for one-off needs. Use existing shadcn primitives + lucide + Tailwind + radix-ui umbrella. New deps need explicit justification.
 - DO NOT stub future routes proactively. Render disabled links instead. File a follow-up ticket.
 - DO NOT duplicate consts across files. Extract to `lib/*` and import.
-- DO NOT add SSE, real-time, optimistic UI, or `useOptimistic`. Phase 2 territory.
+- DO NOT add SSE, real-time, or `useOptimistic` (React's hook). Phase 2 territory.
+- DO NOT add optimistic UI on low-risk mutations (status transitions, edit forms, simple toggles). The opt-in carve-out is for double-submit risk surfaces only (Add Task, Record Payment, Add Lead, Add Note).
 - DO NOT replace existing shells with "responsive components." Use Tailwind hide/show.
 - DO NOT bundle more than 3 surfaces per PR. 5-ticket bundles cost 3 walk cycles in regressions.
 - DO NOT diagnose-before-fix unless genuinely ambiguous. Surgical patch when the bug is obvious.

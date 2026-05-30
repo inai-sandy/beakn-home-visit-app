@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-05-30 (HVA-132 — diagnosis: notification engine handles missing email correctly; added warn-level log for address-resolution failures so operator can grep for 'no email' captains)
+**Last updated:** 2026-05-30 (Locked-decision review — HVA-55 SSE cancelled, HVA-150 No-Optimistic-UI lock lifted partially for high-risk mutations)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -62,6 +62,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 
 | Date | Ticket | Summary |
 |---|---|---|
+| 2026-05-30 | HVA-150 / 55 | **Locked-decision review.** Sandeep reviewed the two architectural locks blocking these tickets. **HVA-55 SSE — kept locked, cancelled in Linear.** 30s polling (HVA-53) + Web Push (HVA-54) already cover the urgent live-update cases; SSE adds ~6-8 hrs of infra (Postgres LISTEN/NOTIFY pipe, per-user stream, heartbeat, reconnect, leak audit) for marginal UX gain. **HVA-150 Optimistic UI — partial lift.** CLAUDE.md updated: optimistic UI is now opt-in for the 4 high-risk double-submit surfaces (Add Task, Record Payment, Add Lead, Add Note); default pattern remains server-action → revalidate → re-render via `useServerMutation`. Canonical pattern is the local-`useState`+merge-by-id approach `components/notes/NotesSection.tsx` already implements (NOT React's `useOptimistic`). Per-surface implementation filed as a follow-up ticket. |
 | 2026-05-30 | HVA-132 | **Notification engine: address-resolution observability + diagnosis.** Diagnostic verdict: the engine already handles missing email correctly. `userTargetForChannel` returns `{ok: false, reason}` when a user has no email/phone; the dispatch loop records `{status: 'skipped', error}` in the deliveries array and aggregates the skip count in the `notification_dispatched` audit row + pino log. **No silent fallback to super_admin.** Sandeep's 2026-05-17 observation (captain Arjun assignment email landing in super_admin's inbox) was likely either Arjun's test email being set to Sandeep's address OR a separate `super_admin` recipient rule firing for the same event. **Small fix shipped**: when email or whatsapp address resolution fails, also emit a `warn`-level pino log line `recipient_address_unresolved` with `{event, channel, recipientRole, userId, reason}`. Now `docker logs beakn-app \| grep recipient_address_unresolved` surfaces all "captain X has no email" cases without a DB query. |
 | 2026-05-30 | HVA-56 | **Offline indicator banner.** New `<OfflineBanner>` client component mounted at the root layout (above all routed content). Listens to `online`/`offline` window events; renders a sticky amber banner with `wifi_off` icon + "You're offline. Some actions will sync when you reconnect." when offline. Auto-clears on reconnect AND fires a green sonner toast "Back online. Your next actions will go through normally." so the user knows it's safe to act. Initial state syncs from `navigator.onLine` on mount so loading the page already offline still surfaces the banner. **Out of scope** (Phase 2 follow-up): pending-sync badges on individual task/payment/lead cards + the actual sync queue. Banner alone gives execs the visibility they need on home visits in low-signal areas. |
 | 2026-05-30 | HVA-120 / 121 | **Announcements ack rates surfaced to captain.** `/captain/announcements` now calls `loadTeamAnnouncementAckRates` in parallel with the per-user query and merges `{ackCount, ackTotal}` into each announcement before rendering. `AnnouncementsView` gained an explicit `showAckRates` prop (was previously tied to admin-mode overlay) — captain page sets it true so team managers see "12/26 acknowledged (46%)" inline on every announcement card while still being able to acknowledge themselves. **HVA-121 verified already complete**: `loadPublishedResourcesForRole(role)` enforces visibility scoping; `ResourcesView` ships with multi-select tag chips + text search + category filter; both `/resources` (exec) and `/captain/resources` use the role-scoped query. Download tracking deferred (would need a `resource_downloads` audit table — separate ticket if needed). |
@@ -160,7 +161,6 @@ For tickets older than 2026-05-16, see Linear archive (search project: Phase 1 �
 
 ## Queued (not yet started)
 
-- **HVA-150** — Optimistic UI + success/error toasts (Phase 2 candidate)
 - **HVA-151** — Playwright visual regression (Phase 2 candidate)
 
 ---

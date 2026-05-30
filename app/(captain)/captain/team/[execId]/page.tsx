@@ -14,42 +14,63 @@ import {
 } from '@/lib/captain/dashboard-queries';
 import {
   canCaptainViewExec,
+  loadExecAuditTrail,
   loadExecDayClose,
   loadExecDayPlan,
   loadExecLeadsBreakdown,
+  loadExecOpenRequests,
+  loadExecPendingCollections,
   loadExecWeeklyReport,
 } from '@/lib/captain/exec-drill-queries';
 import { loadSingleExecMetrics } from '@/lib/captain/team-queries';
 import { getIstDateString } from '@/lib/today/time';
 
-// HVA-169: WeeklyReportCard + LeadsEnrolledCard moved to components/dashboard/
-// so app/(exec)/dashboard can reuse them. Props + behaviour unchanged.
 import { LeadsEnrolledCard } from '@/components/dashboard/LeadsEnrolledCard';
 import { WeeklyReportCard } from '@/components/dashboard/WeeklyReportCard';
 
 import { AIDailyReportCard } from './_components/AIDailyReportCard';
+import { AuditTrailTab } from './_components/AuditTrailTab';
 import { DayCloseReportSection } from './_components/DayCloseReportSection';
 import { DayPlanSection } from './_components/DayPlanSection';
 import { ExecDrillDownHeader } from './_components/ExecDrillDownHeader';
+import {
+  ExecDrillTabsNav,
+  isValidExecDrillTab,
+  type ExecDrillTab,
+} from './_components/ExecDrillTabsNav';
+import { OpenRequestsTab } from './_components/OpenRequestsTab';
+import { PendingCollectionsTab } from './_components/PendingCollectionsTab';
+import { RedFlagsTab } from './_components/RedFlagsTab';
 import { UnavailabilityScheduleSection } from './_components/UnavailabilityScheduleSection';
 
 // =============================================================================
-// HVA-167: /captain/team/[execId] — exec drill-down
+// HVA-83: /captain/team/[execId] — 7-tab drill-down
 // =============================================================================
 //
-// Sticky header + calendar + day plan (read-only) + day-closure
-// (single-day traffic lights / range aggregates) + weekly report (always
-// last 7 vs prev 7) + leads breakdown + AI placeholder.
+// Tabs: Today's Plan | Calendar | Performance | Open Requests |
+//       Pending Collections | Red Flags | Audit Trail.
 //
-// Auth: captain owning the exec OR super_admin. Off-team captain →
-// 404 (don't leak existence per HVA-167 D12).
+// URL-driven, server-rendered. ?tab=... selects the active tab; other
+// query params (date / from / to / page) are preserved across tab
+// switches by the ExecDrillTabsNav helper.
+//
+// Auth gate: canCaptainViewExec(captainUserId, execId, isAdmin). Off-team
+// captain → 404 (D12 — don't leak existence).
 // =============================================================================
+
+const AUDIT_PAGE_SIZE = 25;
 
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ execId: string }>;
-  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    date?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+  }>;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -84,6 +105,18 @@ function parseDateFilter(params: {
   return { mode: 'single', date: getIstDateString() };
 }
 
+function preservedQueryFor(sp: {
+  date?: string;
+  from?: string;
+  to?: string;
+}): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (sp.date) out.date = sp.date;
+  if (sp.from) out.from = sp.from;
+  if (sp.to) out.to = sp.to;
+  return out;
+}
+
 export default async function CaptainTeamExecDrillDownPage({
   params,
   searchParams,
@@ -98,15 +131,17 @@ export default async function CaptainTeamExecDrillDownPage({
   }
   const isAdmin = actor.role === 'super_admin';
 
-  // D12 — auth gate. 404 not 403 so cross-captain probing reveals
-  // nothing about which exec ids exist.
   const allowed = await canCaptainViewExec(actor.id, execId, isAdmin);
   if (!allowed) notFound();
 
   const sp = await searchParams;
   const dateFilter = parseDateFilter(sp);
+  const activeTab: ExecDrillTab = isValidExecDrillTab(sp.tab)
+    ? sp.tab
+    : 'today';
+  const preservedQuery = preservedQueryFor(sp);
 
-  // Identity row: name, captain link, phone (for the sticky-header tel: link).
+  // Identity + sticky-header quick stats are always today-anchored.
   const [identityRow] = await db
     .select({
       userId: salesExecutives.userId,
@@ -122,42 +157,20 @@ export default async function CaptainTeamExecDrillDownPage({
     .limit(1);
   if (!identityRow) notFound();
 
-  const captainForCities = isAdmin
-    ? identityRow.captainUserId
-    : actor.id;
+  const captainForCities = isAdmin ? identityRow.captainUserId : actor.id;
 
-  // Single-day filter is required by `loadTeamExecStatuses` to compute
-  // today-anchored visits + collections (always TODAY in the sticky
-  // header per D11). The DRY here is that the sticky header is constant;
-  // the calendar selection only drives the page body.
   const todayFilter: DateFilter = {
     mode: 'single',
     date: getIstDateString(),
   };
 
-  const [
-    statuses,
-    singleMetrics,
-    captainCities,
-    dayPlanData,
-    dayCloseData,
-    weeklyData,
-    leadsBreakdown,
-    unavailabilitySchedules,
-  ] = await Promise.all([
+  const [statuses, singleMetrics, captainCities] = await Promise.all([
     loadTeamExecStatuses(captainForCities, todayFilter),
     loadSingleExecMetrics(execId, todayFilter),
     loadCaptainCities(captainForCities),
-    loadExecDayPlan(execId, dateFilter),
-    loadExecDayClose(execId, dateFilter),
-    loadExecWeeklyReport(execId),
-    loadExecLeadsBreakdown(execId),
-    loadExecUnavailabilitySchedules(execId),
   ]);
 
   const status = statuses.find((s) => s.userId === execId);
-  // status may be absent if super_admin is viewing an exec on a captain
-  // team that wasn't loaded — fall back gracefully.
   const quickStats = {
     visitsToday: status?.visitsToday ?? 0,
     collectionsTodayRupees: status?.collectionsTodayRupees ?? 0,
@@ -174,44 +187,177 @@ export default async function CaptainTeamExecDrillDownPage({
           phone: identityRow.phone,
           isUnavailable: singleMetrics?.isUnavailable ?? false,
           hasRedFlag: status?.hasRedFlag ?? false,
-          // HVA-85: drives the rebalance dialog's team-pool query. For
-          // super_admin viewing the captain shell, we still need this id
-          // — fall back to the request's own captain link from the
-          // identity row (defined on the exec record).
           captainUserId: identityRow.captainUserId,
         }}
         cities={captainCities}
         quickStats={quickStats}
       />
 
-      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-xs text-muted-foreground">
-            Calendar selection drives the Day Plan + Day Closure sections.
-            Weekly Report is always the last 7 days.
-          </p>
-          <DateRangePicker
-            filter={dateFilter}
-            pathname={`/captain/team/${execId}`}
-          />
-        </div>
+      <ExecDrillTabsNav
+        execId={execId}
+        activeTab={activeTab}
+        preservedQuery={preservedQuery}
+      />
 
-        <DayPlanSection data={dayPlanData} />
-        <DayCloseReportSection data={dayCloseData} />
-        <WeeklyReportCard data={weeklyData} />
-        <LeadsEnrolledCard data={leadsBreakdown} />
-        <UnavailabilityScheduleSection
-          execUserId={execId}
-          execName={identityRow.fullName}
-          schedules={unavailabilitySchedules.map((s) => ({
-            id: s.id,
-            startDate: s.startDate,
-            endDate: s.endDate,
-            reason: s.reason,
-          }))}
-        />
-        <AIDailyReportCard />
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
+        {(activeTab === 'today' || activeTab === 'calendar') && (
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-muted-foreground">
+              {activeTab === 'today'
+                ? "Read-only view of this exec's day plan for the selected date."
+                : 'Pick a date range to scope the day-plan view.'}
+            </p>
+            <DateRangePicker
+              filter={dateFilter}
+              pathname={`/captain/team/${execId}`}
+            />
+          </div>
+        )}
+
+        {activeTab === 'today' && (
+          <TodayTabContent execId={execId} dateFilter={dateFilter} />
+        )}
+        {activeTab === 'calendar' && (
+          <CalendarTabContent execId={execId} dateFilter={dateFilter} />
+        )}
+        {activeTab === 'performance' && (
+          <PerformanceTabContent execId={execId} dateFilter={dateFilter} />
+        )}
+        {activeTab === 'requests' && (
+          <RequestsTabContent execId={execId} />
+        )}
+        {activeTab === 'collections' && (
+          <CollectionsTabContent execId={execId} />
+        )}
+        {activeTab === 'red-flags' && <RedFlagsTab />}
+        {activeTab === 'audit' && (
+          <AuditTabContent
+            execId={execId}
+            pageParam={sp.page}
+            preservedQuery={preservedQuery}
+          />
+        )}
       </div>
     </main>
   );
 }
+
+// Per-tab loaders keep the page top-level clean. Each is a server component
+// that fetches what its tab needs + renders the section components.
+
+async function TodayTabContent({
+  execId,
+  dateFilter,
+}: {
+  execId: string;
+  dateFilter: DateFilter;
+}) {
+  const [dayPlanData, dayCloseData, unavailabilitySchedules] =
+    await Promise.all([
+      loadExecDayPlan(execId, dateFilter),
+      loadExecDayClose(execId, dateFilter),
+      loadExecUnavailabilitySchedules(execId),
+    ]);
+
+  return (
+    <>
+      <DayPlanSection data={dayPlanData} />
+      <DayCloseReportSection data={dayCloseData} />
+      <UnavailabilityScheduleSection
+        execUserId={execId}
+        execName=""
+        schedules={unavailabilitySchedules.map((s) => ({
+          id: s.id,
+          startDate: s.startDate,
+          endDate: s.endDate,
+          reason: s.reason,
+        }))}
+      />
+    </>
+  );
+}
+
+async function CalendarTabContent({
+  execId,
+  dateFilter,
+}: {
+  execId: string;
+  dateFilter: DateFilter;
+}) {
+  // v1: reuse DayPlanSection in range mode. Real Day/Week/Month switcher
+  // is a follow-up (HVA-83-FOLLOWUP). The calendar tab shows the day plan
+  // across whatever range the user picks; in single-date mode it shows
+  // just that day. This is functionally equivalent to a Day view today
+  // with a hook for Week/Month later.
+  const dayPlanData = await loadExecDayPlan(execId, dateFilter);
+  return (
+    <>
+      <DayPlanSection data={dayPlanData} />
+      <p className="text-[11px] text-muted-foreground italic text-center pt-2">
+        Week/Month grid view ships in HVA-83-FOLLOWUP.
+      </p>
+    </>
+  );
+}
+
+async function PerformanceTabContent({
+  execId,
+  dateFilter,
+}: {
+  execId: string;
+  dateFilter: DateFilter;
+}) {
+  const [dayCloseData, weeklyData, leadsBreakdown] = await Promise.all([
+    loadExecDayClose(execId, dateFilter),
+    loadExecWeeklyReport(execId),
+    loadExecLeadsBreakdown(execId),
+  ]);
+
+  return (
+    <>
+      <DayCloseReportSection data={dayCloseData} />
+      <WeeklyReportCard data={weeklyData} />
+      <LeadsEnrolledCard data={leadsBreakdown} />
+      <AIDailyReportCard />
+    </>
+  );
+}
+
+async function RequestsTabContent({ execId }: { execId: string }) {
+  const rows = await loadExecOpenRequests(execId);
+  return <OpenRequestsTab rows={rows} />;
+}
+
+async function CollectionsTabContent({ execId }: { execId: string }) {
+  const rows = await loadExecPendingCollections(execId);
+  return <PendingCollectionsTab rows={rows} />;
+}
+
+async function AuditTabContent({
+  execId,
+  pageParam,
+  preservedQuery,
+}: {
+  execId: string;
+  pageParam: string | undefined;
+  preservedQuery: Record<string, string>;
+}) {
+  const parsed = pageParam ? Number.parseInt(pageParam, 10) : 1;
+  const page = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  const { rows, total } = await loadExecAuditTrail({
+    execUserId: execId,
+    page,
+    pageSize: AUDIT_PAGE_SIZE,
+  });
+  return (
+    <AuditTrailTab
+      rows={rows}
+      page={page}
+      pageSize={AUDIT_PAGE_SIZE}
+      total={total}
+      execId={execId}
+      preservedQuery={preservedQuery}
+    />
+  );
+}
+

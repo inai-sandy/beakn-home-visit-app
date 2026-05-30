@@ -25,6 +25,7 @@ export function TeamSearchInput({ initial }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [value, setValue] = useState(initial);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push for search debounce, not a mutation
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {

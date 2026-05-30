@@ -56,6 +56,7 @@ export function CompletedTasksList({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: predates useServerMutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const [from, setFrom] = useState(currentFilter.from ?? '');
   const [to, setTo] = useState(currentFilter.to ?? '');

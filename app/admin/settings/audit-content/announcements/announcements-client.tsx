@@ -107,6 +107,7 @@ export function AnnouncementsClient({
   const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [manageRow, setManageRow] = useState<AnnouncementRow | null>(null);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: mixed nav+mutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

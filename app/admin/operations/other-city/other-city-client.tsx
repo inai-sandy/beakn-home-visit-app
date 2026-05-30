@@ -63,6 +63,7 @@ export function OtherCityQueueClient({
   const [modal, setModal] = useState<ModalState | null>(null);
   const [searchInput, setSearchInput] = useState(currentSearch);
   const [submitting, setSubmitting] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: mixed nav+mutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

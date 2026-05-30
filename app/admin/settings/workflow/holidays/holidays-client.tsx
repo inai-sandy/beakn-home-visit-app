@@ -67,6 +67,7 @@ export function HolidaysClient({ holidays }: { holidays: HolidayRow[] }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [submitting, setSubmitting] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: mixed nav+mutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

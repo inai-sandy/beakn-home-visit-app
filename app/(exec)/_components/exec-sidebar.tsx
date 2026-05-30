@@ -50,6 +50,7 @@ export function ExecSidebar({
   unreadAnnouncementsCount = 0,
 }: ExecSidebarProps) {
   const pathname = usePathname() ?? "/today";
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
   const [pending, startTransition] = useTransition();
 
   return (

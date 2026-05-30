@@ -61,6 +61,7 @@ export function AdminHelpInboxClient({
   // defaults to closed. User opens what they need.
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: mixed nav+mutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

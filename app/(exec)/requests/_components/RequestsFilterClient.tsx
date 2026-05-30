@@ -49,6 +49,7 @@ export function RequestsFilterClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [searchInput, setSearchInput] = useState(currentSearch);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push, not a mutation
   const [isPending, startTransition] = useTransition();
 
   const rows: RequestRow[] = useMemo(

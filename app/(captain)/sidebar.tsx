@@ -63,6 +63,7 @@ export function CaptainSidebar({
   initialNotifications = [],
 }: SidebarProps) {
   const pathname = usePathname();
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
   const [pending, startTransition] = useTransition();
 
   return (

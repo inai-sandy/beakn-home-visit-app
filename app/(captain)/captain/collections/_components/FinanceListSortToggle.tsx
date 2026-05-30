@@ -45,6 +45,7 @@ export function FinanceListSortToggle({
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push for sort param, not a mutation
   const [, startTransition] = useTransition();
 
   function setSort(next: FinanceListSort) {

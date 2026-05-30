@@ -73,27 +73,27 @@ export function CityCardGrid({ cards }: Props) {
                 </div>
               </header>
               <dl className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Visits
                   </dt>
-                  <dd className="text-sm font-semibold tabular-nums">
+                  <dd className="text-sm font-semibold tabular-nums truncate">
                     {c.visitsToday}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Collected
                   </dt>
-                  <dd className="text-sm font-semibold tabular-nums">
+                  <dd className="text-sm font-semibold tabular-nums truncate">
                     {adminFormatRupees(c.collectionsTodayPaise)}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <div className="min-w-0">
+                  <dt className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     Orders
                   </dt>
-                  <dd className="text-sm font-semibold tabular-nums">
+                  <dd className="text-sm font-semibold tabular-nums truncate">
                     {c.ordersToday}
                   </dd>
                 </div>

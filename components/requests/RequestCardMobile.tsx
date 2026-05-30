@@ -46,11 +46,13 @@ export function RequestCardMobile({ row, mode, renderActions }: Props) {
         aria-label={`Open request from ${row.customerName}`}
       />
       <div className="relative z-20 pointer-events-none">
-        <div className="flex items-baseline justify-between gap-2 flex-wrap">
-          <h3 className="text-sm font-semibold tracking-tight">
+        <div className="flex items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold tracking-tight min-w-0 truncate">
             {row.customerName}
           </h3>
-          <RequestStatusBadge row={row} />
+          <div className="shrink-0">
+            <RequestStatusBadge row={row} />
+          </div>
         </div>
 
         {mode === 'exec' && (
@@ -82,8 +84,10 @@ export function RequestCardMobile({ row, mode, renderActions }: Props) {
 
         {mode === 'captain' && (
           <div className="flex items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
-            <span>{row.cityName}</span>
-            <span>{row.assignedExecName ?? '—'}</span>
+            <span className="min-w-0 truncate">{row.cityName}</span>
+            <span className="min-w-0 truncate text-right">
+              {row.assignedExecName ?? '—'}
+            </span>
           </div>
         )}
 

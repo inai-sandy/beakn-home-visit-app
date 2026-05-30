@@ -45,20 +45,22 @@ function MetricTile({
 }) {
   const actualText = cell.actual === null ? '—' : formatActual(cell.actual);
   return (
-    <div className="rounded-2xl border bg-card p-4 space-y-1.5">
+    <div className="rounded-2xl border bg-card p-4 space-y-1.5 min-w-0">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground min-w-0 truncate">
           {label}
         </p>
         {hideTrafficLight ? null : cell.status === 'no_target' ? (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-[10px] shrink-0">
             No target
           </Badge>
         ) : (
           <StatusDot status={cell.status} />
         )}
       </div>
-      <p className="text-2xl font-semibold tracking-tight">{actualText}</p>
+      <p className="text-2xl font-semibold tracking-tight tabular-nums truncate">
+        {actualText}
+      </p>
       {cell.target !== null && cell.status !== 'no_target' && !hideTrafficLight && (
         <p className="text-[11px] text-muted-foreground">
           Target {formatActual(cell.target)}

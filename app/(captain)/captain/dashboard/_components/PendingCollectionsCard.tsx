@@ -74,7 +74,7 @@ export function PendingCollectionsCard({
       className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
     >
       <header className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1">
+        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1 min-w-0 truncate">
           Pending Collections
           <InfoTooltip iconOnly>
             Total amount owed by customers where a quotation has been submitted
@@ -85,13 +85,13 @@ export function PendingCollectionsCard({
         </h2>
         <Badge
           variant={summary.outstandingRequestCount > 0 ? 'default' : 'secondary'}
-          className="text-xs"
+          className="text-xs shrink-0"
         >
           {summary.outstandingRequestCount}
         </Badge>
       </header>
 
-      <p className="text-3xl font-semibold tracking-tight">
+      <p className="text-3xl font-semibold tracking-tight tabular-nums truncate">
         {formatRupees(summary.totalDueRupees)}
       </p>
       <p className="text-[11px] text-muted-foreground">

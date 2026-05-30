@@ -123,19 +123,23 @@ export function AssistDetailView({ detail, canTransition, editHref }: Props) {
           Details
         </h2>
         <dl className="grid grid-cols-2 gap-3 text-sm">
-          <div>
+          <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Order number</dt>
-            <dd className="font-medium">{detail.orderNumber || '—'}</dd>
+            <dd className="font-medium break-words">
+              {detail.orderNumber || '—'}
+            </dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Dispatch by</dt>
-            <dd className="font-medium">
+            <dd className="font-medium break-words">
               {detail.dispatchByDate ? formatIstDate(detail.dispatchByDate) : '—'}
             </dd>
           </div>
-          <div className="col-span-2">
+          <div className="col-span-2 min-w-0">
             <dt className="text-xs text-muted-foreground">Message</dt>
-            <dd className="whitespace-pre-line">{detail.message || '—'}</dd>
+            <dd className="whitespace-pre-line break-words">
+              {detail.message || '—'}
+            </dd>
           </div>
         </dl>
       </section>

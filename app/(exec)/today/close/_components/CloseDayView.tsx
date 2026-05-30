@@ -164,31 +164,45 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
             )}
           </header>
           <dl className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <dt className="text-xs text-muted-foreground">Done</dt>
-              <dd className="text-lg font-semibold">{taskCounts.done}</dd>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">Done</dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
+                {taskCounts.done}
+              </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Postponed</dt>
-              <dd className="text-lg font-semibold">{taskCounts.postponed}</dd>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">Postponed</dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
+                {taskCounts.postponed}
+              </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Pending</dt>
-              <dd className="text-lg font-semibold">{taskCounts.pending}</dd>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">Pending</dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
+                {taskCounts.pending}
+              </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Added during day</dt>
-              <dd className="text-lg font-semibold">{taskCounts.addedDuringDay}</dd>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">
+                Added during day
+              </dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
+                {taskCounts.addedDuringDay}
+              </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Estimated time</dt>
-              <dd className="text-lg font-semibold tabular-nums">
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">
+                Estimated time
+              </dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
                 {formatMinutes(metrics.estimatedTotalMinutes)}
               </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Actual time</dt>
-              <dd className="text-lg font-semibold tabular-nums">
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground truncate">
+                Actual time
+              </dt>
+              <dd className="text-lg font-semibold tabular-nums truncate">
                 {formatMinutes(metrics.actualTotalMinutes)}
               </dd>
             </div>

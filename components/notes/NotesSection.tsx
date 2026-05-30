@@ -216,7 +216,7 @@ export function NotesSection({
               )}
             >
               <div className="flex items-start justify-between gap-3 text-xs">
-                <p className="font-medium truncate">
+                <p className="font-medium truncate min-w-0">
                   {n.authorName ?? '—'}{' '}
                   <span className="text-muted-foreground font-normal">
                     · {roleLabel(n.authorRole)}
@@ -231,7 +231,9 @@ export function NotesSection({
                     : formatDistanceToNow(n.createdAt, { addSuffix: true })}
                 </span>
               </div>
-              <p className="text-sm whitespace-pre-line mt-1">{n.body}</p>
+              <p className="text-sm whitespace-pre-line mt-1 break-words">
+                {n.body}
+              </p>
             </li>
           ))}
         </ul>

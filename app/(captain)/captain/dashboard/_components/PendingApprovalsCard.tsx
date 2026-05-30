@@ -42,7 +42,7 @@ export function PendingApprovalsCard({
       className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
     >
       <header className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1">
+        <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1 min-w-0 truncate">
           Pending Approvals
           <InfoTooltip iconOnly>
             Requests your team marked Installation Complete that need your
@@ -51,7 +51,10 @@ export function PendingApprovalsCard({
             any row to approve or reject.
           </InfoTooltip>
         </h2>
-        <Badge variant={totalCount > 0 ? 'default' : 'secondary'} className="text-xs">
+        <Badge
+          variant={totalCount > 0 ? 'default' : 'secondary'}
+          className="text-xs shrink-0"
+        >
           {totalCount}
         </Badge>
       </header>

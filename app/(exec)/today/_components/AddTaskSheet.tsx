@@ -278,6 +278,7 @@ export function AddTaskSheet({
   }, [preselectedLink]);
 
   const [submitting, setSubmitting] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: predates useServerMutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

@@ -70,6 +70,7 @@ interface Props {
 export function DateRangePicker({ filter, pathname }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push for date range, not a mutation
   const [isPending, startTransition] = useTransition();
 
   const today = useMemo(() => todayIstApprox(), []);

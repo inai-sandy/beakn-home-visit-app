@@ -73,6 +73,7 @@ export function CloseDayView({ dayPlan, metrics }: Props) {
   const closed = dayPlan.closedAt !== null;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: predates useServerMutation; HVA-149-cleanup TODO
   const [isPending, startTransition] = useTransition();
   const busy = submitting || isPending;
 

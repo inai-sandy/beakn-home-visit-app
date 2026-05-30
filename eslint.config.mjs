@@ -26,7 +26,7 @@ const eslintConfig = defineConfig([
     files: ["app/(exec)/**/*.{ts,tsx}", "app/(captain)/**/*.{ts,tsx}", "app/admin/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
-        "warn",
+        "error",
         {
           selector: "CallExpression[callee.name='useTransition']",
           message:

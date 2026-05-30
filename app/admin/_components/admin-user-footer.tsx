@@ -24,6 +24,7 @@ export function AdminUserFooter({
   fullName: string;
   role: string;
 }) {
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
   const [pending, startTransition] = useTransition();
 
   return (

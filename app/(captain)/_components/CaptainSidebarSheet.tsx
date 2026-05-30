@@ -57,6 +57,7 @@ export function CaptainSidebarSheet({
 }: Props) {
   const pathname = usePathname() ?? '';
   const [open, setOpen] = useState(false);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
   const [pendingLogout, startLogout] = useTransition();
 
   // Close the drawer whenever the route changes — covers nav clicks from

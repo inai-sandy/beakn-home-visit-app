@@ -34,6 +34,7 @@ function ApprovalsPaginationNav({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push for pagination, not a mutation
   const [, startTransition] = useTransition();
 
   function go(toPage: number) {

@@ -58,6 +58,7 @@ export function LeadsFilterClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push, not a mutation
   const [isPending, startTransition] = useTransition();
 
   // The search input is the only control with debounce. Type chips push

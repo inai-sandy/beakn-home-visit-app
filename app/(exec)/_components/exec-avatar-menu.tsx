@@ -44,6 +44,7 @@ function initials(fullName: string): string {
 }
 
 export function ExecAvatarMenu({ fullName }: ExecAvatarMenuProps) {
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
   const [pending, startTransition] = useTransition();
 
   return (

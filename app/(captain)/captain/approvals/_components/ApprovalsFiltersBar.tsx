@@ -36,6 +36,7 @@ export function ApprovalsFiltersBar({
   const router = useRouter();
   const params = useSearchParams();
   const [searchInput, setSearchInput] = useState(currentSearch);
+  // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push, not a mutation
   const [, startTransition] = useTransition();
 
   function pushParams(updates: Record<string, string | null>) {

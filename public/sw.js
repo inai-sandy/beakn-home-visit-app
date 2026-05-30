@@ -18,14 +18,18 @@
 // NOT included (deferred):
 //   - push handlers — HVA-54 owns Web Push subscription + onpush/onnotificationclick.
 
-const CACHE_VERSION = 'beakn-v3-hva54';
+const CACHE_VERSION = 'beakn-v4-hva147';
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
 // Conservative precache: only assets whose URLs are stable across builds.
 // Next.js JS/CSS chunks are content-hashed; they'd invalidate every deploy.
+//
+// HVA-147: `/` was previously precached, but its HTML changes per build and
+// (more importantly) the proxy redirects it based on session state — so
+// caching it produced stale + role-mismatched payloads for some users on
+// install. Static assets only.
 const PRECACHE_URLS = [
-  '/',
   '/manifest.json',
   '/favicon.ico',
   '/icon-192x192.png',

@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import { paymentSchema } from '@/lib/validators/payment';
 
 // =============================================================================
@@ -108,6 +109,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     .select({
       id: visitRequests.id,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      customerName: visitRequests.customerName,
+      cityId: visitRequests.cityId,
+      cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
       cancelledAt: visitRequests.cancelledAt,
     })
@@ -218,6 +222,33 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // HVA-125: emit `payment.received` for inbound payments. Stub-level — no
+  // composer / rule exists yet, but the dispatch site is wired so later
+  // notification rules pick it up without revisiting the route. Refunds
+  // (outbound) intentionally don't emit here; they have a separate event
+  // type if/when we add one.
+  if (body.direction === 'inbound') {
+    setImmediate(() => {
+      dispatchNotification('payment.received', {
+        requestId: requestUuid,
+        customerName: reqRow.customerName,
+        cityId: reqRow.cityId,
+        cityName: reqRow.cityName,
+        cityCaptainUserId: reqRow.cityCaptainUserId,
+        execUserId: reqRow.assignedExecUserId,
+        amountPaise: resultRow.amountPaise,
+        paymentMode: resultRow.mode,
+        paymentDate: resultRow.paymentDate,
+        recordedByUserId: actorUserId,
+      }).catch((err) => {
+        reqLog.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          'payment_received_dispatch_failed',
+        );
+      });
+    });
+  }
 
   // HVA-143: client Router Cache invalidation for sibling pages.
   revalidatePath('/', 'layout');

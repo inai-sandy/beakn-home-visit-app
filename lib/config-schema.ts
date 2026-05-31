@@ -386,6 +386,24 @@ export const CONFIG_SCHEMA = {
     editable: true,
     validation: { min: 0, max: 100 },
   },
+  // ---------------------------------------------------------------------------
+  // Leaderboard — HVA-201
+  // ---------------------------------------------------------------------------
+  leaderboard_composite_weights: {
+    type: 'object',
+    category: 'targets',
+    description:
+      'Weights blended to compute the "Beakn Score" composite on /leaderboard. Each metric value is normalised (value ÷ max-across-execs × 100), then weighted-summed. Keys: revenue, conversion_pct, orders, visits, quotations, task_completion_pct. Weights should sum to 1.0; the runtime normalises if they don\'t.',
+    defaultValue: {
+      revenue: 0.35,
+      conversion_pct: 0.2,
+      orders: 0.15,
+      visits: 0.1,
+      quotations: 0.1,
+      task_completion_pct: 0.1,
+    },
+    editable: true,
+  },
 } as const satisfies Record<string, ConfigKeyDef>;
 
 export type ConfigKey = keyof typeof CONFIG_SCHEMA;

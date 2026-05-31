@@ -35,6 +35,8 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // HVA-199: assist requests from the captain's team execs.
   { href: '/captain/assist', label: 'Assist Requests', icon: 'support_agent' },
   { href: '/captain/collections', label: 'Finance', icon: 'payments' },
+  // HVA-201: global leaderboard across all execs.
+  { href: '/captain/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
   { href: '/captain/reports', label: 'Reports', icon: 'monitoring' },
   { href: '/captain/resources', label: 'Resources', icon: 'folder' },
   { href: '/captain/announcements', label: 'Announcements', icon: 'campaign' },

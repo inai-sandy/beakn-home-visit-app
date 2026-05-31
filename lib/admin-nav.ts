@@ -83,6 +83,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'support_agent',
         href: '/admin/operations/assist',
       },
+      // HVA-201: global exec leaderboard.
+      {
+        label: 'Leaderboard',
+        icon: 'leaderboard',
+        href: '/admin/leaderboard',
+      },
     ],
   },
   {

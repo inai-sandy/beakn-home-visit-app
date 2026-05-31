@@ -68,6 +68,8 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   // PR13 2026-05-27: exec self-view of the finance dashboard (mirror
   // of /captain/collections scoped to assigned_exec = me).
   { label: 'Finance', icon: 'payments', href: '/finance' },
+  // HVA-201: global leaderboard across all execs.
+  { label: 'Leaderboard', icon: 'leaderboard', href: '/leaderboard' },
   { label: 'Resources', icon: 'menu_book', href: '/resources' },
   { label: 'Announcements', icon: 'campaign', href: '/announcements' },
   { label: 'Profile', icon: 'person', href: '/profile' },

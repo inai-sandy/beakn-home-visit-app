@@ -79,6 +79,11 @@ describe('HVA-152: shared captain nav config', () => {
           "label": "Finance",
         },
         {
+          "href": "/captain/leaderboard",
+          "icon": "leaderboard",
+          "label": "Leaderboard",
+        },
+        {
           "href": "/captain/reports",
           "icon": "monitoring",
           "label": "Reports",

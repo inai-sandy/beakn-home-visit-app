@@ -199,14 +199,9 @@ export default async function CaptainTeamExecDrillDownPage({
         preservedQuery={preservedQuery}
       />
 
-      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-5">
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5 space-y-4">
         {(activeTab === 'today' || activeTab === 'calendar') && (
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-muted-foreground">
-              {activeTab === 'today'
-                ? "Read-only view of this exec's day plan for the selected date."
-                : 'Pick a date range to scope the day-plan view.'}
-            </p>
+          <div className="flex justify-end">
             <DateRangePicker
               filter={dateFilter}
               pathname={`/captain/team/${execId}`}
@@ -285,19 +280,9 @@ async function CalendarTabContent({
   dateFilter: DateFilter;
 }) {
   // v1: reuse DayPlanSection in range mode. Real Day/Week/Month switcher
-  // is a follow-up (HVA-83-FOLLOWUP). The calendar tab shows the day plan
-  // across whatever range the user picks; in single-date mode it shows
-  // just that day. This is functionally equivalent to a Day view today
-  // with a hook for Week/Month later.
+  // is a follow-up (HVA-83-FOLLOWUP).
   const dayPlanData = await loadExecDayPlan(execId, dateFilter);
-  return (
-    <>
-      <DayPlanSection data={dayPlanData} />
-      <p className="text-[11px] text-muted-foreground italic text-center pt-2">
-        Week/Month grid view ships in HVA-83-FOLLOWUP.
-      </p>
-    </>
-  );
+  return <DayPlanSection data={dayPlanData} />;
 }
 
 async function PerformanceTabContent({

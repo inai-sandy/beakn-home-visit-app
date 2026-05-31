@@ -42,34 +42,36 @@ interface Props {
 
 export function ExecDrillTabsNav({ execId, activeTab, preservedQuery }: Props) {
   return (
-    <nav
-      aria-label="Drill-down sections"
-      className="border-b bg-card overflow-x-auto"
-    >
-      <ul className="flex items-center gap-1 px-2 sm:px-4 min-w-max">
-        {EXEC_DRILL_TABS.map((tab) => {
-          const active = tab.value === activeTab;
-          const sp = new URLSearchParams(preservedQuery);
-          sp.set('tab', tab.value);
-          return (
-            <li key={tab.value}>
-              <Link
-                href={`/captain/team/${execId}?${sp.toString()}`}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'inline-flex items-center gap-2 px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors',
-                  active
-                    ? 'border-primary text-primary font-semibold'
-                    : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
-                )}
-              >
-                <Icon name={tab.icon} size="xs" />
-                {tab.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+    <nav aria-label="Drill-down sections" className="border-b bg-card">
+      {/* Full-width border-b keeps the visual line edge-to-edge, but the
+       *  items align with the rest of the page content (max-w-2xl
+       *  centered) instead of hugging the left edge on desktop. */}
+      <div className="mx-auto max-w-2xl overflow-x-auto">
+        <ul className="flex items-center gap-1 px-2 sm:px-4 min-w-max">
+          {EXEC_DRILL_TABS.map((tab) => {
+            const active = tab.value === activeTab;
+            const sp = new URLSearchParams(preservedQuery);
+            sp.set('tab', tab.value);
+            return (
+              <li key={tab.value}>
+                <Link
+                  href={`/captain/team/${execId}?${sp.toString()}`}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'inline-flex items-center gap-2 px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors',
+                    active
+                      ? 'border-primary text-primary font-semibold'
+                      : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
+                  )}
+                >
+                  <Icon name={tab.icon} size="xs" />
+                  {tab.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </nav>
   );
 }

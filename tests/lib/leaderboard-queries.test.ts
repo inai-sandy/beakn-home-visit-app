@@ -33,18 +33,21 @@ async function seedCompletedVisit(
   }
 }
 
-async function seedRevenuePayment(
-  execUserId: string,
-  visitRequestId: string,
-  amountPaise: number,
-): Promise<void> {
+/** Seed an inbound payment. `recordedByUserId` defaults to the assigned
+ *  exec (happy path); pass a different id to simulate a captain or other
+ *  user recording on behalf of the exec. */
+async function seedRevenuePayment(args: {
+  visitRequestId: string;
+  recordedByUserId: string;
+  amountPaise: number;
+}): Promise<void> {
   await db.insert(payments).values({
-    visitRequestId,
+    visitRequestId: args.visitRequestId,
     direction: 'inbound',
-    amountPaise,
+    amountPaise: args.amountPaise,
     paymentDate: today,
     mode: 'Cash',
-    recordedByUserId: execUserId,
+    recordedByUserId: args.recordedByUserId,
   });
 }
 
@@ -131,9 +134,33 @@ describe('loadLeaderboard', () => {
   });
 
   it('ranks by revenue descending', async () => {
-    await seedRevenuePayment(execAlpha, visitReqId, 10_000_00); // ₹10,000
-    await seedRevenuePayment(execBeta, visitReqId, 50_000_00); // ₹50,000
-    await seedRevenuePayment(execGamma, visitReqId, 25_000_00); // ₹25,000
+    // Seed a request per exec so revenue attributes correctly via
+    // visit_request.assigned_exec_user_id (not the recorder).
+    const { seedVisitRequest } = await import('../helpers/db');
+    const reqAlpha = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execAlpha })
+    ).id;
+    const reqBeta = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execBeta })
+    ).id;
+    const reqGamma = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execGamma })
+    ).id;
+    await seedRevenuePayment({
+      visitRequestId: reqAlpha,
+      recordedByUserId: execAlpha,
+      amountPaise: 10_000_00,
+    });
+    await seedRevenuePayment({
+      visitRequestId: reqBeta,
+      recordedByUserId: execBeta,
+      amountPaise: 50_000_00,
+    });
+    await seedRevenuePayment({
+      visitRequestId: reqGamma,
+      recordedByUserId: execGamma,
+      amountPaise: 25_000_00,
+    });
 
     const rows = await loadLeaderboard({
       metric: 'revenue',
@@ -153,6 +180,29 @@ describe('loadLeaderboard', () => {
     expect(orderedMine[0]).toBe(execBeta);
     expect(orderedMine[1]).toBe(execGamma);
     expect(orderedMine[2]).toBe(execAlpha);
+  });
+
+  it('REGRESSION (2026-06-01): revenue credited to assigned exec, NOT to the captain who recorded the payment', async () => {
+    // Real-world scenario surfaced on prod: Arjun (captain) recorded
+    // a ₹5,000 payment on Veera's request. Old query attributed it to
+    // Arjun (action-taker); leaderboard showed Veera as 0. Now it
+    // must credit Veera (the request's assigned exec).
+    await seedRevenuePayment({
+      visitRequestId: visitReqId, // assigned to execAlpha
+      recordedByUserId: captainId,
+      amountPaise: 5_000_00,
+    });
+    const rows = await loadLeaderboard({
+      metric: 'revenue',
+      window: { mode: 'single', date: today },
+    });
+    const byId = new Map(rows.map((r) => [r.execUserId, r]));
+    // The exec (deal-owner) gets the credit.
+    expect(byId.get(execAlpha)!.metricValue).toBe(5000);
+    // The captain doesn't appear as a ranked row at all (captains aren't
+    // sales_executives; they're not in the leaderboard's identity set).
+    const captainRow = rows.find((r) => r.execUserId === captainId);
+    expect(captainRow).toBeUndefined();
   });
 
   it('ranks by visits descending', async () => {
@@ -195,8 +245,20 @@ describe('loadLeaderboard', () => {
   it('composite Beakn Score is a weighted blend of normalised metrics', async () => {
     // Beta dominates revenue (50k) + visits (5). Should have a higher
     // composite than execs with less.
-    await seedRevenuePayment(execAlpha, visitReqId, 10_000_00);
-    await seedRevenuePayment(execBeta, visitReqId, 50_000_00);
+    const { seedVisitRequest } = await import('../helpers/db');
+    const reqBeta = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execBeta })
+    ).id;
+    await seedRevenuePayment({
+      visitRequestId: visitReqId, // assigned to execAlpha
+      recordedByUserId: execAlpha,
+      amountPaise: 10_000_00,
+    });
+    await seedRevenuePayment({
+      visitRequestId: reqBeta,
+      recordedByUserId: execBeta,
+      amountPaise: 50_000_00,
+    });
     await seedCompletedVisit(execAlpha, 1);
     await seedCompletedVisit(execBeta, 5);
 
@@ -220,10 +282,22 @@ describe('loadLeaderboard', () => {
 
   it('ties on the primary metric break by revenue desc', async () => {
     // Alpha + Beta both with 3 visits, but Alpha has higher revenue.
+    const { seedVisitRequest } = await import('../helpers/db');
+    const reqBeta = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execBeta })
+    ).id;
     await seedCompletedVisit(execAlpha, 3);
     await seedCompletedVisit(execBeta, 3);
-    await seedRevenuePayment(execAlpha, visitReqId, 20_000_00);
-    await seedRevenuePayment(execBeta, visitReqId, 10_000_00);
+    await seedRevenuePayment({
+      visitRequestId: visitReqId, // assigned to execAlpha
+      recordedByUserId: execAlpha,
+      amountPaise: 20_000_00,
+    });
+    await seedRevenuePayment({
+      visitRequestId: reqBeta,
+      recordedByUserId: execBeta,
+      amountPaise: 10_000_00,
+    });
 
     const rows = await loadLeaderboard({
       metric: 'visits',
@@ -272,5 +346,32 @@ describe('loadLeaderboard', () => {
     expect(byId.get(execAlpha)!.metricValue).toBe(2);
     expect(byId.get(execBeta)!.metricValue).toBe(1);
     expect(byId.get(execGamma)!.metricValue).toBe(0);
+  });
+
+  it('REGRESSION (2026-06-01): quotation credited to assigned exec, NOT to the captain who submitted it', async () => {
+    // Real-world scenario: Arjun (captain) submitted a quotation on
+    // Veera's request. Old query credited Arjun via
+    // `submitted_by_user_id`; leaderboard missed Veera. Now must credit
+    // Veera (the request's assigned exec).
+    const { seedVisitRequest } = await import('../helpers/db');
+    const req = (
+      await seedVisitRequest({ cityId, assignedExecUserId: execAlpha })
+    ).id;
+    await db.insert(quotations).values({
+      visitRequestId: req,
+      quotationNumber: 'Q-CAPTAIN-SUBMIT',
+      totalOrderValuePaise: 75_000_00,
+      submittedByUserId: captainId, // captain submitted
+    });
+
+    const rows = await loadLeaderboard({
+      metric: 'quotations',
+      window: { mode: 'single', date: today },
+    });
+    const byId = new Map(rows.map((r) => [r.execUserId, r]));
+    // The exec (deal-owner) gets the credit.
+    expect(byId.get(execAlpha)!.metricValue).toBe(1);
+    // The captain doesn't appear in the leaderboard at all.
+    expect(rows.find((r) => r.execUserId === captainId)).toBeUndefined();
   });
 });

@@ -1,7 +1,9 @@
+import { toIst } from '@/lib/date';
+
 import type { TemplateMessage } from '@/lib/whatsapp';
 
 // =============================================================================
-// HVA-45: WhatsApp composer registry
+// HVA-45 / HVA-46 / HVA-47: WhatsApp composer registry
 // =============================================================================
 //
 // Mirrors the IN_APP_COMPOSERS registry shape. Each composer takes the
@@ -9,11 +11,13 @@ import type { TemplateMessage } from '@/lib/whatsapp';
 // key from the rule) and returns a Meta-shaped TemplateMessage with the
 // variable parameters populated.
 //
-// Per-event composers live in their own files (e.g.
-// `request-submitted-customer-wa.ts`) and register here. HVA-46/47 add
-// the first two:
-//   - request.submitted  → customer tracking-link template
-//   - request.status_changed → customer status-update template
+// All 8 customer-facing templates registered in HVA-46/47 are body-only,
+// Utility category, English. The body params map onto Meta's numbered
+// placeholders ({{1}}, {{2}}, ...) — composer order matters.
+//
+// Composers are intentionally permissive: a missing field falls back to a
+// sensible default so the WhatsApp send still goes through (the engine
+// logs a soft warning via the channel adapter). They never throw.
 // =============================================================================
 
 export interface WhatsAppComposerArgs {
@@ -31,7 +35,127 @@ export interface WhatsAppComposerArgs {
 
 export type WhatsAppComposer = (args: WhatsAppComposerArgs) => TemplateMessage;
 
-/** Add an entry per event type as HVA-46/47 land. Empty default keeps
- *  the channel adapter's `no_whatsapp_composer_for_X` path intact for
- *  any event with a WhatsApp rule but no composer yet. */
-export const WHATSAPP_COMPOSERS: Record<string, WhatsAppComposer> = {};
+// -----------------------------------------------------------------------------
+// Shared helpers
+// -----------------------------------------------------------------------------
+
+const TRACK_BASE_URL = 'https://visits.beakn.in/track';
+
+function readString(ctx: Record<string, unknown>, key: string, fallback = ''): string {
+  const v = ctx[key];
+  return typeof v === 'string' && v.length > 0 ? v : fallback;
+}
+
+function trackingUrl(ctx: Record<string, unknown>): string {
+  const token = readString(ctx, 'trackingToken');
+  return token.length > 0 ? `${TRACK_BASE_URL}/${token}` : TRACK_BASE_URL;
+}
+
+function bodyParams(values: string[]): TemplateMessage['components'] {
+  return [
+    {
+      type: 'body',
+      parameters: values.map((text) => ({ type: 'text' as const, text })),
+    },
+  ];
+}
+
+function customerName(ctx: Record<string, unknown>): string {
+  return readString(ctx, 'customerName', 'there');
+}
+
+function visitMoment(ctx: Record<string, unknown>, key: string): string {
+  const iso = readString(ctx, key);
+  if (!iso) return 'the scheduled time';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'the scheduled time';
+  return toIst(d);
+}
+
+// -----------------------------------------------------------------------------
+// Per-event composers — one per Meta template
+// -----------------------------------------------------------------------------
+
+// Template 1: tracking_link_confirmation — {{1}}=customerName, {{2}}=trackingUrl
+const trackingLinkConfirmation: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'tracking_link_confirmation',
+  language: { code: 'en' },
+  components: bodyParams([customerName(context), trackingUrl(context)]),
+});
+
+// Template 2: visit_scheduled — {{1}}=customerName, {{2}}=visit IST, {{3}}=trackingUrl
+const visitScheduled: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'visit_scheduled',
+  language: { code: 'en' },
+  components: bodyParams([
+    customerName(context),
+    visitMoment(context, 'visitScheduledAt'),
+    trackingUrl(context),
+  ]),
+});
+
+// Template 3: visit_rescheduled — {{1}}=customerName, {{2}}=new visit IST, {{3}}=trackingUrl
+const visitRescheduled: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'visit_rescheduled',
+  language: { code: 'en' },
+  components: bodyParams([
+    customerName(context),
+    visitMoment(context, 'toVisitScheduledAt'),
+    trackingUrl(context),
+  ]),
+});
+
+// Template 4: quotation_ready — {{1}}=customerName, {{2}}=trackingUrl
+const quotationReady: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'quotation_ready',
+  language: { code: 'en' },
+  components: bodyParams([customerName(context), trackingUrl(context)]),
+});
+
+// Template 5: order_confirmed — {{1}}=customerName, {{2}}=trackingUrl
+const orderConfirmed: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'order_confirmed',
+  language: { code: 'en' },
+  components: bodyParams([customerName(context), trackingUrl(context)]),
+});
+
+// Template 6: installation_complete — {{1}}=customerName, {{2}}=trackingUrl
+const installationComplete: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'installation_complete',
+  language: { code: 'en' },
+  components: bodyParams([customerName(context), trackingUrl(context)]),
+});
+
+// Template 7: customer_cancellation_received — {{1}}=customerName, {{2}}=trackingUrl
+const customerCancellationReceived: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'customer_cancellation_received',
+  language: { code: 'en' },
+  components: bodyParams([customerName(context), trackingUrl(context)]),
+});
+
+// Template 8: we_had_to_cancel — {{1}}=customerName, {{2}}=customer support phone
+// `supportPhone` comes through context (resolved at dispatch site from
+// getConfig('customer_support_phone')) so this composer stays sync.
+const weHadToCancel: WhatsAppComposer = ({ templateKey, context }) => ({
+  name: templateKey ?? 'we_had_to_cancel',
+  language: { code: 'en' },
+  components: bodyParams([
+    customerName(context),
+    readString(context, 'supportPhone', '+91 98856 98665'),
+  ]),
+});
+
+// -----------------------------------------------------------------------------
+// Registry — keyed by event_type
+// -----------------------------------------------------------------------------
+
+export const WHATSAPP_COMPOSERS: Record<string, WhatsAppComposer> = {
+  'request.created': trackingLinkConfirmation,
+  'request.scheduled': visitScheduled,
+  'request.rescheduled': visitRescheduled,
+  'request.quotation_submitted': quotationReady,
+  'request.order_confirmed': orderConfirmed,
+  'request.installation_complete': installationComplete,
+  'request.cancelled_by_customer': customerCancellationReceived,
+  'request.rejected': weHadToCancel,
+};

@@ -185,6 +185,8 @@ async function commonReschedule(
       statusStageCode: statusStages.code,
       cancelledAt: visitRequests.cancelledAt,
       customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
       // 2026-05-29: city join so request.rescheduled dispatch can resolve
       // the captain_owning_city recipient + render the city.
       cityCaptainUserId: cities.captainUserId,
@@ -260,6 +262,9 @@ async function commonReschedule(
       toVisitScheduledAt: args.toAt.toISOString(),
       reason: args.reason,
       customerName: reqRow.customerName,
+      // HVA-47: customer-facing WhatsApp inputs.
+      customerPhone: reqRow.customerPhone,
+      trackingToken: reqRow.trackingToken,
       // 2026-05-29: needed for the captain_owning_city recipient resolver
       // + the composer's "in <city>" suffix.
       cityCaptainUserId: reqRow.cityCaptainUserId,

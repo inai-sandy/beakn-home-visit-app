@@ -122,6 +122,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       cityCaptainUserId: cities.captainUserId,
       cityName: cities.name,
       customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -241,6 +243,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       // Alias the assignedExecUserId in so exec gets pinged too.
       execUserId: reqRow.assignedExecUserId,
       customerName: reqRow.customerName,
+      // HVA-47: customer-facing WhatsApp inputs.
+      customerPhone: reqRow.customerPhone,
+      trackingToken: reqRow.trackingToken,
       reasonCode: reason,
       reasonNote: note ?? null,
     });

@@ -46,10 +46,10 @@ export function LeaderboardMetricTabs({
                 href={href}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'inline-flex items-center px-3.5 py-1.5 text-xs font-medium whitespace-nowrap rounded-full transition-colors',
+                  'inline-flex items-center px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider whitespace-nowrap rounded-full transition-colors border',
                   active
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground',
+                    ? 'bg-cyan-300/15 text-cyan-200 border-cyan-400/40 shadow-[0_0_12px_-4px_rgba(103,232,249,0.6)]'
+                    : 'bg-slate-900/40 text-slate-400 border-slate-700/40 hover:text-slate-200 hover:border-slate-600',
                 )}
               >
                 {tab.label}

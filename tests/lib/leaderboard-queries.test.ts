@@ -116,7 +116,7 @@ describe('loadLeaderboard', () => {
   it('returns every active exec even when nobody has any activity', async () => {
     const rows = await loadLeaderboard({
       metric: 'revenue',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const myExecs = rows.filter((r) =>
       [execAlpha, execBeta, execGamma].includes(r.execUserId),
@@ -137,7 +137,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'revenue',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const byId = new Map(rows.map((r) => [r.execUserId, r]));
     expect(byId.get(execBeta)!.metricValue).toBe(50000);
@@ -162,7 +162,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'visits',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const byId = new Map(rows.map((r) => [r.execUserId, r]));
     expect(byId.get(execAlpha)!.metricValue).toBe(1);
@@ -178,7 +178,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'conversion_pct',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const byId = new Map(rows.map((r) => [r.execUserId, r]));
     expect(byId.get(execAlpha)!.metricValue).toBeNull();
@@ -202,7 +202,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'composite',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const byId = new Map(rows.map((r) => [r.execUserId, r]));
     expect(byId.get(execBeta)!.compositeScore).toBeGreaterThan(
@@ -227,7 +227,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'visits',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const orderedMine = rows
       .filter((r) =>
@@ -266,7 +266,7 @@ describe('loadLeaderboard', () => {
 
     const rows = await loadLeaderboard({
       metric: 'quotations',
-      window: 'today',
+      window: { mode: 'single', date: today },
     });
     const byId = new Map(rows.map((r) => [r.execUserId, r]));
     expect(byId.get(execAlpha)!.metricValue).toBe(2);

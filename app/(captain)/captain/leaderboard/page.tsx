@@ -7,9 +7,6 @@ import { loadLeaderboard } from '@/lib/leaderboard/queries';
 import { parseLeaderboardSearchParams } from '@/lib/leaderboard/page-helpers';
 
 // HVA-201: /captain/leaderboard — captain portal entry point.
-// Same content as the exec route; captain views their team in context
-// of the full global ranking. Captain themselves don't appear as a
-// ranked row (the leaderboard is exec-only).
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +15,17 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ window?: string; metric?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    from?: string;
+    to?: string;
+    metric?: string;
+  }>;
 }
 
-export default async function CaptainLeaderboardPage({ searchParams }: PageProps) {
+export default async function CaptainLeaderboardPage({
+  searchParams,
+}: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/captain/leaderboard');
   const role = (session.user as { role?: string }).role;
@@ -31,6 +35,11 @@ export default async function CaptainLeaderboardPage({ searchParams }: PageProps
   const { window, metric } = parseLeaderboardSearchParams(sp);
   const rows = await loadLeaderboard({ metric, window });
 
+  const preservedQuery: Record<string, string> = {};
+  if (sp.date) preservedQuery.date = sp.date;
+  if (sp.from) preservedQuery.from = sp.from;
+  if (sp.to) preservedQuery.to = sp.to;
+
   return (
     <LeaderboardView
       rows={rows}
@@ -38,6 +47,7 @@ export default async function CaptainLeaderboardPage({ searchParams }: PageProps
       activeMetric={metric}
       activeWindow={window}
       basePath="/captain/leaderboard"
+      preservedQuery={preservedQuery}
     />
   );
 }

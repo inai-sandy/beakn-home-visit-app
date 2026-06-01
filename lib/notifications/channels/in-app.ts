@@ -33,6 +33,12 @@ export interface AdapterArgs {
   eventType: string;
   context: Record<string, unknown>;
   templateKey: string | null;
+  /** HVA-49: full_name of the resolved recipient user (when the recipient
+   *  is a user, not a customer-by-phone). Composers can split on space and
+   *  use the first word as the friendly name in WhatsApp templates. Null
+   *  when the recipient is direct-address (customer.phone) or when the
+   *  user row had no fullName. */
+  targetUserName?: string | null;
 }
 
 export async function sendViaInApp(args: AdapterArgs): Promise<AdapterResult> {

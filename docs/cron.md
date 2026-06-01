@@ -14,6 +14,7 @@ re-install them after a host rebuild.
 
 | Schedule (UTC) | IST | Endpoint | Source | Purpose |
 | --- | --- | --- | --- | --- |
+| `0 16 * * *` | 21:30 | `/api/cron/day-close-reminder` | HVA-155 Part C | WhatsApp every exec who started a day plan today but hasn't closed it. Fires the `cron.day_close_reminder` event → `exec_day_close_reminder` template. |
 | `1 16 * * *` | 21:31 | `/api/cron/roll-over-tasks` | HVA-169 | Stamp `rolled_over_at` on pending tasks whose `task_date` < today IST. |
 
 Add new rows above as new cron-fired endpoints ship.
@@ -37,6 +38,8 @@ Add new rows above as new cron-fired endpoints ship.
 4. Append:
 
    ```cron
+   # HVA-155 Part C — day-close WhatsApp reminder (21:30 IST = 16:00 UTC)
+   0 16 * * * curl -sS -X GET -H "Authorization: Bearer $(grep ^CRON_SECRET /opt/beakn-home-visit-app/.env.local | cut -d= -f2-)" https://visits.beakn.in/api/cron/day-close-reminder >> /var/log/beakn-cron.log 2>&1
    # HVA-169 — pending-task roll-over (21:31 IST = 16:01 UTC)
    1 16 * * * curl -sS -X GET -H "Authorization: Bearer $(grep ^CRON_SECRET /opt/beakn-home-visit-app/.env.local | cut -d= -f2-)" https://visits.beakn.in/api/cron/roll-over-tasks >> /var/log/beakn-cron.log 2>&1
    ```

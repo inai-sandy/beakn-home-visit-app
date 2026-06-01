@@ -13,7 +13,6 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getConfig } from '@/lib/config';
-import { getIstDateString } from '@/lib/today/time';
 
 // =============================================================================
 // HVA-201: leaderboard data layer
@@ -42,7 +41,10 @@ export type LeaderboardMetric =
   | 'conversion_pct'
   | 'task_completion_pct';
 
-export type LeaderboardWindow = 'today' | 'this_week' | 'this_month';
+/** Either a single date OR a from→to range; mirrors DateFilter in lib/captain. */
+export type LeaderboardWindow =
+  | { mode: 'single'; date: string }
+  | { mode: 'range'; from: string; to: string };
 
 export interface LeaderboardRow {
   execUserId: string;
@@ -67,46 +69,17 @@ export interface LoadLeaderboardArgs {
 // Window resolution — IST midnight boundaries
 // ---------------------------------------------------------------------------
 
-/** Resolve {fromDate, toDate} as inclusive IST dates YYYY-MM-DD for the
- *  picked window. `toDate` is always today (IST). `fromDate` is start of
- *  today / start of week / start of month. Week start respects
- *  config.week_start_day (default 'tuesday' per spec §10.1). */
-async function resolveWindow(
-  windowKind: LeaderboardWindow,
-): Promise<{ fromDate: string; toDate: string }> {
-  const toDate = getIstDateString();
-  if (windowKind === 'today') {
-    return { fromDate: toDate, toDate };
+/** Translate the window spec into inclusive IST date strings. Pure logic;
+ *  no DB call. */
+function resolveWindow(windowSpec: LeaderboardWindow): {
+  fromDate: string;
+  toDate: string;
+} {
+  if (windowSpec.mode === 'single') {
+    return { fromDate: windowSpec.date, toDate: windowSpec.date };
   }
-  if (windowKind === 'this_month') {
-    const [y, m] = toDate.split('-').map(Number);
-    const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
-    return { fromDate: monthStart, toDate };
-  }
-  // this_week — start of week per config.week_start_day
-  const weekStartDayName = (await getConfig('week_start_day')) as string;
-  const weekStartIdx = WEEK_DAY_INDEX[weekStartDayName.toLowerCase()] ?? 2; // 2=tuesday
-  const [y, m, d] = toDate.split('-').map(Number);
-  // Build a UTC noon date for the picked IST date — avoids DST drift.
-  const todayUtc = new Date(Date.UTC(y, m - 1, d, 6, 0, 0)); // 06:00 UTC = 11:30 IST
-  const todayWeekday = todayUtc.getUTCDay(); // 0=Sun..6=Sat
-  let daysBack = (todayWeekday - weekStartIdx + 7) % 7;
-  // If today IS the week start, daysBack=0 → window opens at today.
-  const startUtc = new Date(todayUtc);
-  startUtc.setUTCDate(todayUtc.getUTCDate() - daysBack);
-  const fromDate = `${startUtc.getUTCFullYear()}-${String(startUtc.getUTCMonth() + 1).padStart(2, '0')}-${String(startUtc.getUTCDate()).padStart(2, '0')}`;
-  return { fromDate, toDate };
+  return { fromDate: windowSpec.from, toDate: windowSpec.to };
 }
-
-const WEEK_DAY_INDEX: Record<string, number> = {
-  sunday: 0,
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-};
 
 // ---------------------------------------------------------------------------
 // Base aggregations — one query per metric, grouped by exec_user_id
@@ -211,10 +184,15 @@ async function loadRawMetrics(
       // semantics). Reassignment after order-confirmed: credit follows
       // the current assignee. Edge case acknowledged; not a fairness
       // issue in practice since reassignment-after-confirmed is rare.
+      //
+      // 2026-06-01 fix: COUNT(DISTINCT request_id) — a request that gets
+      // rolled back and re-advanced to ORDER_CONFIRMED produces multiple
+      // request_status_history rows for the same target stage. Without
+      // DISTINCT the exec would be credited for each re-confirmation.
       db
         .select({
           execUserId: visitRequests.assignedExecUserId,
-          count: sql<number>`COUNT(*)::int`,
+          count: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
         })
         .from(requestStatusHistory)
         .innerJoin(
@@ -446,7 +424,7 @@ function computeCompositeScore(
 export async function loadLeaderboard(
   args: LoadLeaderboardArgs,
 ): Promise<LeaderboardRow[]> {
-  const { fromDate, toDate } = await resolveWindow(args.window);
+  const { fromDate, toDate } = resolveWindow(args.window);
   const [identities, rawMap, rawWeights] = await Promise.all([
     loadActiveExecIdentities(),
     loadRawMetrics(fromDate, toDate),

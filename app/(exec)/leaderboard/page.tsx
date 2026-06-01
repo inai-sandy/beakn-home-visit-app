@@ -15,7 +15,12 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ window?: string; metric?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    from?: string;
+    to?: string;
+    metric?: string;
+  }>;
 }
 
 export default async function ExecLeaderboardPage({ searchParams }: PageProps) {
@@ -28,6 +33,12 @@ export default async function ExecLeaderboardPage({ searchParams }: PageProps) {
   const { window, metric } = parseLeaderboardSearchParams(sp);
   const rows = await loadLeaderboard({ metric, window });
 
+  // Preserve date params so metric-chip switches don't reset to default window.
+  const preservedQuery: Record<string, string> = {};
+  if (sp.date) preservedQuery.date = sp.date;
+  if (sp.from) preservedQuery.from = sp.from;
+  if (sp.to) preservedQuery.to = sp.to;
+
   return (
     <LeaderboardView
       rows={rows}
@@ -35,6 +46,7 @@ export default async function ExecLeaderboardPage({ searchParams }: PageProps) {
       activeMetric={metric}
       activeWindow={window}
       basePath="/leaderboard"
+      preservedQuery={preservedQuery}
     />
   );
 }

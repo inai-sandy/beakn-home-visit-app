@@ -129,22 +129,31 @@ async function loadRawMetrics(
   // Run all aggregations in parallel.
   const [revenueRows, visitRows, quotationRows, orderRows, taskRows] =
     await Promise.all([
-      // Revenue: sum inbound payments per recording exec.
+      // Revenue: sum inbound payments, attributed to the visit_request's
+      // assigned exec. Critical: captains often record payments on behalf
+      // of their team's execs (Arjun → Veera's deal, etc.); the action-
+      // taker column `payments.recorded_by_user_id` would credit the
+      // captain. HVA-201 fix 2026-06-01: group by `assigned_exec_user_id`.
       db
         .select({
-          execUserId: payments.recordedByUserId,
+          execUserId: visitRequests.assignedExecUserId,
           totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise}), 0)::bigint`,
         })
         .from(payments)
+        .innerJoin(
+          visitRequests,
+          eq(visitRequests.id, payments.visitRequestId),
+        )
         .where(
           and(
             eq(payments.direction, 'inbound'),
             sql`${payments.voidedAt} IS NULL`,
             gte(payments.paymentDate, fromDate),
             lte(payments.paymentDate, toDate),
+            sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
           ),
         )
-        .groupBy(payments.recordedByUserId),
+        .groupBy(visitRequests.assignedExecUserId),
       // Visits: customer-facing completed tasks per exec.
       db
         .select({
@@ -165,20 +174,30 @@ async function loadRawMetrics(
           ),
         )
         .groupBy(tasks.execUserId),
-      // Quotations submitted per exec.
+      // Quotations: attributed to the visit_request's assigned exec.
+      // Same attribution rule as Revenue — captains commonly submit
+      // quotations on behalf of execs, so `quotations.submitted_by_user_id`
+      // would credit the captain. Group by `assigned_exec_user_id` of
+      // the visit_request so the deal-owner gets the credit (HVA-201 fix
+      // 2026-06-01).
       db
         .select({
-          execUserId: quotations.submittedByUserId,
+          execUserId: visitRequests.assignedExecUserId,
           count: sql<number>`COUNT(*)::int`,
         })
         .from(quotations)
+        .innerJoin(
+          visitRequests,
+          eq(visitRequests.id, quotations.visitRequestId),
+        )
         .where(
           and(
             gte(sql`${quotations.submittedAt}::date`, fromDate),
             lte(sql`${quotations.submittedAt}::date`, toDate),
+            sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
           ),
         )
-        .groupBy(quotations.submittedByUserId),
+        .groupBy(visitRequests.assignedExecUserId),
       // Orders: requests transitioned to ORDER_CONFIRMED in window.
       // Counts by currently-assigned exec (mirrors the dashboard's
       // semantics). Reassignment after order-confirmed: credit follows
@@ -230,13 +249,13 @@ async function loadRawMetrics(
     ]);
 
   for (const r of revenueRows) {
-    get(r.execUserId).revenuePaise = Number(r.totalPaise);
+    if (r.execUserId) get(r.execUserId).revenuePaise = Number(r.totalPaise);
   }
   for (const r of visitRows) {
     get(r.execUserId).visits = r.count;
   }
   for (const r of quotationRows) {
-    get(r.execUserId).quotations = r.count;
+    if (r.execUserId) get(r.execUserId).quotations = r.count;
   }
   for (const r of orderRows) {
     if (r.execUserId) get(r.execUserId).orders = r.count;

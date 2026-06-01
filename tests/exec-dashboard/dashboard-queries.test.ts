@@ -2,9 +2,10 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
-import { dayPlans, outcomeOptions, tasks } from '@/db/schema';
+import { dayPlans, outcomeOptions, payments, tasks } from '@/db/schema';
 import { offsetIstDate } from '@/lib/captain/dashboard-queries';
 import {
+  loadExecBestOfPeriod,
   loadExecDashboardSummary,
   loadExecPendingTasks,
   loadExecPerformance,
@@ -465,3 +466,75 @@ describe('loadExecPerformance', () => {
 
 // Silence unused-import lint for outcomeOptions in case future tests need it.
 void outcomeOptions;
+
+// =============================================================================
+// HVA-201 attribution sweep (2026-06-01) — loadExecBestOfPeriod "Top customer"
+// =============================================================================
+
+describe('loadExecBestOfPeriod — top customer attribution', () => {
+  it('REGRESSION (2026-06-01): credits the exec when the captain records the payment on their behalf', async () => {
+    const { captain, city, exec } = await captainExecPair();
+    const { seedVisitRequest } = await import('../helpers/db');
+    const req = (
+      await seedVisitRequest({
+        cityId: city.id,
+        assignedExecUserId: exec.id,
+      })
+    ).id;
+    // Captain records a ₹5,000 inbound payment on the exec's request —
+    // exactly the prod scenario that surfaced the leaderboard bug.
+    await db.insert(payments).values({
+      visitRequestId: req,
+      direction: 'inbound',
+      amountPaise: 500_000,
+      paymentDate: istToday,
+      mode: 'Cash',
+      recordedByUserId: captain.id, // captain, NOT exec
+    });
+
+    const result = await loadExecBestOfPeriod({
+      execUserId: exec.id,
+      from: istToday,
+      to: istToday,
+    });
+
+    // Exec's top customer shows the captain-recorded payment.
+    expect(result.topCustomer).not.toBeNull();
+    expect(result.topCustomer!.totalCollectedPaise).toBe(500_000);
+  });
+
+  it('does NOT surface payments recorded by this exec on OTHER execs\' requests', async () => {
+    // The reverse: this exec recorded a payment on someone else's request
+    // (rare but possible). Should NOT appear as this exec's top customer
+    // — the customer belongs to the other exec.
+    const { captain, city, exec } = await captainExecPair();
+    const otherExec = await seedExecutive(captain.id, {
+      phone: '+919200500099',
+      fullName: 'Other Exec',
+    });
+    const { seedVisitRequest } = await import('../helpers/db');
+    const otherReq = (
+      await seedVisitRequest({
+        cityId: city.id,
+        assignedExecUserId: otherExec.id,
+      })
+    ).id;
+    await db.insert(payments).values({
+      visitRequestId: otherReq,
+      direction: 'inbound',
+      amountPaise: 1_000_000,
+      paymentDate: istToday,
+      mode: 'Cash',
+      recordedByUserId: exec.id, // this exec acted on the other's behalf
+    });
+
+    const result = await loadExecBestOfPeriod({
+      execUserId: exec.id,
+      from: istToday,
+      to: istToday,
+    });
+
+    // This exec has no own deals → no top customer.
+    expect(result.topCustomer).toBeNull();
+  });
+});

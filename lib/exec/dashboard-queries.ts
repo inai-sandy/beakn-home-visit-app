@@ -519,8 +519,12 @@ export async function loadExecBestOfPeriod(args: {
     }
   }
 
-  // 2. Top customer — sum inbound payments for visit_requests where this
-  //    exec recorded the payment (`recorded_by_user_id`), in [from, to].
+  // 2. Top customer — sum inbound payments for visit_requests ASSIGNED to
+  //    this exec, in [from, to]. Critical: captains may record payments
+  //    on behalf of the exec; using `recorded_by_user_id` would miss
+  //    those. We attribute via `visit_requests.assigned_exec_user_id`
+  //    so the deal-owner gets the customer credit (HVA-201 attribution
+  //    rule, 2026-06-01 sweep).
   //    Voided payments are filtered out. Each customer aggregates by phone
   //    (the dedup key, per locked decision) so different requests for the
   //    same customer roll up together.
@@ -535,7 +539,7 @@ export async function loadExecBestOfPeriod(args: {
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
     .where(
       and(
-        eq(payments.recordedByUserId, execUserId),
+        eq(visitRequests.assignedExecUserId, execUserId),
         eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
         gte(payments.paymentDate, from),

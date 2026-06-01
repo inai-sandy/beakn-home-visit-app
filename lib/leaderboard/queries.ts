@@ -196,8 +196,8 @@ async function loadRawMetrics(
         )
         .where(
           and(
-            gte(sql`${quotations.submittedAt}::date`, fromDate),
-            lte(sql`${quotations.submittedAt}::date`, toDate),
+            gte(sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`, fromDate),
+            lte(sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`, toDate),
             sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
           ),
         )
@@ -229,8 +229,8 @@ async function loadRawMetrics(
         .where(
           and(
             eq(statusStages.code, 'ORDER_CONFIRMED'),
-            gte(sql`${requestStatusHistory.changedAt}::date`, fromDate),
-            lte(sql`${requestStatusHistory.changedAt}::date`, toDate),
+            gte(sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`, fromDate),
+            lte(sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`, toDate),
             sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
           ),
         )

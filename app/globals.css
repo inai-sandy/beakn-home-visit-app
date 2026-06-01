@@ -196,3 +196,21 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-sans);
 }
+
+/* HVA-201 arena leaderboard — gentle glow pulse on the #1 row card. */
+@keyframes leaderboard-glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 24px -4px rgba(251, 191, 36, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 36px -4px rgba(251, 191, 36, 0.75);
+  }
+}
+.leaderboard-pulse {
+  animation: leaderboard-glow-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .leaderboard-pulse {
+    animation: none;
+  }
+}

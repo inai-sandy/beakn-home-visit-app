@@ -58,6 +58,10 @@ export interface LeaderboardRow {
   compositeScore: number;
   /** 1-based; ties share the same rank. */
   rank: number;
+  /** HVA-201 delta: change vs the prior comparable period (same length,
+   *  ending immediately before this window). Positive = climbed; negative
+   *  = dropped; 0 = unchanged; null = new (not in prior period). */
+  rankDelta: number | null;
 }
 
 export interface LoadLeaderboardArgs {
@@ -437,24 +441,48 @@ function computeCompositeScore(
 }
 
 // ---------------------------------------------------------------------------
-// Main entrypoint
+// Prior-window helper — HVA-201 delta arrows
 // ---------------------------------------------------------------------------
 
-export async function loadLeaderboard(
-  args: LoadLeaderboardArgs,
-): Promise<LeaderboardRow[]> {
-  const { fromDate, toDate } = resolveWindow(args.window);
-  const [identities, rawMap, rawWeights] = await Promise.all([
-    loadActiveExecIdentities(),
-    loadRawMetrics(fromDate, toDate),
-    getConfig('leaderboard_composite_weights'),
-  ]);
-  const weights = normaliseWeights(rawWeights);
+/** Same-length prior window ending at `fromDate - 1 day`. Used for the
+ *  rank-delta arrows on the leaderboard ("you moved +2 / -1 vs last
+ *  period"). */
+function priorWindow(currentFrom: string, currentTo: string): {
+  fromDate: string;
+  toDate: string;
+} {
+  const [yf, mf, df] = currentFrom.split('-').map(Number);
+  const [yt, mt, dt] = currentTo.split('-').map(Number);
+  const fromUtc = new Date(Date.UTC(yf, mf - 1, df));
+  const toUtc = new Date(Date.UTC(yt, mt - 1, dt));
+  const lengthDays =
+    Math.round((toUtc.getTime() - fromUtc.getTime()) / 86400000) + 1;
+  const priorTo = new Date(fromUtc);
+  priorTo.setUTCDate(priorTo.getUTCDate() - 1);
+  const priorFrom = new Date(priorTo);
+  priorFrom.setUTCDate(priorFrom.getUTCDate() - (lengthDays - 1));
+  const toIso = (d: Date): string =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  return { fromDate: toIso(priorFrom), toDate: toIso(priorTo) };
+}
 
-  // Derive metrics + collect maxes for normalisation.
+/** Build the sorted rank rows from raw metrics + identities. Pure logic;
+ *  shared between current + prior period invocations. */
+function buildRankedRows(args: {
+  identities: ExecIdentity[];
+  rawMap: Map<string, RawMetrics>;
+  weights: CompositeWeights;
+  metric: LeaderboardMetric;
+}): Array<{
+  identity: ExecIdentity;
+  derived: DerivedMetrics;
+  metricValue: number | null;
+  compositeScore: number;
+  rank: number;
+}> {
   const derivedMap = new Map<string, DerivedMetrics>();
-  for (const id of identities) {
-    const raw = rawMap.get(id.execUserId) ?? emptyMetrics();
+  for (const id of args.identities) {
+    const raw = args.rawMap.get(id.execUserId) ?? emptyMetrics();
     derivedMap.set(id.execUserId, deriveMetrics(raw));
   }
   const maxes = {
@@ -478,17 +506,9 @@ export async function loadLeaderboard(
         d.taskCompletionPct,
       );
   }
-
-  // Compose rows with composite score + the requested metric value.
-  interface PreRankRow {
-    identity: ExecIdentity;
-    derived: DerivedMetrics;
-    metricValue: number | null;
-    compositeScore: number;
-  }
-  const pre: PreRankRow[] = identities.map((id) => {
+  const pre = args.identities.map((id) => {
     const derived = derivedMap.get(id.execUserId)!;
-    const compositeScore = computeCompositeScore(derived, maxes, weights);
+    const compositeScore = computeCompositeScore(derived, maxes, args.weights);
     let metricValue: number | null;
     switch (args.metric) {
       case 'composite':
@@ -515,11 +535,7 @@ export async function loadLeaderboard(
     }
     return { identity: id, derived, metricValue, compositeScore };
   });
-
-  // Sort: metric desc (nulls last) → revenue desc → conversion% desc →
-  // visits desc → fullName asc.
   pre.sort((a, b) => {
-    // Primary: requested metric
     const av = a.metricValue;
     const bv = b.metricValue;
     if (av === null && bv === null) {
@@ -527,23 +543,23 @@ export async function loadLeaderboard(
     } else if (av === null) return 1;
     else if (bv === null) return -1;
     else if (av !== bv) return bv - av;
-    // Tie-break 1: revenue (rupees)
     if (a.derived.revenueRupees !== b.derived.revenueRupees) {
       return b.derived.revenueRupees - a.derived.revenueRupees;
     }
-    // Tie-break 2: conversion %
     const ac = a.derived.conversionPct ?? 0;
     const bc = b.derived.conversionPct ?? 0;
     if (ac !== bc) return bc - ac;
-    // Tie-break 3: visits
     if (a.derived.visits !== b.derived.visits)
       return b.derived.visits - a.derived.visits;
-    // Tie-break 4: name asc
     return a.identity.fullName.localeCompare(b.identity.fullName);
   });
-
-  // Assign 1-based ranks. Ties share the same rank ("competition ranking").
-  const rows: LeaderboardRow[] = [];
+  const out: Array<{
+    identity: ExecIdentity;
+    derived: DerivedMetrics;
+    metricValue: number | null;
+    compositeScore: number;
+    rank: number;
+  }> = [];
   let lastValue: number | null | typeof NEEDS_INIT = NEEDS_INIT;
   let lastRank = 0;
   for (let i = 0; i < pre.length; i++) {
@@ -557,17 +573,67 @@ export async function loadLeaderboard(
     }
     lastValue = v;
     lastRank = rank;
-    rows.push({
+    out.push({ ...p, rank });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Main entrypoint
+// ---------------------------------------------------------------------------
+
+export async function loadLeaderboard(
+  args: LoadLeaderboardArgs,
+): Promise<LeaderboardRow[]> {
+  const { fromDate, toDate } = resolveWindow(args.window);
+  const prior = priorWindow(fromDate, toDate);
+  const [identities, rawMap, priorRawMap, rawWeights] = await Promise.all([
+    loadActiveExecIdentities(),
+    loadRawMetrics(fromDate, toDate),
+    loadRawMetrics(prior.fromDate, prior.toDate),
+    getConfig('leaderboard_composite_weights'),
+  ]);
+  const weights = normaliseWeights(rawWeights);
+
+  const currentRanked = buildRankedRows({
+    identities,
+    rawMap,
+    weights,
+    metric: args.metric,
+  });
+  const priorRanked = buildRankedRows({
+    identities,
+    rawMap: priorRawMap,
+    weights,
+    metric: args.metric,
+  });
+  const priorRankByExec = new Map<string, number>();
+  for (const r of priorRanked) {
+    // Only count "prior period engaged" if the exec had any meaningful
+    // metric value (non-null, non-zero). Otherwise treat them as new
+    // (delta = null) so we don't report a phantom climb from a default
+    // bottom rank.
+    if (r.metricValue !== null && r.metricValue > 0) {
+      priorRankByExec.set(r.identity.execUserId, r.rank);
+    }
+  }
+
+  return currentRanked.map((p) => {
+    const priorRank = priorRankByExec.get(p.identity.execUserId);
+    // delta = priorRank - currentRank → positive means climbed.
+    const rankDelta =
+      priorRank === undefined ? null : priorRank - p.rank;
+    return {
       execUserId: p.identity.execUserId,
       fullName: p.identity.fullName,
       cityName: p.identity.cityName,
       captainName: p.identity.captainName,
       metricValue: p.metricValue,
       compositeScore: p.compositeScore,
-      rank,
-    });
-  }
-  return rows;
+      rank: p.rank,
+      rankDelta,
+    };
+  });
 }
 
 const NEEDS_INIT = Symbol('needs-init');

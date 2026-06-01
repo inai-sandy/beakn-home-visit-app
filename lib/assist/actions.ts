@@ -153,11 +153,16 @@ export async function createAssistRequestAction(
     },
   });
 
+  // HVA-49: include execName so the captain_assist_request WhatsApp can
+  // render "{execName} on your team has raised an assist request".
+  const execName =
+    (session.user as { name?: string }).name ?? 'A team member';
   setImmediate(() => {
     dispatchNotification('assist.created', {
       assistId: inserted.id,
       assistExecUserId: session.user.id,
       assistCaptainUserId: execRow?.captainUserId ?? null,
+      execName,
       itemCount: items.length,
       priority: input.priority ?? 'medium',
       orderNumber: input.orderNumber ?? null,

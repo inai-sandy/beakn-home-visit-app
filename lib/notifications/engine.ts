@@ -101,6 +101,11 @@ async function resolveRecipients(
   context: Record<string, unknown>,
 ): Promise<ResolvedRecipient[]> {
   switch (role) {
+    // HVA-49 + HVA-155-C: `exec` is the self-targeting variant (cron
+    // events, day-close reminder) — same context-key as exec_assigned
+    // but semantically "this notification is FOR the exec themselves",
+    // not about a request they're assigned to.
+    case 'exec':
     case 'exec_assigned': {
       const userId = context.execUserId;
       if (typeof userId !== 'string' || userId.length === 0) {
@@ -247,18 +252,24 @@ async function resolveRecipients(
 async function userTargetForChannel(
   userId: string,
   channel: string,
-): Promise<{ ok: true; target: string } | { ok: false; reason: string }> {
+): Promise<
+  | { ok: true; target: string; userName: string | null }
+  | { ok: false; reason: string }
+> {
   if (channel === 'in_app') {
     // In-app target IS the user_id.
-    return { ok: true, target: userId };
+    return { ok: true, target: userId, userName: null };
   }
   // HVA-54: web push also targets a user_id; the adapter looks up every
   // push_subscriptions row for that user and fans out per device.
   if (channel === 'push') {
-    return { ok: true, target: userId };
+    return { ok: true, target: userId, userName: null };
   }
+  // HVA-49: also fetch fullName so the WhatsApp adapter can pass it to
+  // composers for the "Hi {{1}}" first-name parameter on internal
+  // templates.
   const [row] = await db
-    .select({ email: users.email, phone: users.phone })
+    .select({ email: users.email, phone: users.phone, fullName: users.fullName })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -269,19 +280,19 @@ async function userTargetForChannel(
     if (!row.email || row.email.length === 0) {
       return { ok: false, reason: `user ${userId} has no email` };
     }
-    return { ok: true, target: row.email };
+    return { ok: true, target: row.email, userName: row.fullName };
   }
   if (channel === 'whatsapp') {
     if (!row.phone || row.phone.length === 0) {
       return { ok: false, reason: `user ${userId} has no phone` };
     }
-    return { ok: true, target: row.phone };
+    return { ok: true, target: row.phone, userName: row.fullName };
   }
   if (channel === 'discord') {
     // Discord routes to channel webhooks, not user-specific addresses.
     // The stub adapter doesn't actually use the target; we hand it the
     // user_id as a placeholder for log breadcrumbs. HVA-43 will revisit.
-    return { ok: true, target: userId };
+    return { ok: true, target: userId, userName: row.fullName };
   }
   return { ok: false, reason: `unknown channel: ${channel}` };
 }
@@ -431,6 +442,7 @@ export async function dispatchNotification(
       // Address resolution: user_id → channel-specific address (in_app
       // keeps the user_id as-is).
       let target: string;
+      let targetUserName: string | null = null;
       if (recipient.directAddress !== null) {
         target = recipient.directAddress;
       } else {
@@ -466,6 +478,7 @@ export async function dispatchNotification(
           continue;
         }
         target = addr.target;
+        targetUserName = addr.userName;
       }
 
       // HVA-140: composers for events with multiple recipient_role rules
@@ -478,6 +491,7 @@ export async function dispatchNotification(
         eventType,
         context: { ...context, recipientRole: rule.recipientRole },
         templateKey: rule.templateKey,
+        targetUserName,
       });
 
       deliveries.push({

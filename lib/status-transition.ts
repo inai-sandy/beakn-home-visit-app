@@ -1,7 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { cities, requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
+import { cities, requestStatusHistory, statusStages, users, visitRequests } from '@/db/schema';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { logEvent } from '@/lib/audit';
 import { type Role } from '@/lib/auth/roles';
@@ -163,10 +163,14 @@ export async function transitionRequestStatus(
       // INSTALLATION_COMPLETE transitions.
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      // HVA-49: exec name for the captain_pending_approval WhatsApp.
+      assignedExecUserId: visitRequests.assignedExecUserId,
+      execName: users.fullName,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
     .where(eq(visitRequests.id, requestId))
     .limit(1);
 
@@ -353,6 +357,8 @@ export async function transitionRequestStatus(
         customerName: currentRow.customerName,
         cityName: currentRow.cityName,
         cityCaptainUserId: currentRow.cityCaptainUserId,
+        // HVA-49: exec name for the captain_pending_approval WhatsApp body.
+        execName: currentRow.execName ?? 'A team member',
       }).catch((err) => {
         transitionLog.warn(
           { err: err instanceof Error ? err.message : String(err), requestId },

@@ -13,6 +13,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { getConfig } from '@/lib/config';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { transitionRequestStatus } from '@/lib/status-transition';
@@ -104,6 +105,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     .select({
       id: visitRequests.id,
       customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
       assignedExecUserId: visitRequests.assignedExecUserId,
       execName: users.fullName,
       cityName: cities.name,
@@ -199,31 +202,38 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     userAgent: reqHeaders.get('user-agent'),
   });
 
-  // 7. Notify the assigned exec — fire and forget.
-  if (reqRow.assignedExecUserId) {
-    setImmediate(() => {
-      dispatchNotification('request.rejected', {
-        requestId: requestUuid,
-        customerName: reqRow.customerName,
-        cityName: reqRow.cityName,
-        captainUserId: actorUserId,
-        captainName,
-        execUserId: reqRow.assignedExecUserId,
-        execName: reqRow.execName ?? 'Assigned executive',
-        reason,
-      }).catch((err) => {
-        reqLog.error(
-          { requestUuid, err: err instanceof Error ? err.message : String(err) },
-          'reject_dispatch_failed',
-        );
-      });
+  // 7. Notify the assigned exec + customer — fire and forget.
+  // HVA-47: customer dispatch must fire even when no exec is assigned
+  // (the customer still needs the apology + support phone). The engine
+  // resolves recipients per rule, so it silently skips exec_assigned
+  // when execUserId is null.
+  // HVA-47: we_had_to_cancel template needs the support phone in {{2}}.
+  // Read it here (before setImmediate) so a slow DB doesn't delay the
+  // 200; getConfig is one tiny SELECT.
+  const supportPhone = await getConfig('customer_support_phone').catch(
+    () => '',
+  );
+  setImmediate(() => {
+    dispatchNotification('request.rejected', {
+      requestId: requestUuid,
+      customerName: reqRow.customerName,
+      // HVA-47: customer-facing WhatsApp inputs.
+      customerPhone: reqRow.customerPhone,
+      trackingToken: reqRow.trackingToken,
+      supportPhone,
+      cityName: reqRow.cityName,
+      captainUserId: actorUserId,
+      captainName,
+      execUserId: reqRow.assignedExecUserId,
+      execName: reqRow.execName ?? 'Assigned executive',
+      reason,
+    }).catch((err) => {
+      reqLog.error(
+        { requestUuid, err: err instanceof Error ? err.message : String(err) },
+        'reject_dispatch_failed',
+      );
     });
-  } else {
-    reqLog.warn(
-      { requestUuid },
-      'reject_skipped_exec_dispatch_no_assigned_exec',
-    );
-  }
+  });
 
   // HVA-143: invalidate the client Router Cache so the captain's
   // approvals queue empties and the exec's pages refresh with the

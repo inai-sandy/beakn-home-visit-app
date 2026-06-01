@@ -158,6 +158,11 @@ export async function transitionRequestStatus(
       customerName: visitRequests.customerName,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
+      // HVA-46/47: customer phone + tracking token for WhatsApp template
+      // dispatches on QUOTATION_SUBMITTED / ORDER_CONFIRMED /
+      // INSTALLATION_COMPLETE transitions.
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -355,7 +360,39 @@ export async function transitionRequestStatus(
         );
       });
     });
-  } else {
+  }
+
+  // HVA-47: customer-facing WhatsApp dispatches at the 3 emotional
+  // stages — QUOTATION_SUBMITTED, ORDER_CONFIRMED, INSTALLATION_COMPLETE
+  // / ORDER_EXECUTED_SUCCESSFULLY. Context carries customerPhone (the
+  // `customer` recipient role's directAddress) + customerName +
+  // trackingToken (for the template URL parameter). Fire-and-forget.
+  const customerStageEventMap: Record<string, string> = {
+    QUOTATION_SUBMITTED: 'request.quotation_submitted',
+    ORDER_CONFIRMED: 'request.order_confirmed',
+    INSTALLATION_COMPLETE: 'request.installation_complete',
+    ORDER_EXECUTED_SUCCESSFULLY: 'request.installation_complete',
+  };
+  const customerEvent = customerStageEventMap[nextRow.code];
+  if (customerEvent && currentRow.customerPhone && currentRow.trackingToken) {
+    setImmediate(() => {
+      dispatchNotification(customerEvent, {
+        requestId,
+        customerName: currentRow.customerName,
+        customerPhone: currentRow.customerPhone,
+        trackingToken: currentRow.trackingToken,
+      }).catch((err) => {
+        transitionLog.warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            requestId,
+            event: customerEvent,
+          },
+          'customer_whatsapp_dispatch_failed',
+        );
+      });
+    });
+  } else if (!customerStageEventMap[nextRow.code] && nextRow.code !== 'PENDING_CAPTAIN_APPROVAL') {
     transitionLog.info(
       {
         requestId,

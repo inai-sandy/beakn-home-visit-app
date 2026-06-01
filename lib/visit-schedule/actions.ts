@@ -88,6 +88,8 @@ export async function scheduleVisitAction(
       assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cancelledAt: visitRequests.cancelledAt,
       customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
       address: visitRequests.address,
       statusStageId: visitRequests.statusStageId,
       currentStageCode: statusStages.code,
@@ -235,6 +237,11 @@ export async function scheduleVisitAction(
       requestId: data.requestId,
       visitScheduledAt: target.toISOString(),
       customerName: reqRow.customerName,
+      // HVA-47: customer-facing WhatsApp uses customerPhone (the
+      // `customer` recipient role resolves to it via directAddress).
+      // trackingToken populates the {{N}} tracking-URL placeholder.
+      customerPhone: reqRow.customerPhone,
+      trackingToken: reqRow.trackingToken,
     });
   } catch {
     // Never block on notification engine failure.

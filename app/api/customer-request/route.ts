@@ -467,6 +467,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     dispatchNotification('request.created', {
       requestId: insertedId,
       customerName: parsed.data.name,
+      // HVA-46: customer-facing WhatsApp uses customerPhone (the
+      // `customer` recipient role resolves to it via directAddress).
+      // trackingToken populates the {{2}} template parameter for the
+      // tracking URL link.
+      customerPhone: customerPhoneStorage,
+      trackingToken,
       cityName: parsed.data.city,
       cityCaptainUserId: cityRow.captainUserId,
       bhk: parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk),

@@ -293,7 +293,7 @@ function ArenaRow({ row, metric, isViewer }: RowProps) {
             <p
               className={cn(
                 'truncate leading-tight font-semibold',
-                isTop3 ? 'text-base' : 'text-sm',
+                isTop3 ? 'text-xs' : 'text-[11px]',
                 isViewer ? 'text-cyan-200' : 'text-slate-100',
               )}
             >
@@ -320,7 +320,7 @@ function ArenaRow({ row, metric, isViewer }: RowProps) {
           <p
             className={cn(
               'font-black tabular-nums truncate leading-none',
-              isTop1 ? 'text-2xl text-amber-200' : isTop3 ? 'text-xl text-slate-100' : 'text-base text-slate-100',
+              isTop1 ? 'text-lg text-amber-200' : isTop3 ? 'text-base text-slate-100' : 'text-xs text-slate-100',
             )}
           >
             {formatMetricValue(metric, row.metricValue)}

@@ -203,8 +203,13 @@ async function loadWindowAggregates(args: {
         and(
           inArray(visitRequests.assignedExecUserId, execIds as string[]),
           isNull(visitRequests.cancelledAt),
-          sqlBuilder`${quotations.submittedAt}::date >= ${from}::date`,
-          sqlBuilder`${quotations.submittedAt}::date <= ${to}::date`,
+          // CALC INTEGRITY 2026-06-02: timestamptz cast must respect IST
+          // boundaries or after 18:30 UTC the date filter shifts and a
+          // quotation submitted just after IST midnight falls into the
+          // previous day's bucket. Same fix shipped on the leaderboard
+          // 2026-06-01 (queries.ts:199-200).
+          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${from}::date`,
+          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${to}::date`,
         ),
       ),
     db
@@ -222,8 +227,10 @@ async function loadWindowAggregates(args: {
           // previously excluded from the exec's tally.
           inArray(visitRequests.assignedExecUserId, execIds as string[]),
           inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
-          sqlBuilder`${requestStatusHistory.changedAt}::date >= ${from}::date`,
-          sqlBuilder`${requestStatusHistory.changedAt}::date <= ${to}::date`,
+          // CALC INTEGRITY 2026-06-02: same IST-cast fix as above; the
+          // leaderboard's twin fix lives at queries.ts:232-233.
+          sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${from}::date`,
+          sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${to}::date`,
         ),
       ),
   ]);
@@ -605,12 +612,15 @@ export async function loadPendingCollections(
   //                  (D2: "quotations submitted ≤ that date")
   //   range mode → "submitted within the window" = both ends inclusive
   //                  (D3: "where quotation.submittedAt is within range")
+  // CALC INTEGRITY 2026-06-02: cast in IST so quotations submitted just
+  // after IST midnight don't fall into the previous day's bucket. Same
+  // root cause as the leaderboard timezone fix 2026-06-01.
   const submittedConstraint =
     filter.mode === 'single'
-      ? sqlBuilder`${quotations.submittedAt}::date <= ${resolved.target.to}::date`
+      ? sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${resolved.target.to}::date`
       : and(
-          sqlBuilder`${quotations.submittedAt}::date >= ${resolved.target.from}::date`,
-          sqlBuilder`${quotations.submittedAt}::date <= ${resolved.target.to}::date`,
+          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${resolved.target.from}::date`,
+          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${resolved.target.to}::date`,
         );
 
   const rows = await db

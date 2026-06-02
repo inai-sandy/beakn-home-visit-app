@@ -139,8 +139,17 @@ export async function loadAdminGlobalMetrics(
         ),
       // Completed orders today = transitions INTO ORDER_EXECUTED_SUCCESSFULLY
       // whose changed_at is in IST-today.
+      //
+      // CALC INTEGRITY 2026-06-02: COUNT(DISTINCT request_id), NOT
+      // COUNT(*). status_history can have multiple terminal-positive
+      // rows per request when an admin rolls back and re-promotes the
+      // request within the same IST day. Without DISTINCT each
+      // round-trip inflates the count. Same fix pattern as the
+      // leaderboard 2026-06-01 + the exec-target query 2026-06-02.
       db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
+        .select({
+          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+        })
         .from(requestStatusHistory)
         .innerJoin(
           statusStages,
@@ -281,8 +290,13 @@ export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
             ne(statusStages.code, TERMINAL_POSITIVE_CODE),
           ),
         ),
+      // CALC INTEGRITY 2026-06-02: DISTINCT request_id, NOT bare COUNT,
+      // so a rollback + re-promote within the same IST day doesn't
+      // inflate the count.
       db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
+        .select({
+          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+        })
         .from(requestStatusHistory)
         .innerJoin(
           statusStages,
@@ -398,10 +412,15 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
         )
         .groupBy(visitRequests.cityId),
       // Completed orders today, joined via request → city.
+      //
+      // CALC INTEGRITY 2026-06-02: DISTINCT request_id per city — a
+      // rollback + re-promote within the same IST day would otherwise
+      // inflate the city's ordersToday tile. Same fix pattern as the
+      // global completedOrdersToday + completedToday above.
       db
         .select({
           cityId: visitRequests.cityId,
-          cnt: sql<number>`COUNT(*)::int`,
+          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
         })
         .from(requestStatusHistory)
         .innerJoin(

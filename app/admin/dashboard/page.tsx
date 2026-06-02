@@ -11,7 +11,14 @@ import {
   loadFirstTimeSetupStatus,
 } from '@/lib/admin/dashboard-queries';
 import { addDaysIst } from '@/lib/date';
+import {
+  getCurrentMonthWindow,
+  loadAllExecTargetProgress,
+  loadMonthlyTargetPaise,
+} from '@/lib/exec/target-progress';
 import { getIstDateString } from '@/lib/today/time';
+
+import { TeamTargetArena } from '@/components/targets/TeamTargetArena';
 
 import { AdminAlertsFeed } from './_components/AdminAlertsFeed';
 import { AdminCityGrid } from './_components/AdminCityGrid';
@@ -53,6 +60,7 @@ export default async function AdminDashboardPage() {
   const istToday = getIstDateString();
   const istYesterday = getIstDateString(addDaysIst(new Date(), -1));
 
+  const monthWindow = getCurrentMonthWindow();
   // Every query fires in parallel — TTFB bounded by the slowest, not the sum.
   const [
     setupStatus,
@@ -62,6 +70,7 @@ export default async function AdminDashboardPage() {
     counts,
     cityCards,
     alerts,
+    monthlyTargetPaise,
   ] = await Promise.all([
     loadFirstTimeSetupStatus(),
     loadAdminGlobalMetrics(istToday),
@@ -70,7 +79,14 @@ export default async function AdminDashboardPage() {
     loadAdminCounts(istToday),
     loadCityCards(istToday),
     loadAdminAlerts(),
+    loadMonthlyTargetPaise(),
   ]);
+  // Per-exec target rows for the arena. Runs in a second round-trip since
+  // it depends on monthlyTargetPaise.
+  const allExecTargetRows = await loadAllExecTargetProgress(
+    monthWindow,
+    monthlyTargetPaise,
+  );
 
   const displayName = user.name ?? user.email ?? 'Admin';
 
@@ -85,6 +101,12 @@ export default async function AdminDashboardPage() {
       />
 
       <AdminKpiTiles today={todayMetrics} yesterday={yesterdayMetrics} />
+
+      <TeamTargetArena
+        rows={allExecTargetRows}
+        window={monthWindow}
+        title="All executives — monthly targets"
+      />
 
       <AdminCityGrid cards={cityCards} />
 

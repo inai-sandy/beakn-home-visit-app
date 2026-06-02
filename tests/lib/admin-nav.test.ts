@@ -137,12 +137,18 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
     ]);
   });
 
-  it('Targets / AI subgroups are comingSoon (empty items); Workflow & Status now has Holidays', () => {
-    for (const label of ['Targets', 'AI & Report Cards'] as const) {
-      const sg = getSubgroup(label);
-      expect(sg.comingSoon).toBe(true);
-      expect(sg.items).toHaveLength(0);
-    }
+  it('Targets is live with Monthly target; AI is still comingSoon; Workflow has Holidays', () => {
+    // Targets promoted from comingSoon → live in the exec monthly
+    // target ship 2026-06-02.
+    const targets = getSubgroup('Targets');
+    expect(targets.comingSoon).toBeUndefined();
+    expect(targets.items.map((i) => i.label)).toEqual(['Monthly target']);
+
+    // AI & Report Cards is still placeholder.
+    const ai = getSubgroup('AI & Report Cards');
+    expect(ai.comingSoon).toBe(true);
+    expect(ai.items).toHaveLength(0);
+
     const workflow = getSubgroup('Workflow & Status');
     expect(workflow.comingSoon).toBeUndefined();
     expect(workflow.items.map((i) => i.label)).toEqual(['Holidays']);

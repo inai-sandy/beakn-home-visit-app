@@ -399,6 +399,10 @@ export async function POST(req: Request): Promise<NextResponse> {
             : null,
         trackingToken,
         statusStageId: submittedStage.id,
+        // HVA-79: customer's WhatsApp opt-in from the public /request
+        // form. Defaulted to true at both the schema layer (.default)
+        // and the column layer (DEFAULT TRUE).
+        whatsappOptIn: parsed.data.whatsappOptIn,
         // `source` defaults to 'web' at the column level.
       })
       .returning({ id: visitRequests.id });
@@ -473,6 +477,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       // tracking URL link.
       customerPhone: customerPhoneStorage,
       trackingToken,
+      // HVA-79: opt-in gate. Read from the validated payload directly
+      // (no roundtrip needed; the column was just inserted from the
+      // same value).
+      customerWhatsappOptIn: parsed.data.whatsappOptIn,
       cityName: parsed.data.city,
       cityCaptainUserId: cityRow.captainUserId,
       bhk: parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk),

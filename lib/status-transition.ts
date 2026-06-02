@@ -163,6 +163,9 @@ export async function transitionRequestStatus(
       // INSTALLATION_COMPLETE transitions.
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      // HVA-79: customer opt-in flag, threaded into dispatch context so
+      // the engine's `customer` resolver can short-circuit WhatsApp.
+      whatsappOptIn: visitRequests.whatsappOptIn,
       // HVA-49: exec name for the captain_pending_approval WhatsApp.
       assignedExecUserId: visitRequests.assignedExecUserId,
       execName: users.fullName,
@@ -387,6 +390,8 @@ export async function transitionRequestStatus(
         customerName: currentRow.customerName,
         customerPhone: currentRow.customerPhone,
         trackingToken: currentRow.trackingToken,
+        // HVA-79: opt-in gate read by the engine's customer resolver.
+        customerWhatsappOptIn: currentRow.whatsappOptIn,
       }).catch((err) => {
         transitionLog.warn(
           {

@@ -124,6 +124,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      whatsappOptIn: visitRequests.whatsappOptIn,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
@@ -246,6 +247,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       // HVA-47: customer-facing WhatsApp inputs.
       customerPhone: reqRow.customerPhone,
       trackingToken: reqRow.trackingToken,
+      // HVA-79: opt-in gate.
+      customerWhatsappOptIn: reqRow.whatsappOptIn,
       reasonCode: reason,
       reasonNote: note ?? null,
     });

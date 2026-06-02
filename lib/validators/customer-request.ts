@@ -92,6 +92,15 @@ export const customerRequestSchema = z.object({
   // resolved yet — and the submit button on the client is also disabled
   // in that state.
   turnstileToken: z.string().min(1, 'Anti-spam challenge required'),
+
+  // HVA-79: customer opt-in for WhatsApp updates. Required `boolean`
+  // (not `.default(true)`) so the input + output Zod types match —
+  // otherwise react-hook-form's Resolver complains the field is
+  // optional on the input side. The /request form always supplies a
+  // value (defaultValues sets it true, the Switch toggles it). The
+  // visit_requests column has DEFAULT TRUE at the DB layer too, so any
+  // non-form caller that forgets the field gets opted-in on insert.
+  whatsappOptIn: z.boolean(),
 });
 
 export type CustomerRequestInput = z.infer<typeof customerRequestSchema>;

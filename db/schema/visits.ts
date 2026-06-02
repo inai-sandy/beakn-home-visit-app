@@ -81,6 +81,15 @@ export const visitRequests = pgTable(
     trackingToken: varchar('tracking_token', { length: 32 }).notNull(),
     source: varchar('source', { length: 32 }).notNull().default('web'),
 
+    // HVA-79: customer opt-in for WhatsApp notifications. Captured on the
+    // /request form (default-on checkbox). The notification engine's
+    // `customer` recipient resolver short-circuits the WhatsApp channel
+    // when this is false — customer still gets in-app surfacing (via
+    // /track page) but no template message ever fires. Default `true`
+    // for backfill: every request created before HVA-79 shipped was
+    // already receiving WhatsApps under the prior implicit opt-in.
+    whatsappOptIn: boolean('whatsapp_opt_in').notNull().default(true),
+
     // HVA-73 PR 1: the contact (leads.id) this request was created from.
     // Nullable: requests created via the public customer-request form are
     // contact-less; only lead-conversion-created requests carry one. A

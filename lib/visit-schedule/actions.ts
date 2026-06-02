@@ -90,6 +90,7 @@ export async function scheduleVisitAction(
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      whatsappOptIn: visitRequests.whatsappOptIn,
       address: visitRequests.address,
       statusStageId: visitRequests.statusStageId,
       currentStageCode: statusStages.code,
@@ -242,6 +243,8 @@ export async function scheduleVisitAction(
       // trackingToken populates the {{N}} tracking-URL placeholder.
       customerPhone: reqRow.customerPhone,
       trackingToken: reqRow.trackingToken,
+      // HVA-79: opt-in gate.
+      customerWhatsappOptIn: reqRow.whatsappOptIn,
     });
   } catch {
     // Never block on notification engine failure.

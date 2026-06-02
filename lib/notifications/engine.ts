@@ -170,6 +170,23 @@ async function resolveRecipients(
         ];
       }
       if (channel === 'whatsapp') {
+        // HVA-79: customer opt-in gate. The /request form persists
+        // whatsapp_opt_in on the visit_requests row; every dispatch
+        // site reads it back into context.customerWhatsappOptIn. When
+        // the customer opted out we record a `skipped` delivery
+        // (audit-visible) instead of silently dropping the message.
+        // Explicit `=== false` rather than truthy-check so a missing
+        // context key (legacy callers, unit tests) defaults to opted-in
+        // and preserves the prior behaviour.
+        if (context.customerWhatsappOptIn === false) {
+          return [
+            {
+              userId: null,
+              directAddress: null,
+              reason: 'customer opted out of whatsapp',
+            },
+          ];
+        }
         const phone = context.customerPhone;
         if (typeof phone !== 'string' || phone.length === 0) {
           return [

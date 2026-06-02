@@ -187,6 +187,7 @@ async function commonReschedule(
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      whatsappOptIn: visitRequests.whatsappOptIn,
       // 2026-05-29: city join so request.rescheduled dispatch can resolve
       // the captain_owning_city recipient + render the city.
       cityCaptainUserId: cities.captainUserId,
@@ -265,6 +266,8 @@ async function commonReschedule(
       // HVA-47: customer-facing WhatsApp inputs.
       customerPhone: reqRow.customerPhone,
       trackingToken: reqRow.trackingToken,
+      // HVA-79: opt-in gate.
+      customerWhatsappOptIn: reqRow.whatsappOptIn,
       // 2026-05-29: needed for the captain_owning_city recipient resolver
       // + the composer's "in <city>" suffix.
       cityCaptainUserId: reqRow.cityCaptainUserId,

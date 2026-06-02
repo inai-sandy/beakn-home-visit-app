@@ -1,3 +1,5 @@
+import { db } from '@/db/client';
+import { whatsappDispatches } from '@/db/schema';
 import { log } from '@/lib/logger';
 import { getWhatsAppProvider } from '@/lib/whatsapp';
 import type { TemplateMessage } from '@/lib/whatsapp';
@@ -83,6 +85,60 @@ export async function sendViaWhatsApp(args: AdapterArgs): Promise<AdapterResult>
       },
       'whatsapp_send_ok',
     );
+
+    // Libromi-webhook telemetry: persist a row keyed on the provider's
+    // externalId so the webhook receiver can look up the dispatch and
+    // update lifecycle timestamps as `sent` / `delivered` / `read` /
+    // `failed` events arrive. The insert is best-effort — if the DB is
+    // momentarily unavailable we still consider the send delivered
+    // (the customer got the message; only the telemetry row is missing).
+    // The stub provider returns externalId='stub_whatsapp' — those
+    // dispatches never receive real webhooks but we still log them for
+    // dev/test parity.
+    const requestIdValue = args.context.requestId;
+    const recipientUserId = args.context.execUserId
+      ?? args.context.captainUserId
+      ?? args.context.assistExecUserId
+      ?? args.context.assistCaptainUserId
+      ?? null;
+    try {
+      // onConflictDoNothing on external_id — stub provider returns a
+      // constant externalId 'stub_whatsapp' so back-to-back stub sends
+      // would otherwise violate the UNIQUE. Real Libromi sends always
+      // get a fresh messageId so the conflict path never fires in prod.
+      await db
+        .insert(whatsappDispatches)
+        .values({
+          externalId: result.externalId,
+          recipientPhone: args.target,
+          templateName: template.name,
+          eventType: args.eventType,
+          recipientRole:
+            typeof args.context.recipientRole === 'string'
+              ? args.context.recipientRole
+              : 'unknown',
+          requestId:
+            typeof requestIdValue === 'string' && requestIdValue.length > 0
+              ? requestIdValue
+              : null,
+          recipientUserId:
+            typeof recipientUserId === 'string' && recipientUserId.length > 0
+              ? recipientUserId
+              : null,
+        })
+        .onConflictDoNothing({ target: whatsappDispatches.externalId });
+    } catch (err) {
+      // Don't fail the send on telemetry errors — log + continue.
+      channelLog.warn(
+        {
+          event: args.eventType,
+          externalId: result.externalId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        'whatsapp_dispatch_insert_failed',
+      );
+    }
+
     return { status: 'delivered', externalId: result.externalId };
   }
 

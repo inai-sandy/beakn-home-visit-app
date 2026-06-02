@@ -15,6 +15,7 @@ import {
 
 import { timestamps } from './_helpers';
 import { users } from './auth';
+import { visitRequests } from './visits';
 
 export const notificationChannelEnum = pgEnum('notification_channel', [
   'in_app',
@@ -160,5 +161,79 @@ export const notificationRules = pgTable(
       table.channel,
       table.recipientRole,
     ),
+  ],
+);
+
+// =============================================================================
+// Libromi webhook telemetry — every WhatsApp send + its lifecycle
+// =============================================================================
+//
+// One row per template send. external_id is the Libromi `messageId`
+// returned from the POST /messages call; wamid is Meta's
+// `wamid.HBg...` value that arrives only with the first status webhook.
+//
+// Four timestamp columns track the lifecycle: sent_at (we got 201 from
+// Libromi — set on insert), provider_sent_at (Libromi's `sent` status
+// webhook fired), delivered_at (recipient's phone received it), read_at
+// (recipient opened the chat). failed_at + failure_code + failure_reason
+// capture the failure path (Meta error codes like 131026
+// "Message undeliverable"). All four event columns are nullable +
+// idempotent: webhook updates set them only if currently NULL.
+//
+// recipient_role + event_type + request_id are denormalised here so the
+// admin observability surface (delivery rate per template / per event /
+// per request) doesn't need joins back to notification_rules.
+//
+// Security: this table is ALSO the messageId allowlist that defends the
+// webhook receiver against spoofing — events whose external_id isn't in
+// this table get logged + dropped (no DB write). Combined with the
+// long-random URL secret, that's enough defence absent Libromi-side
+// signing.
+export const whatsappDispatches = pgTable(
+  'whatsapp_dispatches',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    // Libromi internal id from the send response (e.g. "76519521"). The
+    // message_id_map in every status webhook keys wamid → this id, so
+    // this is the join key for the receiver. UNIQUE.
+    externalId: varchar('external_id', { length: 64 }).notNull(),
+    // Meta's wamid from the first status event. NULL until the first
+    // webhook arrives (cheap reads can branch on this to detect
+    // queued-but-never-acked messages).
+    wamid: varchar('wamid', { length: 128 }),
+    recipientPhone: varchar('recipient_phone', { length: 20 }).notNull(),
+    templateName: varchar('template_name', { length: 100 }).notNull(),
+    // Original dispatch event_type (e.g. 'request.created'). Denormalised.
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    // Original notification_rules.recipient_role (customer / exec_assigned /
+    // captain_owning_city / etc.). Denormalised.
+    recipientRole: varchar('recipient_role', { length: 50 }).notNull(),
+    // Cross-reference into the request lifecycle when applicable.
+    // Nullable because some dispatches (e.g. cron.day_close_reminder) aren't
+    // tied to a request.
+    requestId: uuid('request_id').references(() => visitRequests.id, {
+      onDelete: 'set null',
+    }),
+    // For internal templates, the resolved user (NULL for customer role).
+    recipientUserId: uuid('recipient_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+    providerSentAt: timestamp('provider_sent_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    readAt: timestamp('read_at', { withTimezone: true }),
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+    failureCode: integer('failure_code'),
+    failureReason: text('failure_reason'),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex('whatsapp_dispatches_external_id_unique').on(table.externalId),
+    index('whatsapp_dispatches_wamid_idx').on(table.wamid),
+    index('whatsapp_dispatches_recipient_phone_idx').on(table.recipientPhone),
+    index('whatsapp_dispatches_request_id_idx').on(table.requestId),
+    index('whatsapp_dispatches_recipient_user_idx').on(table.recipientUserId),
+    index('whatsapp_dispatches_event_type_idx').on(table.eventType),
+    index('whatsapp_dispatches_sent_at_idx').on(table.sentAt),
   ],
 );

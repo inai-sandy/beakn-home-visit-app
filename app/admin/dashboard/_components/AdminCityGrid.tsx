@@ -125,12 +125,14 @@ function CityCardItem({ card }: { card: CityCard }) {
   const meta = HEALTH_META[health];
 
   return (
-    <li>
+    <li className="h-full">
       <Link
         href={`/admin/operations/cities/${card.cityId}`}
         className={cn(
-          // Card surface
-          'relative block rounded-3xl border bg-card p-5 transition-all',
+          // Card surface — flex column so the stats strip can be pushed
+          // to the bottom (mt-auto) and every tile in the row has its
+          // bottom aligned, regardless of differing captain-row content.
+          'relative flex h-full flex-col rounded-3xl border bg-card p-5 transition-all',
           'hover:-translate-y-0.5 hover:shadow-lg hover:border-foreground/20',
           // Left accent stripe — coloured by health status, anchored via :before
           'before:absolute before:left-0 before:top-6 before:bottom-6 before:w-1 before:rounded-r-full',
@@ -187,8 +189,11 @@ function CityCardItem({ card }: { card: CityCard }) {
           </div>
         </div>
 
-        {/* Stats row — 3-column grid with vertical separators */}
-        <dl className="grid grid-cols-3 divide-x divide-border/60 rounded-2xl bg-muted/40 py-2.5">
+        {/* Stats row — 3-column grid with vertical separators. `mt-auto`
+            pushes this strip to the bottom of the (flex column) card so
+            every tile in the row has its stats line up at the same
+            baseline, regardless of differing captain-row content above. */}
+        <dl className="mt-auto grid grid-cols-3 divide-x divide-border/60 rounded-2xl bg-muted/40 py-2.5">
           <Stat
             label="Revenue"
             value={formatRupeesShort(card.collectionsTodayPaise)}

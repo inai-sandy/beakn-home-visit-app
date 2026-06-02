@@ -21,18 +21,19 @@ import {
 } from '@/app/admin/dashboard/_components/format';
 
 // =============================================================================
-// HVA-117 follow-up: admin city drill page
+// Admin city drill — sub-sidebar layout
 // =============================================================================
 //
-// Sandeep 2026-06-02: "when you tap on any city, it opens the captain
-// portal with captain's side navigation. One of the worst things."
+// Sandeep 2026-06-02: the page content was good but the overall feel
+// was flat. Restructured with a left sub-sidebar (sticky on lg+) for the
+// city context — captain identity, today's pulse, quick actions — and
+// the right main column for the scrollable lists (open requests + team
+// roster). Mobile (below lg) stacks everything in the same priority
+// order.
 //
-// This page replaces that escape hatch. It stays inside the admin shell
-// (sidebar / topbar) and shows everything an admin needs about a city in
-// one place: header, today's pulse, exec roster, open requests. From
-// here the admin can click into individual requests (/requests/[id]) or
-// jump to the global captain portal explicitly via the "Open in captain
-// view" link (still useful, just no longer a confusing default).
+// Stays in the admin shell (the previous bug was the city tile linking
+// to /captain/* and dropping admins into the captain sidebar — we still
+// avoid that).
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -77,239 +78,297 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
   if (!header) notFound();
   void todayMetrics; // suppress unused — kept for future global-vs-city compare
 
-  // Find this city's snapshot from the dashboard's city cards so we can
-  // reuse the same today's-pulse numbers without re-running aggregates.
   const cityToday = cityCards.find((c) => c.cityId === cityId);
 
   return (
-    <main className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1400px] mx-auto">
-      {/* Back link */}
-      <Link
-        href="/admin/dashboard"
-        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <Icon name="arrow_back" size="xs" />
-        Back to dashboard
-      </Link>
+    <main className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto">
+      {/* Top breadcrumb / back nav */}
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        <Link
+          href="/admin/dashboard"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Icon name="arrow_back" size="xs" />
+          Back to dashboard
+        </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          {header.state && (
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase tracking-wide"
+            >
+              {header.state}
+            </Badge>
+          )}
+          {header.isOther && (
+            <Badge
+              variant="outline"
+              className="text-[10px] uppercase tracking-wide border-amber-500/60 text-amber-700 dark:text-amber-300"
+            >
+              Catch-all
+            </Badge>
+          )}
+        </div>
+      </div>
 
-      {/* Header */}
-      <section
-        aria-label="City overview"
-        className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/[0.07] via-primary/[0.02] to-transparent p-6 sm:p-8"
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-24 -right-24 w-72 h-72 rounded-full bg-primary/10 blur-3xl"
-        />
-        <div className="relative space-y-4">
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
-              City
-            </p>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-                {header.cityName}
-              </h1>
-              {header.state && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] uppercase tracking-wide"
-                >
-                  {header.state}
-                </Badge>
-              )}
-              {header.isOther && (
-                <Badge
-                  variant="outline"
-                  className="text-[10px] uppercase tracking-wide border-amber-500/60 text-amber-700 dark:text-amber-300"
-                >
-                  Catch-all
-                </Badge>
-              )}
-            </div>
-          </div>
+      {/* Page title strip — flat (no hero card here; the city context
+          card on the left replaces the previous heavy hero). */}
+      <header className="mb-5 sm:mb-6">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+          City
+        </p>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+          {header.cityName}
+        </h1>
+      </header>
 
-          <div className="flex items-center gap-3 min-w-0">
-            <LeadAvatar
-              name={header.captain?.fullName ?? header.cityName}
+      {/* Sub-sidebar layout: 340px context column @ lg+; 1-col stack below. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-5 lg:gap-6">
+        {/* ============================================================
+            LEFT — sticky sub-sidebar with city context.
+            sticky top-20 sits below the desktop topbar (h-14) + a bit
+            of breathing room. On mobile, stacks naturally.
+        ============================================================ */}
+        <aside className="lg:sticky lg:top-20 lg:self-start space-y-4">
+          {/* Captain identity card */}
+          <section
+            aria-label="Captain"
+            className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/[0.07] via-primary/[0.02] to-transparent p-5"
+          >
+            <div
               aria-hidden
+              className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-primary/10 blur-3xl"
             />
-            <div className="min-w-0">
-              <p className="text-base font-semibold tracking-tight truncate">
-                {header.captain
-                  ? header.captain.fullName
-                  : 'No captain assigned'}
+            <div className="relative space-y-3">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold">
+                Captain
               </p>
-              <p className="text-xs text-muted-foreground tabular-nums">
-                {header.execCount} exec
-                {header.execCount === 1 ? '' : 's'} on the team
-                {header.captain?.email && (
-                  <>
-                    {' · '}
+              <div className="flex items-start gap-3 min-w-0">
+                <LeadAvatar
+                  name={header.captain?.fullName ?? header.cityName}
+                  aria-hidden
+                />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-base font-semibold tracking-tight truncate">
+                    {header.captain
+                      ? header.captain.fullName
+                      : 'No captain assigned'}
+                  </p>
+                  {header.captain?.email && (
                     <a
                       href={`mailto:${header.captain.email}`}
-                      className="hover:text-foreground hover:underline underline-offset-2"
+                      className="text-xs text-muted-foreground hover:text-foreground hover:underline underline-offset-2 truncate block"
                     >
                       {header.captain.email}
                     </a>
-                  </>
-                )}
-              </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground tabular-nums">
+                    {header.execCount} exec
+                    {header.execCount === 1 ? '' : 's'} on the team
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      {/* Today's pulse — pulled from the same loadCityCards aggregate
-          the dashboard uses, so numbers stay consistent. */}
-      {cityToday && (
-        <section
-          aria-label="Today's pulse"
-          className="grid grid-cols-3 gap-3 sm:gap-4"
-        >
-          <StatTile
-            label="Revenue"
-            value={formatRupeesShort(cityToday.collectionsTodayPaise)}
-            iconName="payments"
-            iconTone="text-emerald-600 dark:text-emerald-300 bg-emerald-500/10"
-          />
-          <StatTile
-            label="Visits"
-            value={String(cityToday.visitsToday)}
-            iconName="directions_walk"
-            iconTone="text-sky-600 dark:text-sky-300 bg-sky-500/10"
-          />
-          <StatTile
-            label="Orders"
-            value={String(cityToday.ordersToday)}
-            iconName="shopping_bag"
-            iconTone="text-violet-600 dark:text-violet-300 bg-violet-500/10"
-          />
-        </section>
-      )}
-
-      {/* 2-col bottom: exec roster + open requests */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(260px,1fr)_2fr] gap-5">
-        {/* Exec roster */}
-        <section
-          aria-label="Exec roster"
-          className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm space-y-4"
-        >
-          <header className="flex items-center justify-between gap-2">
-            <h2 className="text-base sm:text-lg font-semibold tracking-tight">
-              Team
-            </h2>
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {execs.length}
-            </p>
-          </header>
-          {execs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No execs on this team yet.{' '}
-              <Link
-                href="/admin/settings/organization/executives"
-                className="text-primary hover:underline underline-offset-2"
-              >
-                Add execs
-              </Link>
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {execs.map((e) => (
-                <li
-                  key={e.userId}
-                  className="flex items-center gap-3 rounded-2xl border bg-background p-3 min-w-0"
-                >
-                  <LeadAvatar name={e.fullName} aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={cn(
-                        'text-sm font-medium truncate',
-                        e.isActive ? '' : 'text-muted-foreground line-through',
-                      )}
-                    >
-                      {e.fullName}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground tabular-nums">
-                      {e.tasksToday} task{e.tasksToday === 1 ? '' : 's'} today
-                      {!e.isActive && ' · inactive'}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+          {/* Today's pulse — compact tiles stacked vertically */}
+          {cityToday && (
+            <section aria-label="Today's pulse" className="space-y-2">
+              <h2 className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold px-1">
+                Today
+              </h2>
+              <div className="grid grid-cols-3 gap-2">
+                <CompactStat
+                  label="Revenue"
+                  value={formatRupeesShort(cityToday.collectionsTodayPaise)}
+                  iconName="payments"
+                  iconTone="text-emerald-600 dark:text-emerald-300 bg-emerald-500/10"
+                />
+                <CompactStat
+                  label="Visits"
+                  value={String(cityToday.visitsToday)}
+                  iconName="directions_walk"
+                  iconTone="text-sky-600 dark:text-sky-300 bg-sky-500/10"
+                />
+                <CompactStat
+                  label="Orders"
+                  value={String(cityToday.ordersToday)}
+                  iconName="shopping_bag"
+                  iconTone="text-violet-600 dark:text-violet-300 bg-violet-500/10"
+                />
+              </div>
+            </section>
           )}
-        </section>
 
-        {/* Open requests */}
-        <section
-          aria-label="Open requests"
-          className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm space-y-4"
-        >
-          <header className="flex items-center justify-between gap-2">
-            <h2 className="text-base sm:text-lg font-semibold tracking-tight">
-              Open requests
+          {/* Quick actions */}
+          <section aria-label="Quick actions" className="space-y-2">
+            <h2 className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold px-1">
+              Quick actions
             </h2>
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {openRequests.length}
-              {openRequests.length === 50 && '+'}
-            </p>
-          </header>
-          {openRequests.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No open requests in this city right now.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {openRequests.map((r) => (
-                <li key={r.id}>
-                  <Link
-                    href={`/requests/${r.id}`}
-                    className="group flex items-start gap-3 rounded-2xl border bg-background p-3 transition-colors hover:bg-accent/40 hover:border-foreground/20"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold tracking-tight min-w-0 truncate">
-                          {r.customerName}
+            <div className="rounded-2xl border bg-card divide-y divide-border/60">
+              <ActionLink
+                href="/admin/settings/organization/cities"
+                icon="edit_location"
+                label="Edit city settings"
+                description="Captain assignment, routing email"
+              />
+              <ActionLink
+                href="/admin/settings/organization/captains"
+                icon="shield_person"
+                label="Manage captains"
+              />
+              <ActionLink
+                href="/admin/settings/organization/executives"
+                icon="badge"
+                label="Manage executives"
+              />
+              {/* Escape hatch — explicit jump into captain view if
+                  admin needs the full captain UX. NOT the default tap
+                  target on city cards (that's this very page). */}
+              <ActionLink
+                href={`/captain/requests?city=${cityId}`}
+                icon="open_in_new"
+                label="Open in captain portal"
+                description="Full captain UX with sidebar"
+              />
+            </div>
+          </section>
+        </aside>
+
+        {/* ============================================================
+            RIGHT — main column with the scrollable lists.
+        ============================================================ */}
+        <div className="space-y-5 min-w-0">
+          {/* Open requests */}
+          <section
+            aria-label="Open requests"
+            className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm space-y-4"
+          >
+            <header className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base sm:text-lg font-semibold tracking-tight">
+                  Open requests
+                </h2>
+                <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
+                  {openRequests.length}
+                  {openRequests.length === 50 && '+'} active in this city
+                </p>
+              </div>
+            </header>
+            {openRequests.length === 0 ? (
+              <EmptyState
+                icon="inbox"
+                message="No open requests in this city right now."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {openRequests.map((r) => (
+                  <li key={r.id}>
+                    <Link
+                      href={`/requests/${r.id}`}
+                      className="group flex items-start gap-3 rounded-2xl border bg-background p-3 transition-colors hover:bg-accent/40 hover:border-foreground/20"
+                    >
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold tracking-tight min-w-0 truncate">
+                            {r.customerName}
+                          </p>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] uppercase tracking-wide shrink-0"
+                          >
+                            {r.statusStageName}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground tabular-nums">
+                          {r.assignedExecName
+                            ? `Assigned to ${r.assignedExecName}`
+                            : 'Unassigned'}
+                          {r.outstandingPaise > 0 && (
+                            <>
+                              <span className="mx-1.5">·</span>
+                              <span className="text-amber-700 dark:text-amber-300 font-medium">
+                                {formatRupees(r.outstandingPaise)} outstanding
+                              </span>
+                            </>
+                          )}
                         </p>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] uppercase tracking-wide shrink-0"
-                        >
-                          {r.statusStageName}
-                        </Badge>
                       </div>
-                      <p className="text-[11px] text-muted-foreground tabular-nums">
-                        {r.assignedExecName
-                          ? `Assigned to ${r.assignedExecName}`
-                          : 'Unassigned'}
-                        {r.outstandingPaise > 0 && (
-                          <>
-                            <span className="mx-1.5">·</span>
-                            <span className="text-amber-700 dark:text-amber-300 font-medium">
-                              {formatRupees(r.outstandingPaise)} outstanding
-                            </span>
-                          </>
+                      <Icon
+                        name="chevron_right"
+                        size="sm"
+                        className="text-muted-foreground/40 group-hover:text-foreground/70 shrink-0 mt-1"
+                      />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Team roster */}
+          <section
+            aria-label="Team roster"
+            className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm space-y-4"
+          >
+            <header className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base sm:text-lg font-semibold tracking-tight">
+                  Team
+                </h2>
+                <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
+                  {execs.length} sales executive
+                  {execs.length === 1 ? '' : 's'}
+                </p>
+              </div>
+            </header>
+            {execs.length === 0 ? (
+              <EmptyState
+                icon="group_off"
+                message="No execs on this team yet."
+                ctaHref="/admin/settings/organization/executives"
+                ctaLabel="Add execs"
+              />
+            ) : (
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {execs.map((e) => (
+                  <li
+                    key={e.userId}
+                    className="flex items-center gap-3 rounded-2xl border bg-background p-3 min-w-0"
+                  >
+                    <LeadAvatar name={e.fullName} aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          'text-sm font-medium truncate',
+                          e.isActive
+                            ? ''
+                            : 'text-muted-foreground line-through',
                         )}
+                      >
+                        {e.fullName}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground tabular-nums">
+                        {e.tasksToday} task{e.tasksToday === 1 ? '' : 's'} today
+                        {!e.isActive && ' · inactive'}
                       </p>
                     </div>
-                    <Icon
-                      name="chevron_right"
-                      size="sm"
-                      className="text-muted-foreground/40 group-hover:text-foreground/70 shrink-0 mt-1"
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
       </div>
     </main>
   );
 }
 
-function StatTile({
+// -----------------------------------------------------------------------------
+// Sub-sidebar building blocks
+// -----------------------------------------------------------------------------
+
+function CompactStat({
   label,
   value,
   iconName,
@@ -321,22 +380,89 @@ function StatTile({
   iconTone: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4 sm:p-5 shadow-sm">
+    <div className="rounded-xl border bg-card p-2.5 space-y-1.5">
       <span
         className={cn(
-          'inline-flex h-9 w-9 items-center justify-center rounded-xl',
+          'inline-flex h-7 w-7 items-center justify-center rounded-lg',
           iconTone,
         )}
         aria-hidden
       >
-        <Icon name={iconName} size="sm" />
+        <Icon name={iconName} size="xs" />
       </span>
-      <p className="mt-3 text-[10px] uppercase tracking-[0.14em] font-semibold text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-0.5 text-xl sm:text-2xl font-bold tabular-nums tracking-tight truncate">
-        {value}
-      </p>
+      <div>
+        <p className="text-[9px] uppercase tracking-[0.12em] font-semibold text-muted-foreground">
+          {label}
+        </p>
+        <p className="text-sm font-bold tabular-nums tracking-tight truncate">
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ActionLink({
+  href,
+  icon,
+  label,
+  description,
+}: {
+  href: string;
+  icon: string;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 px-4 py-3 hover:bg-accent/40 transition-colors first:rounded-t-2xl last:rounded-b-2xl"
+    >
+      <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:text-foreground group-hover:bg-accent/60 transition-colors shrink-0">
+        <Icon name={icon} size="xs" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{label}</p>
+        {description && (
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+            {description}
+          </p>
+        )}
+      </div>
+      <Icon
+        name="chevron_right"
+        size="xs"
+        className="text-muted-foreground/40 group-hover:text-foreground/70 shrink-0"
+      />
+    </Link>
+  );
+}
+
+function EmptyState({
+  icon,
+  message,
+  ctaHref,
+  ctaLabel,
+}: {
+  icon: string;
+  message: string;
+  ctaHref?: string;
+  ctaLabel?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <Icon name={icon} size="sm" />
+      </span>
+      <p className="text-sm text-muted-foreground">{message}</p>
+      {ctaHref && ctaLabel && (
+        <Link
+          href={ctaHref}
+          className="text-xs text-primary hover:underline underline-offset-2 mt-1"
+        >
+          {ctaLabel} →
+        </Link>
+      )}
     </div>
   );
 }

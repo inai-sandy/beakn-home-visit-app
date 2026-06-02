@@ -166,8 +166,13 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       {
         label: 'Targets',
         icon: 'flag',
-        items: [],
-        comingSoon: true,
+        items: [
+          {
+            label: 'Monthly target',
+            icon: 'track_changes',
+            href: '/admin/settings/targets/monthly',
+          },
+        ],
       },
       {
         label: 'AI & Report Cards',

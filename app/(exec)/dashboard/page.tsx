@@ -30,9 +30,16 @@ import {
   loadExecPerformance,
   loadExecPostponedTasksOpen,
 } from '@/lib/exec/dashboard-queries';
+import {
+  getCurrentMonthWindow,
+  loadMonthlyTargetPaise,
+  loadOneExecTargetProgress,
+} from '@/lib/exec/target-progress';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { loadDayCloseMetrics } from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
+
+import { ExecTargetCard } from '@/components/targets/ExecTargetCard';
 
 import { ExecDashboardHeader } from './_components/ExecDashboardHeader';
 import { HeroMetrics } from './_components/HeroMetrics';
@@ -143,6 +150,8 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     .where(and(eq(dayPlans.execUserId, user.id), eq(dayPlans.planDate, istDate)))
     .limit(1);
 
+  // Monthly target progress — both meters in a single round-trip.
+  const monthWindow = getCurrentMonthWindow();
   const [
     summary,
     pending,
@@ -156,6 +165,8 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     bestOfPeriod,
     allOutcomeOptions,
     allPostponeReasons,
+    monthlyTargetPaise,
+    targetProgress,
   ] = await Promise.all([
     loadExecDashboardSummary(user.id),
     loadExecPendingTasks(user.id),
@@ -204,7 +215,12 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
       .from(postponeReasonsTable)
       .where(eq(postponeReasonsTable.isActive, true))
       .orderBy(asc(postponeReasonsTable.sequenceNumber)),
+    loadMonthlyTargetPaise(),
+    loadMonthlyTargetPaise().then((target) =>
+      loadOneExecTargetProgress(user.id, monthWindow, target),
+    ),
   ]);
+  void monthlyTargetPaise; // referenced via targetProgress.targetPaise
 
   // Linkable pools for TaskItem's Edit sheet (mirrors /today/page.tsx).
   const visibleContactIds = await loadExecVisibleContactIds(user.id);
@@ -241,6 +257,9 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
       <ExecDashboardHeader filter={filter} />
+      {targetProgress && (
+        <ExecTargetCard progress={targetProgress} window={monthWindow} />
+      )}
       <StatusBanner state={summary.banner} />
       <HeroMetrics metrics={todayMetrics} />
       <TasksAccordion

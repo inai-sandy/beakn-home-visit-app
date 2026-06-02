@@ -34,3 +34,24 @@ export const customerSupportPhoneUpdateSchema = z.object({
 export type CustomerSupportPhoneUpdateInput = z.infer<
   typeof customerSupportPhoneUpdateSchema
 >;
+
+// =============================================================================
+// Monthly exec target update — input as a rupee number (the form sends
+// ₹7L not 70000000), API converts to paise before persisting.
+// =============================================================================
+
+export const monthlyExecTargetUpdateSchema = z.object({
+  // Rupees (the value the user types). Coerced from string in case the
+  // form serialises numbers as strings. Capped at ₹1 Cr so a typo
+  // (e.g. an extra zero) is caught before it propagates into every
+  // exec's dashboard.
+  valueRupees: z.coerce
+    .number()
+    .int('Enter a whole-rupee amount (no decimals).')
+    .min(0, 'Target must be 0 or greater.')
+    .max(10_000_000, 'Target cannot exceed ₹1 Cr.'),
+});
+
+export type MonthlyExecTargetUpdateInput = z.infer<
+  typeof monthlyExecTargetUpdateSchema
+>;

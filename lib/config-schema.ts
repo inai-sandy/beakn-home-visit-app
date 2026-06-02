@@ -295,6 +295,24 @@ export const CONFIG_SCHEMA = {
   // -------------------------------------------------------------------------
   // Red-flag thresholds — spec §11 (AI report cards) / §3 (request lifecycle)
   // -------------------------------------------------------------------------
+  // Monthly sales-executive target. Common across all execs / all
+  // cities; admin-editable from /admin/settings/targets/monthly. Stored
+  // as paise (₹7L = 70,000,000 paise) — same convention as every other
+  // monetary column. Two parallel meters chase this number on the exec
+  // dashboard: ORDER_CONFIRMED orders attributed to the assignee at the
+  // moment of the transition, AND inbound payments attributed to the
+  // request's currently-assigned exec (attribution-vs-action-taker
+  // principle). Calendar month IST boundaries.
+  monthly_exec_target_paise: {
+    type: 'number',
+    category: 'targets',
+    description:
+      'Monthly sales target per executive in paise (₹7L = 70000000). The exec dashboard tracks both confirmed-order value AND inbound revenue against this number.',
+    defaultValue: 70_000_000,
+    editable: true,
+    validation: { min: 0, max: 1_000_000_000 },
+  },
+
   red_flag_payment_ratio_threshold: {
     type: 'number',
     category: 'targets',

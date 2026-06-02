@@ -10,6 +10,7 @@ import {
 
 import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
 
+import { AdminMobileTopbar } from "./_components/admin-mobile-topbar";
 import { AdminSidebar } from "./_components/admin-sidebar";
 import { AdminTopbar } from "./_components/admin-topbar";
 import { AdminUserFooter } from "./_components/admin-user-footer";
@@ -76,10 +77,22 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-svh flex bg-background">
-      <AdminSidebar
-        userFooter={<AdminUserFooter fullName={displayName} role={user.role} />}
-        pendingHelpCount={pendingHelpCount}
-      />
+      {/*
+        HVA-117: desktop sidebar hidden below lg. `lg:contents` makes the
+        wrapper transparent at desktop sizes so <AdminSidebar>'s flex
+        positioning works exactly as before — wrapper is functionally
+        invisible to the flex layout at lg+, and `display: none` at
+        smaller viewports. Mirror of the captain pattern in
+        app/(captain)/layout.tsx.
+      */}
+      <div className="hidden lg:contents">
+        <AdminSidebar
+          userFooter={
+            <AdminUserFooter fullName={displayName} role={user.role} />
+          }
+          pendingHelpCount={pendingHelpCount}
+        />
+      </div>
       {/*
         Outer wrapper is a plain <div>, not <main>: every existing
         /admin/* page already renders its own <main> element. Having two
@@ -88,6 +101,18 @@ export default async function AdminLayout({
         <main>.
       */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/*
+          HVA-117 mobile topbar — only renders below lg. Contains the
+          hamburger trigger for the AdminSidebarSheet drawer + page title
+          + notification bell.
+        */}
+        <AdminMobileTopbar
+          displayName={displayName}
+          role={user.role}
+          pendingHelpCount={pendingHelpCount}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
+        />
         <AdminTopbar
           unreadInAppCount={unreadInAppCount}
           initialNotifications={initialNotifications}

@@ -77,7 +77,7 @@ export function ExecutivesClient({ executives, activeCaptains }: Props) {
             Filter
           </Label>
           <Select value={filterCaptainId} onValueChange={setFilterCaptainId}>
-            <SelectTrigger className="h-9 rounded-input min-w-48">
+            <SelectTrigger className="h-9 rounded-input w-full sm:min-w-48 sm:w-auto">
               <SelectValue placeholder="All captains" />
             </SelectTrigger>
             <SelectContent>

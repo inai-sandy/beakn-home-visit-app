@@ -243,7 +243,7 @@ export function OtherCityQueueClient({
 
       {pageRange.totalPages > 1 && (
         <nav
-          className="flex items-center justify-between gap-2 pt-2"
+          className="flex items-center justify-between gap-2 flex-wrap pt-2"
           aria-label="Pagination"
         >
           <Button

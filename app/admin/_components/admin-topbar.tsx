@@ -23,9 +23,13 @@ export function AdminTopbar({
   const title = resolveAdminPageTitle(pathname, searchParams);
 
   return (
-    <header className="h-14 flex items-center justify-between gap-4 border-b bg-background px-6">
-      <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-      <div className="flex items-center gap-2">
+    // HVA-117: desktop topbar only renders at lg+. AdminMobileTopbar
+    // takes over below lg (separate component with hamburger trigger).
+    <header className="hidden lg:flex h-14 items-center justify-between gap-4 border-b bg-background px-6">
+      <h1 className="text-lg font-semibold tracking-tight truncate min-w-0">
+        {title}
+      </h1>
+      <div className="flex items-center gap-2 shrink-0">
         <NotificationBell
           unreadCount={unreadInAppCount}
           initialNotifications={initialNotifications}

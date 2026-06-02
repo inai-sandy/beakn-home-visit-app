@@ -1,5 +1,4 @@
 import { eq } from 'drizzle-orm';
-import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { db } from '@/db/client';
@@ -83,7 +82,7 @@ interface RouteParams {
   params: Promise<{ secret: string }>;
 }
 
-export async function POST(req: NextRequest, ctx: RouteParams) {
+export async function POST(req: Request, ctx: RouteParams) {
   const expected = process.env.LIBROMI_WEBHOOK_SECRET;
   if (!expected || expected.length < 16) {
     // Refuse if the operator forgot to set the secret post-deploy — same

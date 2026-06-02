@@ -70,6 +70,12 @@ const NO_AUTH_PREFIXES = [
   // the session-based proxy gate would otherwise 307-redirect the host
   // crontab's curl invocation to /login and silently no-op the job.
   '/api/cron/',
+  // Libromi webhook receiver — carries its own URL-path secret
+  // (LIBROMI_WEBHOOK_SECRET). The receiver route itself returns 404 on
+  // any wrong/missing secret, so this prefix is safe to expose; the
+  // session gate would otherwise redirect Libromi's POST to /login
+  // and the receiver would never see the payload.
+  '/api/webhooks/',
   ...(process.env.NODE_ENV !== 'production'
     ? ['/dev/'] // developer smoke routes — dev/test only; see HVA-99
     : []),

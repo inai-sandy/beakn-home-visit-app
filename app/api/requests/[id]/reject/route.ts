@@ -107,6 +107,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
       trackingToken: visitRequests.trackingToken,
+      whatsappOptIn: visitRequests.whatsappOptIn,
       assignedExecUserId: visitRequests.assignedExecUserId,
       execName: users.fullName,
       cityName: cities.name,
@@ -220,6 +221,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       // HVA-47: customer-facing WhatsApp inputs.
       customerPhone: reqRow.customerPhone,
       trackingToken: reqRow.trackingToken,
+      // HVA-79: opt-in gate.
+      customerWhatsappOptIn: reqRow.whatsappOptIn,
       supportPhone,
       cityName: reqRow.cityName,
       captainUserId: actorUserId,

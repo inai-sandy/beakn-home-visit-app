@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { CityOption } from "@/lib/cities-list";
@@ -175,6 +176,9 @@ export function RequestForm({ cities }: RequestFormProps) {
       state: "",
       bhk: "" as unknown as CustomerRequestInput["bhk"],
       interest: [],
+      // HVA-79: customer opt-in for WhatsApp updates. Default-on per
+      // schema; explicit here so form reset state matches.
+      whatsappOptIn: true,
       // HVA-32: optional GPS coords. Left undefined unless the user opts in
       // via LocationCard; submission never blocks on missing values.
       latitude: undefined,
@@ -624,6 +628,44 @@ export function RequestForm({ cities }: RequestFormProps) {
                 </ToggleGroup>
               </FormControl>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* HVA-79: opt-in for WhatsApp updates. Toggle on by default —
+            customers expect updates on the channel they reached out
+            through; this row is the explicit consent surface required
+            by WhatsApp policy + a clean out for anyone who prefers
+            email/web. Persisted onto visit_requests.whatsapp_opt_in;
+            the notification engine's `customer` recipient resolver
+            short-circuits the WhatsApp channel when this is false. */}
+        <FormField
+          control={form.control}
+          name="whatsappOptIn"
+          render={({ field }) => (
+            <FormItem className="flex items-start justify-between gap-4 rounded-2xl border bg-card p-4">
+              <div className="space-y-1 min-w-0 flex-1">
+                <FormLabel
+                  htmlFor="whatsapp-opt-in"
+                  className="text-sm font-medium"
+                >
+                  Send me updates on WhatsApp
+                </FormLabel>
+                <p className="text-xs text-muted-foreground">
+                  We&apos;ll send your tracking link + visit + quotation
+                  updates to your phone number above. You can opt out
+                  here anytime.
+                </p>
+              </div>
+              <FormControl>
+                <Switch
+                  id="whatsapp-opt-in"
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={submitting}
+                  aria-label="WhatsApp updates"
+                />
+              </FormControl>
             </FormItem>
           )}
         />

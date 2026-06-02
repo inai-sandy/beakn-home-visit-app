@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { cities, payments, visitRequests } from '@/db/schema';
+import { cities, payments, users, visitRequests } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import {
   ForbiddenError,
@@ -109,6 +109,10 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     .select({
       id: visitRequests.id,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // captain_payment_received WhatsApp body reads {{4}} = exec name;
+      // LEFT JOIN users so unassigned requests still resolve (rare for
+      // payments, but defensive).
+      execName: users.fullName,
       customerName: visitRequests.customerName,
       cityId: visitRequests.cityId,
       cityName: cities.name,
@@ -117,6 +121,7 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
     .where(eq(visitRequests.id, requestUuid))
     .limit(1);
 
@@ -237,6 +242,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
         cityName: reqRow.cityName,
         cityCaptainUserId: reqRow.cityCaptainUserId,
         execUserId: reqRow.assignedExecUserId,
+        // captain_payment_received template body params.
+        execName: reqRow.execName ?? 'A team member',
         amountPaise: resultRow.amountPaise,
         paymentMode: resultRow.mode,
         paymentDate: resultRow.paymentDate,

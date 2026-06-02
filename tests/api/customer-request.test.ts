@@ -78,6 +78,10 @@ const VALID_PAYLOAD = {
   bhk: '3 BHK',
   interest: ['Automation'],
   turnstileToken: 'XXXX.DUMMY.PASSES',
+  // HVA-79: opt-in for WhatsApp updates. Default-on at the form layer;
+  // tests assert the happy path so explicit `true` here mirrors what
+  // the production form submits.
+  whatsappOptIn: true,
 };
 
 beforeEach(() => {

@@ -11,6 +11,15 @@ import {
   users,
   visitRequests,
 } from '@/db/schema';
+import {
+  loadExecStatusesByCityId,
+  loadPendingApprovalsForCityIds,
+  loadPendingCollectionsForExecIds,
+  type DateFilter,
+  type PendingApprovalRow,
+  type PendingCollectionsSummary,
+  type TeamExecStatus,
+} from '@/lib/captain/dashboard-queries';
 import { loadMetrics } from '@/lib/metrics/registry';
 
 // =============================================================================
@@ -259,4 +268,51 @@ export async function loadCityMetricsForWindow(
     newRequestsCount: m.new_requests ?? 0,
     conversionPct: m.conversion_pct,
   };
+}
+
+// =============================================================================
+// Captain-level surfaces scoped to a single city
+// =============================================================================
+//
+// Sandeep 2026-06-03: the admin city drill should look like a captain
+// dashboard scoped to one city — without escaping into the captain
+// shell. These three functions thinly wrap the captain loaders with a
+// single-city scope so the same `<PendingApprovalsCard>`,
+// `<PendingCollectionsCard>`, and `<ExecStatusList>` components from
+// the captain dashboard render unchanged on the admin city page.
+//
+// The captain loaders themselves were refactored to expose
+// city-scoped / exec-id-scoped variants for exactly this use case.
+
+/** Pending approvals scoped to a single city. */
+export async function loadCityPendingApprovals(
+  cityId: string,
+  filter: DateFilter,
+): Promise<{
+  totalCount: number;
+  staleCount: number;
+  topFive: PendingApprovalRow[];
+}> {
+  return loadPendingApprovalsForCityIds([cityId], filter);
+}
+
+/** Pending collections scoped to a single city's execs. Resolves
+ *  execs via `sales_executives.city_id = cityId` (post Bug 8). */
+export async function loadCityPendingCollections(
+  cityId: string,
+  filter: DateFilter,
+): Promise<PendingCollectionsSummary> {
+  const execs = await db
+    .select({ userId: salesExecutives.userId })
+    .from(salesExecutives)
+    .where(eq(salesExecutives.cityId, cityId));
+  return loadPendingCollectionsForExecIds(execs.map((e) => e.userId), filter);
+}
+
+/** Per-exec status list scoped to a single city's execs. */
+export async function loadCityExecStatuses(
+  cityId: string,
+  filter: DateFilter,
+): Promise<TeamExecStatus[]> {
+  return loadExecStatusesByCityId(cityId, filter);
 }

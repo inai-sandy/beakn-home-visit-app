@@ -427,6 +427,26 @@ export interface PendingApprovalRow {
 
 export async function loadPendingApprovals(
   captainUserId: string,
+  filter: DateFilter,
+): Promise<{
+  totalCount: number;
+  staleCount: number;
+  topFive: PendingApprovalRow[];
+}> {
+  const myCities = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(eq(cities.captainUserId, captainUserId));
+  const cityIds = myCities.map((c) => c.id);
+  return loadPendingApprovalsForCityIds(cityIds, filter);
+}
+
+/** City-scoped variant of `loadPendingApprovals`. Sandeep 2026-06-03:
+ *  the admin city drill page reuses this with `cityIds = [thisCity]`
+ *  so the per-city Pending Approvals card shows the same rows the
+ *  captain sees on their dashboard for the same city. */
+export async function loadPendingApprovalsForCityIds(
+  cityIds: readonly string[],
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _filter: DateFilter,
 ): Promise<{
@@ -437,11 +457,6 @@ export async function loadPendingApprovals(
   staleCount: number;
   topFive: PendingApprovalRow[];
 }> {
-  const myCities = await db
-    .select({ id: cities.id })
-    .from(cities)
-    .where(eq(cities.captainUserId, captainUserId));
-  const cityIds = myCities.map((c) => c.id);
   if (cityIds.length === 0)
     return { totalCount: 0, staleCount: 0, topFive: [] };
 
@@ -565,8 +580,18 @@ export async function loadPendingCollections(
   captainUserId: string,
   filter: DateFilter,
 ): Promise<PendingCollectionsSummary> {
-  const resolved = resolveDateFilter(filter);
   const execIds = await loadCaptainTeamIds(captainUserId);
+  return loadPendingCollectionsForExecIds(execIds, filter);
+}
+
+/** Exec-id-scoped variant of `loadPendingCollections`. Admin city
+ *  drill resolves the city's execs via `sales_executives.city_id`
+ *  (post Bug 8) and calls this directly. */
+export async function loadPendingCollectionsForExecIds(
+  execIds: readonly string[],
+  filter: DateFilter,
+): Promise<PendingCollectionsSummary> {
+  const resolved = resolveDateFilter(filter);
   if (execIds.length === 0) {
     return {
       totalDueRupees: 0,
@@ -688,6 +713,30 @@ export async function loadTeamExecStatuses(
   captainUserId: string,
   filter: DateFilter,
 ): Promise<TeamExecStatus[]> {
+  return loadExecStatusesByFilter(
+    eq(salesExecutives.captainUserId, captainUserId),
+    filter,
+  );
+}
+
+/** Variant of `loadTeamExecStatuses` scoped by city via
+ *  `sales_executives.city_id = cityId` (post Bug 8). Admin city drill
+ *  uses this so the per-city exec status list matches the team list
+ *  captain Arjun sees for the same city. */
+export async function loadExecStatusesByCityId(
+  cityId: string,
+  filter: DateFilter,
+): Promise<TeamExecStatus[]> {
+  return loadExecStatusesByFilter(
+    eq(salesExecutives.cityId, cityId),
+    filter,
+  );
+}
+
+async function loadExecStatusesByFilter(
+  rosterFilter: ReturnType<typeof eq>,
+  filter: DateFilter,
+): Promise<TeamExecStatus[]> {
   const resolved = resolveDateFilter(filter);
   const { from, to } = resolved.target;
 
@@ -700,10 +749,7 @@ export async function loadTeamExecStatuses(
     .from(salesExecutives)
     .innerJoin(users, eq(users.id, salesExecutives.userId))
     .where(
-      and(
-        eq(salesExecutives.captainUserId, captainUserId),
-        eq(users.isActive, true),
-      ),
+      and(rosterFilter, eq(users.isActive, true)),
     )
     .orderBy(asc(users.fullName));
 

@@ -3,15 +3,21 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { DateRangePicker } from '@/app/(captain)/captain/dashboard/_components/DateRangePicker';
+import { ExecStatusList } from '@/app/(captain)/captain/dashboard/_components/ExecStatusList';
+import { PendingApprovalsCard } from '@/app/(captain)/captain/dashboard/_components/PendingApprovalsCard';
+import { PendingCollectionsCard } from '@/app/(captain)/captain/dashboard/_components/PendingCollectionsCard';
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
+  loadCityExecStatuses,
   loadCityExecs,
   loadCityHeader,
   loadCityMetricsForWindow,
   loadCityOpenRequests,
+  loadCityPendingApprovals,
+  loadCityPendingCollections,
 } from '@/lib/admin/city-drill-queries';
 import { getServerSession } from '@/lib/auth-server';
 import {
@@ -122,7 +128,15 @@ export default async function AdminCityDrillPage({
   const resolved = resolveDateFilter(filter);
   const istToday = getIstDateString();
 
-  const [header, execs, openRequests, windowMetrics] = await Promise.all([
+  const [
+    header,
+    execs,
+    openRequests,
+    windowMetrics,
+    approvals,
+    collections,
+    execStatuses,
+  ] = await Promise.all([
     loadCityHeader(cityId),
     loadCityExecs(cityId, istToday),
     loadCityOpenRequests(cityId),
@@ -131,6 +145,9 @@ export default async function AdminCityDrillPage({
       resolved.target.from,
       resolved.target.to,
     ),
+    loadCityPendingApprovals(cityId, filter),
+    loadCityPendingCollections(cityId, filter),
+    loadCityExecStatuses(cityId, filter),
   ]);
 
   if (!header) notFound();
@@ -324,6 +341,21 @@ export default async function AdminCityDrillPage({
             RIGHT — main column with the scrollable lists.
         ============================================================ */}
         <div className="space-y-5 min-w-0">
+          {/* Sandeep 2026-06-03: surface the captain dashboard's three
+              core operational lists inside the admin city drill so
+              admins don't need to escape into the captain shell to see
+              "what's happening in this city right now". Scope is
+              already city-restricted via the dedicated city-direct
+              loaders. */}
+          <PendingApprovalsCard
+            totalCount={approvals.totalCount}
+            staleCount={approvals.staleCount}
+            topFive={approvals.topFive}
+            filter={filter}
+          />
+          <PendingCollectionsCard summary={collections} filter={filter} />
+          <ExecStatusList execs={execStatuses} filter={filter} />
+
           {/* Open requests */}
           <section
             aria-label="Open requests"

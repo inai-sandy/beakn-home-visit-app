@@ -225,10 +225,22 @@ export async function loadAdminRevenueSnapshot(
           isNull(payments.voidedAt),
         ),
       ),
-    // Per-request open quotation totals (excl. cancelled, excl. terminal-positive).
-    // Pending outstanding = sum of (totalOrderValue - inbound + outbound) per
-    // quoted request, clamped at 0. Open quotation = sum of totalOrderValue
-    // on the same set.
+    // Per-request open quotation totals (excl. cancelled only).
+    //
+    // BUG 7 FIX (Sandeep 2026-06-03): the previous exclusion
+    // `!= TERMINAL_POSITIVE_CODE` silently dropped executed-but-unpaid
+    // requests from both the "Open Quotation Value" and "Pending
+    // Outstanding" tiles — once an order was marked executed, even if
+    // the customer hadn't fully paid, the residual balance vanished
+    // from the admin view. That hid real outstanding money.
+    //
+    // New semantic: cancelled stays excluded (money is truly closed);
+    // every other state stays included. Fully-paid executed requests
+    // self-eliminate from "Pending Outstanding" because their balance
+    // is 0 (the `if (due > 0)` clamp below). Their full quotation value
+    // does still count toward "Open Quotation Value" — interpret that
+    // tile as "total face value of quotations on our books, paid or
+    // not, until cancelled".
     db
       .select({
         visitRequestId: quotations.visitRequestId,
@@ -244,13 +256,7 @@ export async function loadAdminRevenueSnapshot(
       })
       .from(quotations)
       .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
-      .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
-      .where(
-        and(
-          isNull(visitRequests.cancelledAt),
-          ne(statusStages.code, TERMINAL_POSITIVE_CODE),
-        ),
-      ),
+      .where(isNull(visitRequests.cancelledAt)),
   ]);
 
   let pendingOutstandingPaise = 0;
@@ -439,20 +445,17 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
           ),
         )
         .groupBy(visitRequests.cityId),
-      // Exec roster per city: a sales_executive's "city" = their captain's
-      // currently-assigned city. Each captain owns at most a small set of
-      // cities so duplicate-counting is rare in practice; group by both
-      // captain city and exec to dedupe just in case.
+      // Exec roster per city. BUG 8 (2026-06-03): direct
+      // sales_executives.city_id filter. Was previously the
+      // captain→cities hop, which double-counted execs in every city
+      // their captain owned. Now each exec belongs to exactly one city.
       db
         .select({
-          cityId: cities.id,
+          cityId: salesExecutives.cityId,
           execUserId: salesExecutives.userId,
         })
         .from(salesExecutives)
-        .innerJoin(cities, eq(cities.captainUserId, salesExecutives.captainUserId))
-        .where(
-          and(eq(cities.isActive, true), inArray(cities.id, cityIds)),
-        ),
+        .where(inArray(salesExecutives.cityId, cityIds)),
       // Plans submitted today — one row per exec who submitted.
       db
         .select({
@@ -476,6 +479,11 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
   // execs per city + total count
   const execsByCity = new Map<string, Set<string>>();
   for (const r of execRows) {
+    // The `inArray(salesExecutives.cityId, cityIds)` filter above
+    // eliminates NULL cityIds at the SQL layer, but the column type
+    // is `string | null` — narrow defensively here so a future query
+    // change can't silently bucket NULLs into the wrong city.
+    if (!r.cityId) continue;
     const set = execsByCity.get(r.cityId) ?? new Set<string>();
     set.add(r.execUserId);
     execsByCity.set(r.cityId, set);

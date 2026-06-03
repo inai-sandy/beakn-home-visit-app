@@ -46,10 +46,22 @@ export const salesExecutives = pgTable(
     captainUserId: uuid('captain_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
+    // BUG 8 2026-06-03: an exec belongs to ONE city. Previously each
+    // exec was implicitly "in all of their captain's cities" via the
+    // captain→cities 1:N relationship. Per-city admin tiles (exec
+    // counts, city drill team list) need a direct exec→city link so
+    // they don't over-count when a captain owns multiple cities.
+    // Nullable on insert because backfill for multi-city captains
+    // leaves the value NULL until admin assigns explicitly (UI banner
+    // surfaces those). Required at the form layer for new execs.
+    cityId: uuid('city_id').references(() => cities.id, { onDelete: 'set null' }),
     isUnavailable: boolean('is_unavailable').notNull().default(false),
     ...timestamps(),
   },
-  (table) => [index('sales_executives_captain_user_idx').on(table.captainUserId)],
+  (table) => [
+    index('sales_executives_captain_user_idx').on(table.captainUserId),
+    index('sales_executives_city_idx').on(table.cityId),
+  ],
 );
 
 // =============================================================================

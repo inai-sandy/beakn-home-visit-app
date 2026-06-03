@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { salesExecutives, users } from '@/db/schema';
+import { cities, salesExecutives, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
@@ -39,6 +39,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
       phone: users.phone,
       email: users.email,
       captainUserId: salesExecutives.captainUserId,
+      cityId: salesExecutives.cityId,
     })
     .from(users)
     .innerJoin(salesExecutives, eq(salesExecutives.userId, users.id))
@@ -66,7 +67,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
       { status: 400 },
     );
   }
-  const { fullName, phone, email, captainUserId } = parsed.data;
+  const { fullName, phone, email, captainUserId, cityId } = parsed.data;
   const phoneStorage = `+91${phone}`;
 
   const uniqMatch = email
@@ -110,6 +111,23 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
     );
   }
 
+  // BUG 8: cityId must be owned by the chosen captain.
+  const [cityRow] = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(and(eq(cities.id, cityId), eq(cities.captainUserId, captainUserId)))
+    .limit(1);
+  if (!cityRow) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'City does not belong to that captain.',
+        fieldErrors: { cityId: 'Pick a city assigned to the chosen captain' },
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     await db.transaction(async (tx) => {
       await tx
@@ -118,7 +136,7 @@ export async function PATCH(req: Request, ctx: Ctx): Promise<NextResponse> {
         .where(eq(users.id, execId));
       await tx
         .update(salesExecutives)
-        .set({ captainUserId, updatedAt: new Date() })
+        .set({ captainUserId, cityId, updatedAt: new Date() })
         .where(eq(salesExecutives.userId, execId));
     });
   } catch (err) {

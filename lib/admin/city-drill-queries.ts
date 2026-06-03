@@ -1,24 +1,17 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
   cities,
   payments,
   quotations,
-  requestStatusHistory,
   salesExecutives,
   statusStages,
   tasks,
   users,
   visitRequests,
 } from '@/db/schema';
-
-const VISIT_TASK_TYPES = [
-  'Customer home visit',
-  'Sales pitch',
-  'Outlet visit',
-] as const;
-const ORDER_CONFIRMED_CODE = 'ORDER_CONFIRMED';
+import { loadMetrics } from '@/lib/metrics/registry';
 
 // =============================================================================
 // HVA-117 follow-up: admin city drill page data loaders
@@ -240,140 +233,30 @@ export async function loadCityMetricsForWindow(
   fromDate: string,
   toDate: string,
 ): Promise<CityWindowMetrics> {
-  const [
-    visitsRow,
-    collectionsRow,
-    ordersRow,
-    quotationsRow,
-    newReqRow,
-  ] = await Promise.all([
-    // Visits = completed visit-type tasks in window, for execs
-    // assigned to this city (BUG 8: direct sales_executives.city_id
-    // join; was previously executive→captain→cities, which
-    // over-counted when a captain owned multiple cities).
-    db
-      .select({ cnt: sql<number>`COUNT(*)::int` })
-      .from(tasks)
-      .innerJoin(
-        salesExecutives,
-        eq(salesExecutives.userId, tasks.execUserId),
-      )
-      .where(
-        and(
-          eq(salesExecutives.cityId, cityId),
-          inArray(
-            tasks.taskType,
-            VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],
-          ),
-          eq(tasks.status, 'completed'),
-          gte(tasks.taskDate, fromDate),
-          lte(tasks.taskDate, toDate),
-        ),
-      ),
-    // Inbound payments in window for requests in this city.
-    db
-      .select({
-        sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
-      })
-      .from(payments)
-      .innerJoin(
-        visitRequests,
-        eq(visitRequests.id, payments.visitRequestId),
-      )
-      .where(
-        and(
-          eq(visitRequests.cityId, cityId),
-          eq(payments.direction, 'inbound'),
-          isNull(payments.voidedAt),
-          gte(payments.paymentDate, fromDate),
-          lte(payments.paymentDate, toDate),
-        ),
-      ),
-    // ORDER_CONFIRMED transitions in window for requests in this city.
-    // DISTINCT request_id so rollback+reconfirm doesn't double-count.
-    db
-      .select({
-        cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
-      })
-      .from(requestStatusHistory)
-      .innerJoin(
-        statusStages,
-        eq(statusStages.id, requestStatusHistory.toStatusStageId),
-      )
-      .innerJoin(
-        visitRequests,
-        eq(visitRequests.id, requestStatusHistory.requestId),
-      )
-      .where(
-        and(
-          eq(visitRequests.cityId, cityId),
-          eq(statusStages.code, ORDER_CONFIRMED_CODE),
-          gte(
-            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            fromDate,
-          ),
-          lte(
-            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            toDate,
-          ),
-        ),
-      ),
-    // Quotations submitted in window for requests in this city.
-    // quotations are 1:1 with visit_request (UNIQUE FK), so no
-    // DISTINCT needed — but the IST timezone cast IS needed.
-    db
-      .select({ cnt: sql<number>`COUNT(*)::int` })
-      .from(quotations)
-      .innerJoin(
-        visitRequests,
-        eq(visitRequests.id, quotations.visitRequestId),
-      )
-      .where(
-        and(
-          eq(visitRequests.cityId, cityId),
-          gte(
-            sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            fromDate,
-          ),
-          lte(
-            sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            toDate,
-          ),
-        ),
-      ),
-    // New requests = visit_requests.created_at in window in this city.
-    db
-      .select({ cnt: sql<number>`COUNT(*)::int` })
-      .from(visitRequests)
-      .where(
-        and(
-          eq(visitRequests.cityId, cityId),
-          gte(
-            sql`(${visitRequests.createdAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            fromDate,
-          ),
-          lte(
-            sql`(${visitRequests.createdAt} AT TIME ZONE 'Asia/Kolkata')::date`,
-            toDate,
-          ),
-        ),
-      ),
-  ]);
-
-  const visitsCount = visitsRow[0]?.cnt ?? 0;
-  const ordersCount = ordersRow[0]?.cnt ?? 0;
+  // Sandeep 2026-06-03 SSOT follow-up: window-scoped city metrics flow
+  // through the same loaders as everything else. Same formula a captain
+  // sees on their dashboard for the same window, by construction.
+  const m = await loadMetrics(
+    [
+      'visits',
+      'revenue',
+      'orders_count',
+      'quotations_count',
+      'new_requests',
+      'conversion_pct',
+    ],
+    { cityId },
+    { fromDate, toDate },
+  );
 
   return {
     fromDate,
     toDate,
-    visitsCount,
-    collectionsPaise: Number(collectionsRow[0]?.sum ?? '0'),
-    ordersCount,
-    quotationsCount: quotationsRow[0]?.cnt ?? 0,
-    newRequestsCount: newReqRow[0]?.cnt ?? 0,
-    conversionPct:
-      visitsCount === 0
-        ? null
-        : Math.round((ordersCount / visitsCount) * 100),
+    visitsCount: m.visits ?? 0,
+    collectionsPaise: m.revenue ?? 0,
+    ordersCount: m.orders_count ?? 0,
+    quotationsCount: m.quotations_count ?? 0,
+    newRequestsCount: m.new_requests ?? 0,
+    conversionPct: m.conversion_pct,
   };
 }

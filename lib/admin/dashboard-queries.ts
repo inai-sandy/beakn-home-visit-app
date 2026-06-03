@@ -242,7 +242,11 @@ export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
 // =============================================================================
 
 export async function loadCityCards(istDate: string): Promise<CityCard[]> {
-  // Load all active cities + their captain join + exec count in one pass.
+  // Sandeep 2026-06-03 SSOT follow-up: every per-city tile flows through
+  // the SSOT loaders too — same orders semantic (ORDER_CONFIRMED), same
+  // visits semantic (sales_executives.city_id → tasks by exec_user_id),
+  // same revenue formula. Captain dashboard scoped to a city's captain
+  // and admin city card for that city will now report identical numbers.
   const cityRows = await db
     .select({
       cityId: cities.id,
@@ -255,124 +259,45 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
     .where(eq(cities.isActive, true))
     .orderBy(asc(cities.name));
 
+  if (cityRows.length === 0) return [];
+
   const cityIds = cityRows.map((c) => c.cityId);
-  if (cityIds.length === 0) return [];
+  const range = { fromDate: istDate, toDate: istDate };
 
-  // Per-city visits / collections / orders / exec roster — one query each,
-  // grouped by city. Each city's metrics are independent so the inner
-  // SUM/COUNT can run in parallel via Promise.all.
-
-  const [visitRows, collectionsRows, ordersRows, execRows, planRows] =
-    await Promise.all([
-      // Visits: completed visit-typed tasks today, joined to request → city.
-      db
-        .select({
-          cityId: visitRequests.cityId,
-          cnt: sql<number>`COUNT(*)::int`,
-        })
-        .from(tasks)
-        .innerJoin(
-          visitRequests,
-          eq(visitRequests.id, tasks.linkRequestId),
-        )
-        .where(
-          and(
-            eq(tasks.taskDate, istDate),
-            eq(tasks.status, 'completed'),
-            inArray(
-              tasks.taskType,
-              VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],
-            ),
-            inArray(visitRequests.cityId, cityIds),
-          ),
-        )
-        .groupBy(visitRequests.cityId),
-      // Collections: inbound payments today, joined to request → city.
-      db
-        .select({
-          cityId: visitRequests.cityId,
-          sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
-        })
-        .from(payments)
-        .innerJoin(
-          visitRequests,
-          eq(visitRequests.id, payments.visitRequestId),
-        )
-        .where(
-          and(
-            eq(payments.paymentDate, istDate),
-            eq(payments.direction, 'inbound'),
-            isNull(payments.voidedAt),
-            inArray(visitRequests.cityId, cityIds),
-          ),
-        )
-        .groupBy(visitRequests.cityId),
-      // Completed orders today, joined via request → city.
-      //
-      // CALC INTEGRITY 2026-06-02: DISTINCT request_id per city — a
-      // rollback + re-promote within the same IST day would otherwise
-      // inflate the city's ordersToday tile. Same fix pattern as the
-      // global completedOrdersToday + completedToday above.
-      db
-        .select({
-          cityId: visitRequests.cityId,
-          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
-        })
-        .from(requestStatusHistory)
-        .innerJoin(
-          visitRequests,
-          eq(visitRequests.id, requestStatusHistory.requestId),
-        )
-        .innerJoin(
-          statusStages,
-          eq(statusStages.id, requestStatusHistory.toStatusStageId),
-        )
-        .where(
-          and(
-            eq(statusStages.code, TERMINAL_POSITIVE_CODE),
-            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
-            inArray(visitRequests.cityId, cityIds),
-          ),
-        )
-        .groupBy(visitRequests.cityId),
-      // Exec roster per city. BUG 8 (2026-06-03): direct
-      // sales_executives.city_id filter. Was previously the
-      // captain→cities hop, which double-counted execs in every city
-      // their captain owned. Now each exec belongs to exactly one city.
-      db
-        .select({
-          cityId: salesExecutives.cityId,
-          execUserId: salesExecutives.userId,
-        })
-        .from(salesExecutives)
-        .where(inArray(salesExecutives.cityId, cityIds)),
-      // Plans submitted today — one row per exec who submitted.
-      db
-        .select({
-          execUserId: dayPlans.execUserId,
-        })
-        .from(dayPlans)
-        .where(
-          and(
-            eq(dayPlans.planDate, istDate),
-            isNotNull(dayPlans.submittedAt),
-          ),
+  const [perCityMetrics, execRows, planRows] = await Promise.all([
+    Promise.all(
+      cityRows.map(async (c) => {
+        const m = await loadMetrics(
+          ['revenue', 'visits', 'orders_count'],
+          { cityId: c.cityId },
+          range,
+        );
+        return { cityId: c.cityId, ...m };
+      }),
+    ),
+    db
+      .select({
+        cityId: salesExecutives.cityId,
+        execUserId: salesExecutives.userId,
+      })
+      .from(salesExecutives)
+      .where(inArray(salesExecutives.cityId, cityIds)),
+    db
+      .select({ execUserId: dayPlans.execUserId })
+      .from(dayPlans)
+      .where(
+        and(
+          eq(dayPlans.planDate, istDate),
+          isNotNull(dayPlans.submittedAt),
         ),
-    ]);
+      ),
+  ]);
 
-  const visitByCity = new Map(visitRows.map((r) => [r.cityId, r.cnt]));
-  const collectionByCity = new Map(
-    collectionsRows.map((r) => [r.cityId, Number(r.sum ?? '0')]),
-  );
-  const ordersByCity = new Map(ordersRows.map((r) => [r.cityId, r.cnt]));
+  const metricsByCity = new Map(perCityMetrics.map((r) => [r.cityId, r]));
 
   // execs per city + total count
   const execsByCity = new Map<string, Set<string>>();
   for (const r of execRows) {
-    // The `inArray(salesExecutives.cityId, cityIds)` filter above
-    // eliminates NULL cityIds at the SQL layer, but the column type
-    // is `string | null` — narrow defensively here so a future query
-    // change can't silently bucket NULLs into the wrong city.
     if (!r.cityId) continue;
     const set = execsByCity.get(r.cityId) ?? new Set<string>();
     set.add(r.execUserId);
@@ -386,6 +311,7 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
     for (const execId of execs) {
       if (!submittedToday.has(execId)) nonSubmitterCount += 1;
     }
+    const m = metricsByCity.get(c.cityId);
     return {
       cityId: c.cityId,
       cityName: c.cityName,
@@ -393,9 +319,9 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
       captain: c.captainUserId
         ? { userId: c.captainUserId, fullName: c.captainFullName ?? 'Captain' }
         : null,
-      visitsToday: visitByCity.get(c.cityId) ?? 0,
-      collectionsTodayPaise: collectionByCity.get(c.cityId) ?? 0,
-      ordersToday: ordersByCity.get(c.cityId) ?? 0,
+      visitsToday: m?.visits ?? 0,
+      collectionsTodayPaise: m?.revenue ?? 0,
+      ordersToday: m?.orders_count ?? 0,
       execCount: execs.size,
       nonSubmitterCount,
     };

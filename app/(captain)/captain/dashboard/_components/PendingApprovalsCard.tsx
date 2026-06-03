@@ -21,6 +21,11 @@ interface Props {
   staleCount: number;
   topFive: PendingApprovalRow[];
   filter: DateFilter;
+  /** Route prefix for "View all" + row links. Defaults to `/captain`
+   *  for the live captain dashboard. The admin captain-portal view
+   *  passes `/admin/portal/[captainId]` so the cards link inside the
+   *  admin shell. Sandeep 2026-06-03. */
+  basePath?: string;
 }
 
 export function PendingApprovalsCard({
@@ -28,6 +33,7 @@ export function PendingApprovalsCard({
   staleCount,
   topFive,
   filter,
+  basePath = '/captain',
 }: Props) {
   // `filter` is currently unused at the render layer — the server-side
   // query already chose the right semantic (today-snapshot vs history/
@@ -35,6 +41,9 @@ export function PendingApprovalsCard({
   // other cards and lets future copy tweak based on mode without a
   // signature change.
   void filter;
+  const approvalsHref = `${basePath}/approvals`;
+  const requestHref = (id: string) =>
+    basePath === '/captain' ? `/requests/${id}` : `${basePath}/requests/${id}`;
 
   return (
     <section
@@ -64,7 +73,7 @@ export function PendingApprovalsCard({
           the SLA tail without polling the queue manually. */}
       {staleCount > 0 && (
         <Link
-          href="/captain/approvals"
+          href={approvalsHref}
           className="flex items-center gap-2 rounded-2xl border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100/80 transition-colors"
         >
           <Icon name="warning" size="sm" className="shrink-0" aria-hidden />
@@ -86,7 +95,7 @@ export function PendingApprovalsCard({
           {topFive.map((row) => (
             <li key={row.id}>
               <Link
-                href={`/requests/${row.id}`}
+                href={requestHref(row.id)}
                 className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors"
               >
                 <div className="min-w-0 flex-1">
@@ -110,7 +119,7 @@ export function PendingApprovalsCard({
       {totalCount > 5 && (
         <div className="flex justify-end">
           <Link
-            href="/captain/approvals"
+            href={approvalsHref}
             className="text-xs text-primary hover:underline inline-flex items-center gap-1"
           >
             View all {totalCount}

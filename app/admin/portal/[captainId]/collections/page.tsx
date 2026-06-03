@@ -3,7 +3,6 @@ import type { Metadata } from 'next';
 import {
   loadFinanceAgingBuckets,
   loadFinanceOrderList,
-  loadFinanceReceivedDetail,
   loadFinanceSnapshot,
   parseFinanceListSort,
   parseFinanceSection,
@@ -63,15 +62,7 @@ export default async function AdminPortalCollectionsPage({
     cityFilter,
   };
 
-  const [
-    snapshot,
-    buckets,
-    list,
-    orderBookDetail,
-    pipelineDetail,
-    outstandingDetail,
-    receivedDetail,
-  ] = await Promise.all([
+  const [snapshot, buckets, list] = await Promise.all([
     loadFinanceSnapshot({ ...sharedScope, search }),
     loadFinanceAgingBuckets({ ...sharedScope, search }),
     loadFinanceOrderList({
@@ -81,28 +72,6 @@ export default async function AdminPortalCollectionsPage({
       page,
       sort,
     }),
-    loadFinanceOrderList({
-      ...sharedScope,
-      section: 'order_book',
-      page: 1,
-      pageSize: 100,
-      sort: 'outstanding_desc',
-    }),
-    loadFinanceOrderList({
-      ...sharedScope,
-      section: 'pipeline',
-      page: 1,
-      pageSize: 100,
-      sort: 'date_asc',
-    }),
-    loadFinanceOrderList({
-      ...sharedScope,
-      section: 'all',
-      page: 1,
-      pageSize: 100,
-      sort: 'outstanding_desc',
-    }),
-    loadFinanceReceivedDetail({ ...sharedScope, limit: 100 }),
   ]);
 
   return (
@@ -117,16 +86,7 @@ export default async function AdminPortalCollectionsPage({
         </header>
         <ViewOnlyNotice message="Recording payments is captain / exec only. Tap any tile for a detailed breakdown." />
 
-        <FinanceSnapshot
-          snapshot={snapshot}
-          detail={{
-            orderBook: orderBookDetail.rows,
-            pipeline: pipelineDetail.rows,
-            outstanding: outstandingDetail.rows,
-            received: receivedDetail,
-          }}
-          fullListHref={basePath}
-        />
+        <FinanceSnapshot snapshot={snapshot} basePath={basePath} />
 
         <FinanceMethodologyNote />
 

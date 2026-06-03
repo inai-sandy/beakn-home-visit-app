@@ -1,6 +1,5 @@
 'use client';
 
-import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -138,17 +137,29 @@ export function FinanceTileSheet(props: Props) {
             />
           )}
 
-          {/* Footer link → main page list under the tiles, where the
-              user can filter / paginate the full set. */}
+          {/* Footer action: close the sheet + scroll to the main
+              filtered list section on the same page (anchor target
+              `#finance-list` is set on each Finance page's list
+              wrapper). Using a button + scrollIntoView rather than a
+              router push since the list is on the same page — pushing
+              the URL would be a no-op and leave the sheet open. */}
           <div className="pt-3 border-t">
-            <Link
-              href={props.fullListHref}
-              onClick={() => props.onOpenChange(false)}
+            <button
+              type="button"
+              onClick={() => {
+                props.onOpenChange(false);
+                if (typeof window !== 'undefined') {
+                  const el = document.getElementById('finance-list');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }
+              }}
               className="text-xs text-primary hover:underline inline-flex items-center gap-1"
             >
               See full list with filters and pagination
-              <Icon name="arrow_forward" size="xs" />
-            </Link>
+              <Icon name="arrow_downward" size="xs" />
+            </button>
           </div>
         </div>
       </SheetContent>

@@ -35,6 +35,7 @@ import {
   users,
   visitRequests,
 } from '@/db/schema';
+import { loadMetrics } from '@/lib/metrics/registry';
 
 const VISIT_TASK_TYPES = ['Customer home visit', 'Sales pitch', 'Outlet visit'] as const;
 const ORDER_BOOK_MIN_SEQ = 6;          // ORDER_CONFIRMED and beyond
@@ -108,100 +109,34 @@ export interface FirstTimeSetupStatus {
 export async function loadAdminGlobalMetrics(
   istDate: string,
 ): Promise<AdminGlobalMetrics> {
-  const [visitsRow, collectionsRow, ordersRow, newRequestsRow, productiveRow] =
-    await Promise.all([
-      // Visits = completed visit-typed tasks dated today.
-      db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
-        .from(tasks)
-        .where(
-          and(
-            eq(tasks.taskDate, istDate),
-            eq(tasks.status, 'completed'),
-            inArray(
-              tasks.taskType,
-              VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],
-            ),
-          ),
-        ),
-      // Collections = inbound payments dated today, voided excluded.
-      db
-        .select({
-          sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
-        })
-        .from(payments)
-        .where(
-          and(
-            eq(payments.paymentDate, istDate),
-            eq(payments.direction, 'inbound'),
-            isNull(payments.voidedAt),
-          ),
-        ),
-      // Completed orders today = transitions INTO ORDER_EXECUTED_SUCCESSFULLY
-      // whose changed_at is in IST-today.
-      //
-      // CALC INTEGRITY 2026-06-02: COUNT(DISTINCT request_id), NOT
-      // COUNT(*). status_history can have multiple terminal-positive
-      // rows per request when an admin rolls back and re-promotes the
-      // request within the same IST day. Without DISTINCT each
-      // round-trip inflates the count. Same fix pattern as the
-      // leaderboard 2026-06-01 + the exec-target query 2026-06-02.
-      db
-        .select({
-          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
-        })
-        .from(requestStatusHistory)
-        .innerJoin(
-          statusStages,
-          eq(statusStages.id, requestStatusHistory.toStatusStageId),
-        )
-        .where(
-          and(
-            eq(statusStages.code, TERMINAL_POSITIVE_CODE),
-            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
-          ),
-        ),
-      // New requests = visit_requests created today (IST).
-      db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
-        .from(visitRequests)
-        .where(
-          sql`(${visitRequests.createdAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
-        ),
-      // Productive minutes — sum estimated minutes of completed tasks today.
-      // `estimated_time` is varchar (e.g. "30min", "1hr"); parse via simple
-      // regex. Treat unknown formats as 0 so a junk row can't poison the sum.
-      db
-        .select({
-          mins: sql<number>`COALESCE(SUM(
-            CASE
-              WHEN ${tasks.estimatedTime} ~ '^[0-9]+min$'
-                THEN CAST(REGEXP_REPLACE(${tasks.estimatedTime}, '[^0-9]', '', 'g') AS int)
-              WHEN ${tasks.estimatedTime} ~ '^[0-9]+hr$'
-                THEN CAST(REGEXP_REPLACE(${tasks.estimatedTime}, '[^0-9]', '', 'g') AS int) * 60
-              ELSE 0
-            END
-          ), 0)::int`,
-        })
-        .from(tasks)
-        .where(
-          and(eq(tasks.taskDate, istDate), eq(tasks.status, 'completed')),
-        ),
-    ]);
-
-  const visitsToday = visitsRow[0]?.cnt ?? 0;
-  const completedOrdersToday = ordersRow[0]?.cnt ?? 0;
+  // Sandeep 2026-06-03: every numeric tile now flows through the SSOT
+  // loaders in `lib/metrics/*`. The shape of `AdminGlobalMetrics` is
+  // preserved so the admin tile components don't change, but the
+  // underlying formulas are now identical to the captain + exec
+  // surfaces — same orders semantic (ORDER_CONFIRMED, not the legacy
+  // TERMINAL_POSITIVE_CODE), same IST-cast on every timestamptz, same
+  // attribution rule (visit_request.assigned_exec_user_id).
+  const range = { fromDate: istDate, toDate: istDate };
+  const m = await loadMetrics(
+    [
+      'visits',
+      'revenue',
+      'orders_count',
+      'new_requests',
+      'conversion_pct',
+      'productive_minutes',
+    ],
+    {},
+    range,
+  );
 
   return {
-    visitsToday,
-    collectionsTodayPaise: Number(collectionsRow[0]?.sum ?? '0'),
-    completedOrdersToday,
-    newRequestsToday: newRequestsRow[0]?.cnt ?? 0,
-    conversionPct:
-      visitsToday === 0
-        ? null
-        : Math.round((completedOrdersToday / visitsToday) * 100),
-    productiveMinutesToday: productiveRow[0]?.mins ?? 0,
+    visitsToday: m.visits ?? 0,
+    collectionsTodayPaise: m.revenue ?? 0,
+    completedOrdersToday: m.orders_count ?? 0,
+    newRequestsToday: m.new_requests ?? 0,
+    conversionPct: m.conversion_pct,
+    productiveMinutesToday: m.productive_minutes ?? 0,
   };
 }
 
@@ -212,66 +147,33 @@ export async function loadAdminGlobalMetrics(
 export async function loadAdminRevenueSnapshot(
   istDate: string,
 ): Promise<AdminRevenueSnapshot> {
-  const [receivedRow, quotationRows] = await Promise.all([
+  // Sandeep 2026-06-03 SSOT refactor:
+  //   - receivedTodayPaise → SSOT `revenue` loader (identical formula
+  //     to captain + exec revenue tiles).
+  //   - pendingOutstandingPaise → SSOT `outstanding` loader (identical
+  //     formula to captain + exec outstanding tiles; Bug 7 semantics —
+  //     includes executed-but-unpaid).
+  //   - openQuotationPaise stays bespoke because it has no
+  //     cross-portal twin: it's the face value of all quotations on
+  //     non-cancelled requests, paid or not. Admin-only tile.
+  const range = { fromDate: istDate, toDate: istDate };
+  const [{ revenue, outstanding }, quotationRows] = await Promise.all([
+    loadMetrics(['revenue', 'outstanding'], {}, range),
     db
       .select({
-        sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
-      })
-      .from(payments)
-      .where(
-        and(
-          eq(payments.paymentDate, istDate),
-          eq(payments.direction, 'inbound'),
-          isNull(payments.voidedAt),
-        ),
-      ),
-    // Per-request open quotation totals (excl. cancelled only).
-    //
-    // BUG 7 FIX (Sandeep 2026-06-03): the previous exclusion
-    // `!= TERMINAL_POSITIVE_CODE` silently dropped executed-but-unpaid
-    // requests from both the "Open Quotation Value" and "Pending
-    // Outstanding" tiles — once an order was marked executed, even if
-    // the customer hadn't fully paid, the residual balance vanished
-    // from the admin view. That hid real outstanding money.
-    //
-    // New semantic: cancelled stays excluded (money is truly closed);
-    // every other state stays included. Fully-paid executed requests
-    // self-eliminate from "Pending Outstanding" because their balance
-    // is 0 (the `if (due > 0)` clamp below). Their full quotation value
-    // does still count toward "Open Quotation Value" — interpret that
-    // tile as "total face value of quotations on our books, paid or
-    // not, until cancelled".
-    db
-      .select({
-        visitRequestId: quotations.visitRequestId,
         totalPaise: sql<string>`${quotations.totalOrderValuePaise}::text`,
-        paidPaise: sql<string>`COALESCE((
-          SELECT
-            SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE 0 END)
-            - SUM(CASE WHEN ${payments.direction} = 'outbound' THEN ${payments.amountPaise} ELSE 0 END)
-          FROM ${payments}
-          WHERE ${payments.visitRequestId} = ${quotations.visitRequestId}
-            AND ${payments.voidedAt} IS NULL
-        ), 0)::text`,
       })
       .from(quotations)
       .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
       .where(isNull(visitRequests.cancelledAt)),
   ]);
 
-  let pendingOutstandingPaise = 0;
   let openQuotationPaise = 0;
-  for (const r of quotationRows) {
-    const total = Number(r.totalPaise);
-    const paid = Number(r.paidPaise);
-    openQuotationPaise += total;
-    const due = total - paid;
-    if (due > 0) pendingOutstandingPaise += due;
-  }
+  for (const r of quotationRows) openQuotationPaise += Number(r.totalPaise);
 
   return {
-    receivedTodayPaise: Number(receivedRow[0]?.sum ?? '0'),
-    pendingOutstandingPaise,
+    receivedTodayPaise: revenue ?? 0,
+    pendingOutstandingPaise: outstanding ?? 0,
     openQuotationPaise,
   };
 }
@@ -281,69 +183,57 @@ export async function loadAdminRevenueSnapshot(
 // =============================================================================
 
 export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
-  const [openRow, completedRow, cancelledRow, approvalsRow] = await Promise.all(
-    [
-      db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
-        .from(visitRequests)
-        .innerJoin(
-          statusStages,
-          eq(statusStages.id, visitRequests.statusStageId),
-        )
-        .where(
-          and(
-            isNull(visitRequests.cancelledAt),
-            ne(statusStages.code, TERMINAL_POSITIVE_CODE),
-          ),
+  // Sandeep 2026-06-03 SSOT refactor:
+  //   - cancelledToday → SSOT `cancelled_requests` loader.
+  //   - pendingCaptainApprovals → SSOT `pending_approvals` loader.
+  //   - completedToday stays bespoke. Admin-only label; legacy
+  //     semantic = transitions INTO ORDER_EXECUTED_SUCCESSFULLY today
+  //     (a fulfillment milestone, separate from the `orders_count`
+  //     SSOT which counts ORDER_CONFIRMED).
+  //   - openRequests stays bespoke. Pipeline snapshot — no
+  //     cross-portal twin.
+  const range = { fromDate: istDate, toDate: istDate };
+  const [
+    { cancelled_requests: cancelled, pending_approvals: approvals },
+    openRow,
+    completedRow,
+  ] = await Promise.all([
+    loadMetrics(['cancelled_requests', 'pending_approvals'], {}, range),
+    db
+      .select({ cnt: sql<number>`COUNT(*)::int` })
+      .from(visitRequests)
+      .innerJoin(
+        statusStages,
+        eq(statusStages.id, visitRequests.statusStageId),
+      )
+      .where(
+        and(
+          isNull(visitRequests.cancelledAt),
+          ne(statusStages.code, TERMINAL_POSITIVE_CODE),
         ),
-      // CALC INTEGRITY 2026-06-02: DISTINCT request_id, NOT bare COUNT,
-      // so a rollback + re-promote within the same IST day doesn't
-      // inflate the count.
-      db
-        .select({
-          cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
-        })
-        .from(requestStatusHistory)
-        .innerJoin(
-          statusStages,
-          eq(statusStages.id, requestStatusHistory.toStatusStageId),
-        )
-        .where(
-          and(
-            eq(statusStages.code, TERMINAL_POSITIVE_CODE),
-            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
-          ),
+      ),
+    db
+      .select({
+        cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+      })
+      .from(requestStatusHistory)
+      .innerJoin(
+        statusStages,
+        eq(statusStages.id, requestStatusHistory.toStatusStageId),
+      )
+      .where(
+        and(
+          eq(statusStages.code, TERMINAL_POSITIVE_CODE),
+          sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
         ),
-      db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
-        .from(visitRequests)
-        .where(
-          and(
-            isNotNull(visitRequests.cancelledAt),
-            sql`(${visitRequests.cancelledAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
-          ),
-        ),
-      db
-        .select({ cnt: sql<number>`COUNT(*)::int` })
-        .from(visitRequests)
-        .innerJoin(
-          statusStages,
-          eq(statusStages.id, visitRequests.statusStageId),
-        )
-        .where(
-          and(
-            eq(statusStages.code, PENDING_APPROVAL_CODE),
-            isNull(visitRequests.cancelledAt),
-          ),
-        ),
-    ],
-  );
+      ),
+  ]);
 
   return {
     openRequests: openRow[0]?.cnt ?? 0,
     completedToday: completedRow[0]?.cnt ?? 0,
-    cancelledToday: cancelledRow[0]?.cnt ?? 0,
-    pendingCaptainApprovals: approvalsRow[0]?.cnt ?? 0,
+    cancelledToday: cancelled ?? 0,
+    pendingCaptainApprovals: approvals ?? 0,
   };
 }
 

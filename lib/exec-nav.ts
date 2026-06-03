@@ -70,6 +70,7 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Finance', icon: 'payments', href: '/finance' },
   // HVA-201: global leaderboard across all execs.
   { label: 'Leaderboard', icon: 'leaderboard', href: '/leaderboard' },
+  { label: 'Reports', icon: 'monitoring', href: '/exec/reports' },
   { label: 'Resources', icon: 'menu_book', href: '/resources' },
   { label: 'Announcements', icon: 'campaign', href: '/announcements' },
   { label: 'Profile', icon: 'person', href: '/profile' },

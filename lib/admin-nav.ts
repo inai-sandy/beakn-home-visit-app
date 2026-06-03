@@ -64,9 +64,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Operations',
     items: [
       { label: 'Dashboard', icon: 'dashboard', href: '/admin/dashboard' },
-      // HVA-95-FOLLOWUP: All Requests admin page is still unbuilt; mark
-      // placeholder until that ticket ships so the link stops 404'ing.
-      { label: 'All Requests', icon: 'list_alt', placeholder: true },
+      {
+        label: 'All Requests',
+        icon: 'list_alt',
+        href: '/admin/operations/requests',
+      },
       {
         label: 'Other-city Queue',
         icon: 'priority_high',
@@ -151,6 +153,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         label: 'Notifications',
         icon: 'notifications_active',
         items: [
+          {
+            label: 'Notification Rules',
+            icon: 'rule',
+            href: '/admin/settings/notifications/rules',
+          },
           {
             label: 'Customer Support Phone',
             icon: 'support_agent',

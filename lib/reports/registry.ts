@@ -10,6 +10,49 @@ import {
   reportRevenueTrend,
   reportVisitsTrend,
 } from './sales';
+import {
+  reportCaptainRollup,
+  reportExecContacts,
+  reportExecConversion,
+  reportExecOrders,
+  reportExecProductive,
+  reportExecRevenue,
+  reportExecTaskCompletion,
+  reportExecVisits,
+} from './team';
+import {
+  reportApprovalSla,
+  reportApprovalsQueueDepth,
+  reportCancellationTrend,
+  reportCityConversion,
+  reportCityHeatmap,
+  reportCityOrders,
+  reportCityRevenue,
+  reportDayPlanClose,
+  reportOutstandingAging,
+  reportRefundTrend,
+  reportTaskRollover,
+} from './geography';
+import {
+  reportAverageStageTime,
+  reportRequestIntake,
+  reportStatusFunnel,
+  reportStuckRequests,
+} from './lifecycle';
+import {
+  reportLeadConversion,
+  reportNewLeads,
+  reportRepeatCustomers,
+  reportRequestDistribution,
+} from './customer';
+import {
+  reportCityTargetRollup,
+  reportExecTargetAchievement,
+  reportTargetPacing,
+  reportWaDeliveryRates,
+  reportWaFailures,
+  reportWaMessagesPerTemplate,
+} from './notifications-targets';
 import type { ReportArgs, ReportResult } from './types';
 
 // =============================================================================
@@ -158,6 +201,291 @@ export const REPORTS: ReportDefinition[] = [
     blurb:
       'Days between the first completed visit task and the ORDER_CONFIRMED transition, per confirmed order in the window.',
     load: reportCycleTime as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Team / Exec (Sprint 2)
+  // -------------------------------------------------------------------------
+  {
+    key: 'exec-revenue',
+    category: 'team',
+    title: 'Per-exec revenue',
+    blurb:
+      'Net cash collected per executive in the window (inbound − outbound refunds). Sorted by revenue desc.',
+    load: reportExecRevenue as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-orders',
+    category: 'team',
+    title: 'Per-exec orders confirmed',
+    blurb:
+      'Distinct orders confirmed (count + total quotation value) per executive in the window.',
+    load: reportExecOrders as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-visits',
+    category: 'team',
+    title: 'Per-exec visits completed',
+    blurb:
+      'Completed visit-type tasks per executive (Customer home visit / Sales pitch / Outlet visit) in the window.',
+    load: reportExecVisits as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-conversion',
+    category: 'team',
+    title: 'Per-exec conversion %',
+    blurb:
+      'Orders ÷ visits per executive. Blank when an exec had zero visits in the window.',
+    load: reportExecConversion as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-task-completion',
+    category: 'team',
+    title: 'Per-exec task completion %',
+    blurb:
+      'Completed tasks ÷ all tasks (completed + pending + postponed) per executive.',
+    load: reportExecTaskCompletion as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-productive',
+    category: 'team',
+    title: 'Per-exec productive minutes',
+    blurb:
+      'Sum of actual/estimated minutes on completed tasks per executive (15min / 30min / 1hr / 2hr / 3hr+ buckets map to 15 / 30 / 60 / 120 / 180).',
+    load: reportExecProductive as ReportDefinition['load'],
+  },
+  {
+    key: 'exec-contacts',
+    category: 'team',
+    title: 'Per-exec new contacts captured',
+    blurb:
+      'Leads created by each executive in the window. Useful to spot pipeline-building activity vs deal-closing.',
+    load: reportExecContacts as ReportDefinition['load'],
+  },
+  {
+    key: 'captain-rollup',
+    category: 'team',
+    title: 'Per-captain team rollup',
+    blurb:
+      'Captains ranked by their team total revenue / orders / visits / contacts in the window.',
+    load: reportCaptainRollup as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Geography (Sprint 3)
+  // -------------------------------------------------------------------------
+  {
+    key: 'city-revenue',
+    category: 'geography',
+    title: 'Per-city revenue',
+    blurb:
+      'Net cash collected per city in the window. Sorted by revenue desc.',
+    load: reportCityRevenue as ReportDefinition['load'],
+  },
+  {
+    key: 'city-orders',
+    category: 'geography',
+    title: 'Per-city orders',
+    blurb:
+      'Confirmed orders + total order value per city.',
+    load: reportCityOrders as ReportDefinition['load'],
+  },
+  {
+    key: 'city-conversion',
+    category: 'geography',
+    title: 'Per-city conversion %',
+    blurb:
+      'Orders ÷ visits per city. Highlights which cities convert visits into orders most efficiently.',
+    load: reportCityConversion as ReportDefinition['load'],
+  },
+  {
+    key: 'city-heatmap',
+    category: 'geography',
+    title: 'City revenue per active exec',
+    blurb:
+      'Revenue ÷ active execs per city. Surfaces high-efficiency cities (great cash per head) and undersupplied ones.',
+    load: reportCityHeatmap as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Operational (Sprint 3)
+  // -------------------------------------------------------------------------
+  {
+    key: 'day-plan-close',
+    category: 'operational',
+    title: 'Day-plan close rate',
+    blurb:
+      'Per-day count of plans submitted vs plans closed before the deadline. Surfaces execs leaving plans unclosed at the end of the day.',
+    load: reportDayPlanClose as ReportDefinition['load'],
+  },
+  {
+    key: 'task-rollover',
+    category: 'operational',
+    title: 'Rolled-over task rate',
+    blurb:
+      'Tasks per day that the 21:31 IST cron rolled over because they were left pending. High rates → planning gap.',
+    load: reportTaskRollover as ReportDefinition['load'],
+  },
+  {
+    key: 'approvals-depth',
+    category: 'operational',
+    title: 'Pending approvals queue depth',
+    blurb:
+      'Current snapshot of the captain-approval queue. Historical depth requires status-history reconstruction — coming as a follow-up.',
+    load: reportApprovalsQueueDepth as ReportDefinition['load'],
+  },
+  {
+    key: 'approval-sla',
+    category: 'operational',
+    title: 'Captain approval SLA',
+    blurb:
+      'For each order executed in the window, the hours it spent in PENDING_CAPTAIN_APPROVAL before the captain marked it done.',
+    load: reportApprovalSla as ReportDefinition['load'],
+  },
+  {
+    key: 'cancellation-trend',
+    category: 'operational',
+    title: 'Cancellation rate trend',
+    blurb:
+      'Per day: requests created vs cancelled (cancellation_at IST) with the % rate.',
+    load: reportCancellationTrend as ReportDefinition['load'],
+  },
+  {
+    key: 'refund-trend',
+    category: 'operational',
+    title: 'Refund frequency + value',
+    blurb:
+      'Outbound payments per day with count + total refunded amount. Refund volume is a quality signal worth watching.',
+    load: reportRefundTrend as ReportDefinition['load'],
+  },
+  {
+    key: 'outstanding-aging',
+    category: 'operational',
+    title: 'Outstanding aging snapshot',
+    blurb:
+      'Current outstanding receivables bucketed by days since quotation submitted: 0-7 / 8-30 / 30+. Net of refunds.',
+    load: reportOutstandingAging as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Lifecycle (Sprint 4 — reports 31-34)
+  // -------------------------------------------------------------------------
+  {
+    key: 'status-funnel',
+    category: 'lifecycle',
+    title: 'Status-stage funnel',
+    blurb:
+      'For each status stage, distinct requests that EVER reached it during the window. Use sequence order to spot drop-offs.',
+    load: reportStatusFunnel as ReportDefinition['load'],
+  },
+  {
+    key: 'stuck-requests',
+    category: 'lifecycle',
+    title: 'Stuck requests',
+    blurb:
+      'Non-cancelled, non-executed requests whose current status hasn\'t changed for more than 7 days. Sorted by oldest first.',
+    load: reportStuckRequests as ReportDefinition['load'],
+  },
+  {
+    key: 'avg-stage-time',
+    category: 'lifecycle',
+    title: 'Average days at each stage',
+    blurb:
+      'For every stage transition that has a "next" transition, the average days between them. Reveals which stages slow the funnel.',
+    load: reportAverageStageTime as ReportDefinition['load'],
+  },
+  {
+    key: 'request-intake',
+    category: 'lifecycle',
+    title: 'New request intake trend',
+    blurb:
+      'Customer-submitted visit requests per day (created_at IST). Includes ones that were later cancelled — intake volume, not net pipeline.',
+    load: reportRequestIntake as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Customer (Sprint 4 — reports 35-38)
+  // -------------------------------------------------------------------------
+  {
+    key: 'new-leads',
+    category: 'customer',
+    title: 'New leads per day',
+    blurb:
+      'Lead/contact rows created in the window. Pipeline-building activity.',
+    load: reportNewLeads as ReportDefinition['load'],
+  },
+  {
+    key: 'lead-conversion',
+    category: 'customer',
+    title: 'Lead → request conversion %',
+    blurb:
+      'Per day: leads created vs leads that became a visit_request (converted_to_request_id IS NOT NULL).',
+    load: reportLeadConversion as ReportDefinition['load'],
+  },
+  {
+    key: 'repeat-customers',
+    category: 'customer',
+    title: 'Repeat customers',
+    blurb:
+      'Customers (by phone) with more than one non-cancelled visit_request. Sorted by request count desc.',
+    load: reportRepeatCustomers as ReportDefinition['load'],
+  },
+  {
+    key: 'request-distribution',
+    category: 'customer',
+    title: 'Request distribution (BHK)',
+    blurb:
+      'BHK breakdown of non-cancelled visit_requests created in the window. Useful for product-mix planning.',
+    load: reportRequestDistribution as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Notifications (Sprint 4 — reports 39-41)
+  // -------------------------------------------------------------------------
+  {
+    key: 'wa-messages',
+    category: 'notifications',
+    title: 'WhatsApp messages per template',
+    blurb:
+      'Lifetime count of dispatches per template (sent / delivered / read / failed). From whatsapp_dispatches telemetry.',
+    load: reportWaMessagesPerTemplate as ReportDefinition['load'],
+  },
+  {
+    key: 'wa-delivery-rates',
+    category: 'notifications',
+    title: 'WhatsApp delivery + read rates',
+    blurb:
+      'Per template: delivery % and read % (both relative to sent). Useful to spot templates that Meta rate-limits or customers ignore.',
+    load: reportWaDeliveryRates as ReportDefinition['load'],
+  },
+  {
+    key: 'wa-failures',
+    category: 'notifications',
+    title: 'WhatsApp failure reasons',
+    blurb:
+      'Failed dispatches grouped by Meta error code + reason. Drives template/template-data corrections.',
+    load: reportWaFailures as ReportDefinition['load'],
+  },
+  // -------------------------------------------------------------------------
+  // Targets (Sprint 4 — reports 42-44)
+  // -------------------------------------------------------------------------
+  {
+    key: 'exec-target-achievement',
+    category: 'targets',
+    title: 'Per-exec target achievement',
+    blurb:
+      'Each active exec\'s month-to-date orders + revenue vs the configured monthly target. Sorted by combined % desc.',
+    load: reportExecTargetAchievement as ReportDefinition['load'],
+  },
+  {
+    key: 'city-target-rollup',
+    category: 'targets',
+    title: 'Per-city target rollup',
+    blurb:
+      'Aggregates exec targets up to the city. Splits multi-city execs proportionally so the sum reconciles to total exec output.',
+    load: reportCityTargetRollup as ReportDefinition['load'],
+  },
+  {
+    key: 'target-pacing',
+    category: 'targets',
+    title: 'Target pacing',
+    blurb:
+      'Days elapsed vs expected % (linear pace) vs achieved %. Gap shows whether the team is ahead or behind schedule.',
+    load: reportTargetPacing as ReportDefinition['load'],
   },
 ];
 

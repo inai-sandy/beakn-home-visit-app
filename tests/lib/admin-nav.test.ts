@@ -21,11 +21,12 @@ function getSubgroup(label: string): AdminNavSubgroup {
 }
 
 describe('isAdminNavItemActive', () => {
-  it('placeholder items (Reports group) are never active', () => {
+  it('Reports group items each have a real href (no placeholders)', () => {
     const reports = ADMIN_NAV.find((g) => g.label === 'Reports')!;
     for (const item of reports.items ?? []) {
-      expect(item.placeholder).toBe(true);
-      expect(isAdminNavItemActive(item, '/admin/anything', null)).toBe(false);
+      expect(item.placeholder).toBeFalsy();
+      expect(item.href).toBeDefined();
+      expect(item.href).toMatch(/^\/admin\/reports/);
     }
   });
 
@@ -51,10 +52,13 @@ describe('isAdminNavItemActive', () => {
     ).toBe(true);
   });
 
-  it('HVA-95: "All Requests" is a placeholder until that page ships — never active', () => {
+  it('"All Requests" now points to /admin/operations/requests (no longer a placeholder)', () => {
     const all = flatAdminNavItems().find((i) => i.label === 'All Requests')!;
-    expect(all.placeholder).toBe(true);
-    expect(isAdminNavItemActive(all, '/admin/requests', null)).toBe(false);
+    expect(all.placeholder).toBeFalsy();
+    expect(all.href).toBe('/admin/operations/requests');
+    expect(
+      isAdminNavItemActive(all, '/admin/operations/requests', null),
+    ).toBe(true);
   });
 
   it('HVA-95: "Other-city Queue" lights at /admin/operations/other-city', () => {
@@ -169,6 +173,7 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
       'Announcement Categories',
     ]);
     expect(getSubgroup('Notifications').items.map((i) => i.label)).toEqual([
+      'Notification Rules',
       'Customer Support Phone',
     ]);
   });
@@ -197,8 +202,8 @@ describe('flatAdminNavItems', () => {
     expect(labels).toContain('Captains');
     expect(labels).toContain('Resources');
     expect(labels).toContain('Customer Support Phone');
-    // Reports placeholders
-    expect(labels).toContain('Daily');
+    // Reports library
+    expect(labels).toContain('Reports library');
   });
 });
 

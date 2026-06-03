@@ -662,3 +662,99 @@ export async function loadPaymentCalendarEvents(
 // Silence unused import lint if no consumer needs ne/inArray here.
 void ne;
 void inArray;
+
+// =============================================================================
+// Sandeep 2026-06-03: tile-drilldown — per-payment detail for the
+// "Received" hero tile sheet
+// =============================================================================
+//
+// The Received tile sums net inbound − outbound across the scoped
+// requests. The drilldown table lists every individual payment row
+// (chronological desc) so admins / captains / execs can see exactly
+// which transactions add up to the headline figure. Refunds appear
+// as outbound rows with their amount displayed negative.
+
+export interface FinancePaymentRow {
+  id: string;
+  paymentDate: string; // YYYY-MM-DD
+  amountPaise: number; // signed: positive = inbound, negative = outbound
+  direction: 'inbound' | 'outbound';
+  mode: string;
+  customerName: string;
+  requestId: string;
+  execName: string | null;
+  recordedByName: string | null;
+}
+
+export async function loadFinanceReceivedDetail(args: {
+  captainUserId: string;
+  isSuperAdmin: boolean;
+  forceExecScope?: string;
+  execFilter?: string;
+  cityFilter?: string;
+  /** Cap on returned rows. Default 100 — matches the tile-sheet UX
+   *  ("first N most recent; for the full list, use the page below"). */
+  limit?: number;
+}): Promise<FinancePaymentRow[]> {
+  const scope = await resolveScope(
+    args.captainUserId,
+    args.isSuperAdmin,
+    args.forceExecScope,
+  );
+  if (!scope.allowed) return [];
+
+  const scopeWhere = buildScopePredicate(
+    args.captainUserId,
+    args.isSuperAdmin,
+    scope.cityIds,
+    args.forceExecScope,
+  );
+
+  const execUser = alias(users, 'finance_payment_exec');
+  const recordedUser = alias(users, 'finance_payment_recorder');
+
+  const rows = await db
+    .select({
+      id: payments.id,
+      paymentDate: payments.paymentDate,
+      amountPaise: payments.amountPaise,
+      direction: payments.direction,
+      mode: payments.mode,
+      requestId: visitRequests.id,
+      customerName: visitRequests.customerName,
+      execName: execUser.fullName,
+      recordedByName: recordedUser.fullName,
+    })
+    .from(payments)
+    .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
+    .leftJoin(execUser, eq(execUser.id, visitRequests.assignedExecUserId))
+    .leftJoin(recordedUser, eq(recordedUser.id, payments.recordedByUserId))
+    .where(
+      and(
+        isNull(visitRequests.cancelledAt),
+        isNull(payments.voidedAt),
+        scopeWhere,
+        args.execFilter
+          ? eq(visitRequests.assignedExecUserId, args.execFilter)
+          : undefined,
+        args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
+      ),
+    )
+    .orderBy(desc(payments.paymentDate), desc(payments.createdAt))
+    .limit(args.limit ?? 100);
+
+  return rows.map<FinancePaymentRow>((r) => ({
+    id: r.id,
+    paymentDate: r.paymentDate,
+    // Negative sign on outbound so the table's "Amount" column can
+    // render the signed value directly without per-row branching.
+    amountPaise:
+      r.direction === 'outbound' ? -Number(r.amountPaise) : Number(r.amountPaise),
+    direction: r.direction,
+    mode: r.mode,
+    customerName: r.customerName,
+    requestId: r.requestId,
+    execName: r.execName,
+    recordedByName: r.recordedByName,
+  }));
+}

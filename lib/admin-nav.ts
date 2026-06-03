@@ -89,6 +89,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'leaderboard',
         href: '/admin/leaderboard',
       },
+      // Sandeep 2026-06-03: monthly target arena moved off dashboard.
+      {
+        label: 'Team Targets',
+        icon: 'flag',
+        href: '/admin/targets',
+      },
     ],
   },
   {

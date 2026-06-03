@@ -8,6 +8,7 @@ import { getServerSession } from '@/lib/auth-server';
 import {
   loadFinanceAgingBuckets,
   loadFinanceOrderList,
+  loadFinanceReceivedDetail,
   loadFinanceSnapshot,
   parseFinanceListSort,
   parseFinanceSection,
@@ -78,10 +79,40 @@ export default async function ExecFinancePage({ searchParams }: PageProps) {
     search,
   } as const;
 
-  const [snapshot, buckets, list] = await Promise.all([
+  const [
+    snapshot,
+    buckets,
+    list,
+    orderBookDetail,
+    pipelineDetail,
+    outstandingDetail,
+    receivedDetail,
+  ] = await Promise.all([
     loadFinanceSnapshot({ ...sharedArgs }),
     loadFinanceAgingBuckets({ ...sharedArgs }),
     loadFinanceOrderList({ ...sharedArgs, section, page, sort }),
+    loadFinanceOrderList({
+      ...sharedArgs,
+      section: 'order_book',
+      page: 1,
+      pageSize: 100,
+      sort: 'outstanding_desc',
+    }),
+    loadFinanceOrderList({
+      ...sharedArgs,
+      section: 'pipeline',
+      page: 1,
+      pageSize: 100,
+      sort: 'date_asc',
+    }),
+    loadFinanceOrderList({
+      ...sharedArgs,
+      section: 'all',
+      page: 1,
+      pageSize: 100,
+      sort: 'outstanding_desc',
+    }),
+    loadFinanceReceivedDetail({ ...sharedArgs, limit: 100 }),
   ]);
 
   return (
@@ -104,7 +135,16 @@ export default async function ExecFinancePage({ searchParams }: PageProps) {
           </Button>
         </header>
 
-        <FinanceSnapshot snapshot={snapshot} />
+        <FinanceSnapshot
+          snapshot={snapshot}
+          detail={{
+            orderBook: orderBookDetail.rows,
+            pipeline: pipelineDetail.rows,
+            outstanding: outstandingDetail.rows,
+            received: receivedDetail,
+          }}
+          fullListHref="/finance"
+        />
 
         <FinanceMethodologyNote />
 

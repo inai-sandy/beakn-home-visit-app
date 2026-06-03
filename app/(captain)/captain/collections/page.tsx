@@ -9,6 +9,7 @@ import { loadCaptainCities } from '@/lib/captain/cities';
 import {
   loadFinanceAgingBuckets,
   loadFinanceOrderList,
+  loadFinanceReceivedDetail,
   loadFinanceSnapshot,
   loadFinanceTeamRoster,
   parseFinanceListSort,
@@ -83,33 +84,59 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
   const page = parsePage(sp.page);
   const sort = parseFinanceListSort(sp.sort);
 
-  const [snapshot, buckets, list, team, captainCities] = await Promise.all([
-    loadFinanceSnapshot({
-      captainUserId: user.id,
-      isSuperAdmin: isAdmin,
-      execFilter,
-      cityFilter,
-      search,
-    }),
-    loadFinanceAgingBuckets({
-      captainUserId: user.id,
-      isSuperAdmin: isAdmin,
-      execFilter,
-      cityFilter,
-      search,
-    }),
+  const sharedScope = {
+    captainUserId: user.id,
+    isSuperAdmin: isAdmin,
+    execFilter,
+    cityFilter,
+  };
+  const [
+    snapshot,
+    buckets,
+    list,
+    team,
+    captainCities,
+    // Sandeep 2026-06-03: per-tile drilldown rows for the four hero
+    // tiles. Cap at 100 each — the sheet is a quick-look summary; the
+    // page's main filtered list below is the canonical "full list".
+    orderBookDetail,
+    pipelineDetail,
+    outstandingDetail,
+    receivedDetail,
+  ] = await Promise.all([
+    loadFinanceSnapshot({ ...sharedScope, search }),
+    loadFinanceAgingBuckets({ ...sharedScope, search }),
     loadFinanceOrderList({
-      captainUserId: user.id,
-      isSuperAdmin: isAdmin,
+      ...sharedScope,
       section,
-      execFilter,
-      cityFilter,
       search,
       page,
       sort,
     }),
     loadFinanceTeamRoster(user.id, isAdmin),
     isAdmin ? Promise.resolve([]) : loadCaptainCities(user.id),
+    loadFinanceOrderList({
+      ...sharedScope,
+      section: 'order_book',
+      page: 1,
+      pageSize: 100,
+      sort: 'outstanding_desc',
+    }),
+    loadFinanceOrderList({
+      ...sharedScope,
+      section: 'pipeline',
+      page: 1,
+      pageSize: 100,
+      sort: 'date_asc',
+    }),
+    loadFinanceOrderList({
+      ...sharedScope,
+      section: 'all',
+      page: 1,
+      pageSize: 100,
+      sort: 'outstanding_desc',
+    }),
+    loadFinanceReceivedDetail({ ...sharedScope, limit: 100 }),
   ]);
 
   // Defence-in-depth: drop URL-supplied filter values that aren't in
@@ -142,7 +169,16 @@ export default async function CaptainCollectionsPage({ searchParams }: PageProps
           </Button>
         </header>
 
-        <FinanceSnapshot snapshot={snapshot} />
+        <FinanceSnapshot
+          snapshot={snapshot}
+          detail={{
+            orderBook: orderBookDetail.rows,
+            pipeline: pipelineDetail.rows,
+            outstanding: outstandingDetail.rows,
+            received: receivedDetail,
+          }}
+          fullListHref="/captain/collections"
+        />
 
         <FinanceMethodologyNote />
 

@@ -1,32 +1,14 @@
-'use client';
+import Link from 'next/link';
 
 import { Icon } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 
-import type {
-  FinanceOrderRow,
-  FinancePaymentRow,
-  FinanceSnapshot as FinanceSnapshotData,
-} from '@/lib/captain/finance-queries';
-
-import {
-  FinanceTileSheet,
-  useFinanceTileSheetState,
-  type FinanceTileKey,
-} from './FinanceTileSheet';
+import type { FinanceSnapshot as FinanceSnapshotData } from '@/lib/captain/finance-queries';
 
 // =============================================================================
 // PR12 2026-05-26: Finance snapshot — 4 hero tiles
-// =============================================================================
-//
-// 2x2 grid on mobile, 1x4 row on desktop. Each tile carries:
-//   - eyebrow label
-//   - large rupee figure (₹XX,XX,XXX, IST locale)
-//   - one-line subline
-//   - icon + colour to telegraph intent
-//
-// Outstanding can render negative ("credit owed") — the formatter
-// handles the sign and the tile flips to an amber tone.
+// 2026-06-03 Sandeep: tiles are now Links → /collections/<tile-slug>
+// dedicated detail pages with full tables.
 // =============================================================================
 
 function formatRupees(paise: number): string {
@@ -40,17 +22,17 @@ function formatRupees(paise: number): string {
   }).format(abs)}`;
 }
 
+type Tone = 'primary' | 'sky' | 'emerald' | 'amber' | 'rose';
+
 interface TileProps {
   label: string;
   amountPaise: number;
   subline: string;
   icon: string;
-  /** Tailwind colour family for the tile accent. */
-  tone: 'primary' | 'sky' | 'emerald' | 'amber' | 'rose';
-  /** Optional override — Outstanding flips this on negative values. */
+  tone: Tone;
+  href: string;
+  /** Outstanding flips tone to amber on negative values (credit owed). */
   negativeIsAmber?: boolean;
-  /** Sandeep 2026-06-03: tile click opens a drilldown sheet. */
-  onClick: () => void;
 }
 
 function Tile({
@@ -59,10 +41,10 @@ function Tile({
   subline,
   icon,
   tone,
+  href,
   negativeIsAmber,
-  onClick,
 }: TileProps) {
-  const effectiveTone =
+  const effectiveTone: Tone =
     negativeIsAmber && amountPaise < 0 ? 'amber' : tone;
   const toneCls = {
     primary: 'border-primary/30 bg-primary/5',
@@ -80,12 +62,11 @@ function Tile({
   }[effectiveTone];
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      href={href}
       className={cn(
-        'rounded-3xl border p-4 sm:p-5 shadow-sm space-y-1.5 text-left',
-        'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'rounded-3xl border p-4 sm:p-5 shadow-sm space-y-1.5',
+        'transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         toneCls,
       )}
       aria-label={`Open ${label} detail`}
@@ -107,35 +88,21 @@ function Tile({
           className="text-muted-foreground/60"
         />
       </p>
-    </button>
+    </Link>
   );
 }
 
 interface Props {
   snapshot: FinanceSnapshotData;
-  /** Detail rows fetched server-side for the drilldown sheets. */
-  detail: {
-    orderBook: FinanceOrderRow[];
-    pipeline: FinanceOrderRow[];
-    outstanding: FinanceOrderRow[];
-    received: FinancePaymentRow[];
-  };
-  /** Where the "See full list" footer link sends users — the main
-   *  filtered Finance list on the current page. */
-  fullListHref: string;
-  /** Override the per-request link target. Defaults to `/requests/[id]`. */
-  requestHref?: (requestId: string) => string;
+  /** Where each tile links. The base is the Finance page itself
+   *  (e.g. `/captain/collections`) — this component appends
+   *  `/<tile-slug>` for the destination. */
+  basePath: string;
 }
 
-export function FinanceSnapshot({
-  snapshot,
-  detail,
-  fullListHref,
-  requestHref,
-}: Props) {
+export function FinanceSnapshot({ snapshot, basePath }: Props) {
   const { orderBook, pipeline, receivedPaise, totalQuotedPaise, outstandingPaise } =
     snapshot;
-  const sheet = useFinanceTileSheetState();
 
   const collectionPct =
     totalQuotedPaise > 0
@@ -144,83 +111,53 @@ export function FinanceSnapshot({
   const totalQuoteCount = orderBook.count + pipeline.count;
 
   return (
-    <>
-      <section
-        aria-label="Money snapshot"
-        className="grid grid-cols-2 lg:grid-cols-4 gap-3"
-      >
-        <Tile
-          label="Order Book"
-          amountPaise={orderBook.totalPaise}
-          subline={`${orderBook.count} confirmed order${orderBook.count === 1 ? '' : 's'}`}
-          icon="receipt_long"
-          tone="primary"
-          onClick={() => sheet.open('order_book')}
-        />
-        <Tile
-          label="Quotation Pipeline"
-          amountPaise={pipeline.totalPaise}
-          subline={`${pipeline.count} quote${pipeline.count === 1 ? '' : 's'} awaiting confirm`}
-          icon="description"
-          tone="sky"
-          onClick={() => sheet.open('pipeline')}
-        />
-        <Tile
-          label="Received"
-          amountPaise={receivedPaise}
-          subline={
-            totalQuotedPaise > 0
-              ? `${collectionPct}% of total quoted collected`
-              : 'No quotations yet'
-          }
-          icon="account_balance_wallet"
-          tone="emerald"
-          onClick={() => sheet.open('received')}
-        />
-        <Tile
-          label="Outstanding"
-          amountPaise={outstandingPaise}
-          subline={
-            outstandingPaise < 0
-              ? 'Credit owed to customer'
-              : outstandingPaise === 0
-                ? 'Fully collected'
-                : `Across ${totalQuoteCount} quote${totalQuoteCount === 1 ? '' : 's'}`
-          }
-          icon={outstandingPaise < 0 ? 'sync_alt' : 'hourglass_top'}
-          tone="rose"
-          negativeIsAmber
-          onClick={() => sheet.open('outstanding')}
-        />
-      </section>
-
-      {(['order_book', 'pipeline', 'outstanding'] as const).map((key) => (
-        <FinanceTileSheet
-          key={key}
-          tile={key}
-          rows={detail[
-            key === 'order_book'
-              ? 'orderBook'
-              : key === 'pipeline'
-                ? 'pipeline'
-                : 'outstanding'
-          ]}
-          open={sheet.isOpen(key)}
-          onOpenChange={(next) => (next ? sheet.open(key) : sheet.close())}
-          requestHref={requestHref}
-          fullListHref={fullListHref}
-        />
-      ))}
-      <FinanceTileSheet
-        tile="received"
-        rows={detail.received}
-        open={sheet.isOpen('received')}
-        onOpenChange={(next) =>
-          next ? sheet.open('received') : sheet.close()
-        }
-        requestHref={requestHref}
-        fullListHref={fullListHref}
+    <section
+      aria-label="Money snapshot"
+      className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+    >
+      <Tile
+        label="Order Book"
+        amountPaise={orderBook.totalPaise}
+        subline={`${orderBook.count} confirmed order${orderBook.count === 1 ? '' : 's'}`}
+        icon="receipt_long"
+        tone="primary"
+        href={`${basePath}/order-book`}
       />
-    </>
+      <Tile
+        label="Quotation Pipeline"
+        amountPaise={pipeline.totalPaise}
+        subline={`${pipeline.count} quote${pipeline.count === 1 ? '' : 's'} awaiting confirm`}
+        icon="description"
+        tone="sky"
+        href={`${basePath}/pipeline`}
+      />
+      <Tile
+        label="Received"
+        amountPaise={receivedPaise}
+        subline={
+          totalQuotedPaise > 0
+            ? `${collectionPct}% of total quoted collected`
+            : 'No quotations yet'
+        }
+        icon="account_balance_wallet"
+        tone="emerald"
+        href={`${basePath}/received`}
+      />
+      <Tile
+        label="Outstanding"
+        amountPaise={outstandingPaise}
+        subline={
+          outstandingPaise < 0
+            ? 'Credit owed to customer'
+            : outstandingPaise === 0
+              ? 'Fully collected'
+              : `Across ${totalQuoteCount} quote${totalQuoteCount === 1 ? '' : 's'}`
+        }
+        icon={outstandingPaise < 0 ? 'sync_alt' : 'hourglass_top'}
+        tone="rose"
+        href={`${basePath}/outstanding`}
+        negativeIsAmber
+      />
+    </section>
   );
 }

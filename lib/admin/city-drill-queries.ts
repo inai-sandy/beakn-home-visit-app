@@ -66,14 +66,16 @@ export async function loadCityHeader(
 
   if (!row) return null;
 
+  // BUG 8 (2026-06-03): count execs whose city_id = THIS city. Was
+  // previously counting all execs of the captain — over-counted when
+  // the captain owned multiple cities (each city showed the same
+  // total team size).
   let execCount = 0;
-  if (row.captainUserId) {
-    const [c] = await db
-      .select({ cnt: sql<number>`COUNT(*)::int` })
-      .from(salesExecutives)
-      .where(eq(salesExecutives.captainUserId, row.captainUserId));
-    execCount = c?.cnt ?? 0;
-  }
+  const [c] = await db
+    .select({ cnt: sql<number>`COUNT(*)::int` })
+    .from(salesExecutives)
+    .where(eq(salesExecutives.cityId, cityId));
+  execCount = c?.cnt ?? 0;
 
   return {
     cityId: row.cityId,
@@ -99,23 +101,14 @@ export interface CityExecRow {
   tasksToday: number;
 }
 
-/** Sales execs for the city's captain. The schema models execs against
- *  captain_user_id (NOT city), so we follow the join: city → captain →
- *  sales_executives. Returns active first, then inactive, both
- *  alphabetised. */
+/** Sales execs assigned to this city (BUG 8 2026-06-03 — was previously
+ *  the captain's full team across all their cities; now narrowed via
+ *  sales_executives.city_id = this city). Returns active first, then
+ *  inactive, both alphabetised. */
 export async function loadCityExecs(
   cityId: string,
   istToday: string,
 ): Promise<CityExecRow[]> {
-  // Captain for this city.
-  const [cityRow] = await db
-    .select({ captainUserId: cities.captainUserId })
-    .from(cities)
-    .where(eq(cities.id, cityId))
-    .limit(1);
-
-  if (!cityRow?.captainUserId) return [];
-
   const rows = await db
     .select({
       userId: users.id,
@@ -130,7 +123,7 @@ export async function loadCityExecs(
     })
     .from(salesExecutives)
     .innerJoin(users, eq(users.id, salesExecutives.userId))
-    .where(eq(salesExecutives.captainUserId, cityRow.captainUserId))
+    .where(eq(salesExecutives.cityId, cityId))
     .orderBy(desc(users.isActive), asc(users.fullName));
 
   return rows.map((r) => ({
@@ -254,9 +247,10 @@ export async function loadCityMetricsForWindow(
     quotationsRow,
     newReqRow,
   ] = await Promise.all([
-    // Visits = completed visit-type tasks in window, for execs whose
-    // captain owns this city. Tasks don't carry city_id directly; the
-    // captain-to-city link is the bridge.
+    // Visits = completed visit-type tasks in window, for execs
+    // assigned to this city (BUG 8: direct sales_executives.city_id
+    // join; was previously executive→captain→cities, which
+    // over-counted when a captain owned multiple cities).
     db
       .select({ cnt: sql<number>`COUNT(*)::int` })
       .from(tasks)
@@ -264,13 +258,9 @@ export async function loadCityMetricsForWindow(
         salesExecutives,
         eq(salesExecutives.userId, tasks.execUserId),
       )
-      .innerJoin(
-        cities,
-        eq(cities.captainUserId, salesExecutives.captainUserId),
-      )
       .where(
         and(
-          eq(cities.id, cityId),
+          eq(salesExecutives.cityId, cityId),
           inArray(
             tasks.taskType,
             VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],

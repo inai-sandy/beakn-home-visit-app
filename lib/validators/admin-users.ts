@@ -73,13 +73,16 @@ export const captainEditSchema = z.object({
 });
 export type CaptainEditInput = z.infer<typeof captainEditSchema>;
 
-// EXECUTIVE: city derives from captain (schema has no city column on
-// sales_executives). Body collects captainUserId only.
+// EXECUTIVE: Bug 8 (2026-06-03) — each exec belongs to ONE city.
+// Schema now carries sales_executives.city_id; the form requires it.
+// API will additionally validate that cityId is one of the chosen
+// captain's owned cities.
 export const executiveCreateSchema = z.object({
   fullName: fullNameField,
   phone: phoneField,
   email: emailField,
   captainUserId: uuidField,
+  cityId: z.string().uuid('Select a city for this executive'),
 });
 export type ExecutiveCreateInput = z.infer<typeof executiveCreateSchema>;
 
@@ -88,5 +91,6 @@ export const executiveEditSchema = z.object({
   phone: phoneField,
   email: emailField,
   captainUserId: uuidField,
+  cityId: z.string().uuid('Select a city for this executive'),
 });
 export type ExecutiveEditInput = z.infer<typeof executiveEditSchema>;

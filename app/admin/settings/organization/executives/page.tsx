@@ -38,6 +38,8 @@ export default async function ExecutivesAdminPage() {
       isActive: users.isActive,
       captainUserId: salesExecutives.captainUserId,
       captainFullName: captainAlias.fullName,
+      // BUG 8 2026-06-03: each exec belongs to ONE city now.
+      cityId: salesExecutives.cityId,
     })
     .from(users)
     .innerJoin(salesExecutives, eq(salesExecutives.userId, users.id))
@@ -45,7 +47,9 @@ export default async function ExecutivesAdminPage() {
     .where(eq(users.role, "sales_executive"))
     .orderBy(asc(users.fullName));
 
-  // Captain → cities derivation (for display "exec serves these cities").
+  // All cities — used for: (a) showing the exec's assigned city name in
+  // the list, (b) populating the Add/Edit dialog's City dropdown
+  // (filtered to the chosen captain's cities at form-render time).
   const cityRows = await db
     .select({
       id: cities.id,
@@ -55,6 +59,8 @@ export default async function ExecutivesAdminPage() {
     .from(cities)
     .orderBy(asc(cities.name));
 
+  const cityById = new Map(cityRows.map((c) => [c.id, c.name]));
+
   const execsWithCities = execRows.map((e) => ({
     id: e.id,
     fullName: e.fullName,
@@ -63,9 +69,16 @@ export default async function ExecutivesAdminPage() {
     isActive: e.isActive,
     captainUserId: e.captainUserId,
     captainName: e.captainFullName,
-    cities: cityRows
-      .filter((c) => c.captainUserId === e.captainUserId)
-      .map((c) => c.name),
+    cityId: e.cityId,
+    cityName: e.cityId ? cityById.get(e.cityId) ?? null : null,
+    // Multi-city captain back-compat: show only the single assigned city
+    // when present; fall through to all-captain-cities for legacy rows
+    // where cityId is NULL (admin will reassign via Edit).
+    cities: e.cityId
+      ? [cityById.get(e.cityId) ?? '(unknown city)']
+      : cityRows
+          .filter((c) => c.captainUserId === e.captainUserId)
+          .map((c) => c.name),
   }));
 
   // Active captains for the Add/Edit dropdown.
@@ -94,6 +107,11 @@ export default async function ExecutivesAdminPage() {
         <ExecutivesClient
           executives={execsWithCities}
           activeCaptains={activeCaptains}
+          allCities={cityRows.map((c) => ({
+            id: c.id,
+            name: c.name,
+            captainUserId: c.captainUserId,
+          }))}
         />
       </div>
     </main>

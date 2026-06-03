@@ -1,11 +1,11 @@
 import { hashPassword } from 'better-auth/crypto';
-import { eq, or } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { db } from '@/db/client';
-import { accounts, salesExecutives, users } from '@/db/schema';
+import { accounts, cities, salesExecutives, users } from '@/db/schema';
 import { requireSuperAdmin } from '@/lib/admin/auth-helper';
 import { generateTempPassword } from '@/lib/admin/temp-password';
 import { logEvent } from '@/lib/audit';
@@ -52,7 +52,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       { status: 400 },
     );
   }
-  const { fullName, phone, email, captainUserId } = parsed.data;
+  const { fullName, phone, email, captainUserId, cityId } = parsed.data;
   const phoneStorage = `+91${phone}`;
 
   // Uniqueness. Email optional.
@@ -98,6 +98,25 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
+  // BUG 8: cityId must be one of the chosen captain's owned cities —
+  // belt + braces over the form-layer constraint so an API-direct
+  // caller can't assign an exec to a city the captain doesn't own.
+  const [cityRow] = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(and(eq(cities.id, cityId), eq(cities.captainUserId, captainUserId)))
+    .limit(1);
+  if (!cityRow) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'City does not belong to that captain.',
+        fieldErrors: { cityId: 'Pick a city assigned to the chosen captain' },
+      },
+      { status: 400 },
+    );
+  }
+
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
@@ -125,6 +144,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       await tx.insert(salesExecutives).values({
         userId: u.id,
         captainUserId,
+        cityId,
       });
       return u.id;
     });

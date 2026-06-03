@@ -129,6 +129,10 @@ export async function loadAllExecTargetProgress(
       execUserId: users.id,
       fullName: users.fullName,
       captainUserId: salesExecutives.captainUserId,
+      // BUG 8 (2026-06-03): exec belongs to ONE city. Pull the city
+      // assignment directly here so the assembled row's `cityNames`
+      // shows that single city, not the captain's full city list.
+      cityId: salesExecutives.cityId,
     })
     .from(salesExecutives)
     .innerJoin(users, eq(users.id, salesExecutives.userId))
@@ -212,23 +216,21 @@ export async function loadAllExecTargetProgress(
     if (r.execUserId) revByExec.set(r.execUserId, r.totalPaise ?? 0);
   }
 
-  // Step 4: per-exec cities — via the captain's owned cities. Aggregated
-  // separately to avoid a row-multiplying join.
-  const captainIds = Array.from(
-    new Set(execs.map((e) => e.captainUserId).filter((x): x is string => !!x)),
+  // Step 4: per-exec city name lookup. BUG 8 (2026-06-03): each exec
+  // is in exactly ONE city, looked up via sales_executives.city_id.
+  // Was previously the captain's full city list, which over-stated
+  // each exec's coverage on the leaderboard.
+  const cityIds = Array.from(
+    new Set(execs.map((e) => e.cityId).filter((x): x is string => !!x)),
   );
-  const citiesByCaptain = new Map<string, string[]>();
-  if (captainIds.length > 0) {
+  const cityNameById = new Map<string, string>();
+  if (cityIds.length > 0) {
     const cityRows = await db
-      .select({ captainUserId: cities.captainUserId, name: cities.name })
+      .select({ id: cities.id, name: cities.name })
       .from(cities)
-      .where(inArray(cities.captainUserId, captainIds))
-      .orderBy(asc(cities.name));
+      .where(inArray(cities.id, cityIds));
     for (const row of cityRows) {
-      if (!row.captainUserId) continue;
-      const arr = citiesByCaptain.get(row.captainUserId) ?? [];
-      arr.push(row.name);
-      citiesByCaptain.set(row.captainUserId, arr);
+      cityNameById.set(row.id, row.name);
     }
   }
 
@@ -242,9 +244,13 @@ export async function loadAllExecTargetProgress(
     return {
       execUserId: e.execUserId,
       fullName: e.fullName ?? '(unnamed)',
-      cityNames: e.captainUserId
-        ? citiesByCaptain.get(e.captainUserId) ?? []
-        : [],
+      // BUG 8: single city per exec; empty array when cityId is NULL
+      // (legacy rows where the multi-city captain backfill couldn't
+      // decide a default).
+      cityNames:
+        e.cityId && cityNameById.has(e.cityId)
+          ? [cityNameById.get(e.cityId)!]
+          : [],
       targetPaise,
       ordersPaise,
       revenuePaise,

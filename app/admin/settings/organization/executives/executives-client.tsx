@@ -43,12 +43,24 @@ interface ExecRow {
   isActive: boolean;
   captainUserId: string;
   captainName: string;
+  // BUG 8 (2026-06-03): each exec belongs to ONE city. NULL only on
+  // legacy rows whose captain owned multiple cities at backfill time —
+  // the admin should re-edit those.
+  cityId: string | null;
+  cityName: string | null;
   cities: string[];
+}
+
+interface CityLite {
+  id: string;
+  name: string;
+  captainUserId: string | null;
 }
 
 interface Props {
   executives: ExecRow[];
   activeCaptains: CaptainLite[];
+  allCities: CityLite[];
 }
 
 type ModalMode =
@@ -59,7 +71,11 @@ type ModalMode =
   | { kind: "reset"; exec: ExecRow }
   | { kind: "tempPassword"; fullName: string; tempPassword: string };
 
-export function ExecutivesClient({ executives, activeCaptains }: Props) {
+export function ExecutivesClient({
+  executives,
+  activeCaptains,
+  allCities,
+}: Props) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalMode>({ kind: "closed" });
   const [filterCaptainId, setFilterCaptainId] = useState<string>("__all__");
@@ -158,6 +174,7 @@ export function ExecutivesClient({ executives, activeCaptains }: Props) {
         <ExecFormModal
           mode={modal.kind === "edit" ? { kind: "edit", exec: modal.exec } : { kind: "add" }}
           activeCaptains={activeCaptains}
+          allCities={allCities}
           onClose={() => setModal({ kind: "closed" })}
           onSuccess={(result) => {
             router.refresh();
@@ -210,11 +227,13 @@ export function ExecutivesClient({ executives, activeCaptains }: Props) {
 function ExecFormModal({
   mode,
   activeCaptains,
+  allCities,
   onClose,
   onSuccess,
 }: {
   mode: { kind: "add" } | { kind: "edit"; exec: ExecRow };
   activeCaptains: CaptainLite[];
+  allCities: CityLite[];
   onClose: () => void;
   onSuccess: (result: { fullName: string; tempPassword?: string }) => void;
 }) {
@@ -229,9 +248,17 @@ function ExecFormModal({
   const [captainUserId, setCaptainUserId] = useState(
     initial?.captainUserId ?? "",
   );
+  const [cityId, setCityId] = useState<string>(initial?.cityId ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  // BUG 8 (2026-06-03): city dropdown is filtered to the chosen
+  // captain's owned cities. When the captain changes, reset cityId so
+  // an old (now-invalid-for-this-captain) selection can't slip through.
+  const captainCities = allCities.filter(
+    (c) => captainUserId !== "" && c.captainUserId === captainUserId,
+  );
 
   async function onSubmit() {
     setSubmitting(true);
@@ -245,7 +272,7 @@ function ExecFormModal({
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, phone, email, captainUserId }),
+        body: JSON.stringify({ fullName, phone, email, captainUserId, cityId }),
       });
       const j = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -338,7 +365,12 @@ function ExecFormModal({
             <Label htmlFor="exec-captain">Assigned Captain</Label>
             <Select
               value={captainUserId || undefined}
-              onValueChange={setCaptainUserId}
+              onValueChange={(v) => {
+                setCaptainUserId(v);
+                // Reset city when captain changes — old selection may
+                // not belong to the new captain.
+                setCityId("");
+              }}
               disabled={submitting || activeCaptains.length === 0}
             >
               <SelectTrigger id="exec-captain" className="h-12 w-full rounded-input">
@@ -363,6 +395,45 @@ function ExecFormModal({
             )}
           </div>
 
+          {/* BUG 8 (2026-06-03): exec belongs to ONE city. Filtered to
+              the chosen captain's cities. Required field. */}
+          <div className="space-y-2">
+            <Label htmlFor="exec-city">City</Label>
+            <Select
+              value={cityId || undefined}
+              onValueChange={setCityId}
+              disabled={
+                submitting || captainUserId === "" || captainCities.length === 0
+              }
+            >
+              <SelectTrigger id="exec-city" className="h-12 w-full rounded-input">
+                <SelectValue
+                  placeholder={
+                    captainUserId === ""
+                      ? "Pick a captain first"
+                      : captainCities.length === 0
+                        ? "This captain has no cities yet"
+                        : "Select a city"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {captainCities.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {fieldErrors.cityId && (
+              <p className="text-xs text-destructive">{fieldErrors.cityId}</p>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Sales executives belong to exactly one city. Visible only in
+              that city&apos;s admin metrics.
+            </p>
+          </div>
+
           {generalError && (
             <div
               role="alert"
@@ -377,7 +448,10 @@ function ExecFormModal({
           <Button variant="outline" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
-          <Button onClick={onSubmit} disabled={submitting || !captainUserId}>
+          <Button
+            onClick={onSubmit}
+            disabled={submitting || !captainUserId || !cityId}
+          >
             {submitting ? (
               <>
                 <Icon name="progress_activity" size="sm" className="animate-spin" />

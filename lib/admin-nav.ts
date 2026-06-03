@@ -191,9 +191,9 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'Reports',
     items: [
-      { label: 'Daily', icon: 'today', placeholder: true },
-      { label: 'Weekly', icon: 'date_range', placeholder: true },
-      { label: 'Performance trends', icon: 'analytics', placeholder: true },
+      // Sandeep 2026-06-03: 44-report library, Sprint 1 ships sales.
+      { label: 'Reports library', icon: 'analytics', href: '/admin/reports' },
+      { label: 'Graphs view', icon: 'bar_chart', href: '/admin/reports/graphs' },
     ],
   },
 ];

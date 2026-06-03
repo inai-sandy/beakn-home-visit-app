@@ -529,10 +529,17 @@ export async function loadExecBestOfPeriod(args: {
   //    (the dedup key, per locked decision) so different requests for the
   //    same customer roll up together.
   const customerRows = await db
+    // Sandeep 2026-06-03: "Top customer" by net cash paid this window
+    // — outbound refunds reduce the credited amount so a refunded
+    // customer doesn't dominate the leaderboard tile.
     .select({
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
-      totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise}), 0)::bigint`,
+      totalPaise: sql<number>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      ), 0)::bigint`,
       paymentCount: sql<number>`COUNT(*)::int`,
     })
     .from(payments)
@@ -540,14 +547,19 @@ export async function loadExecBestOfPeriod(args: {
     .where(
       and(
         eq(visitRequests.assignedExecUserId, execUserId),
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
         gte(payments.paymentDate, from),
         lte(payments.paymentDate, to),
       ),
     )
     .groupBy(visitRequests.customerPhone, visitRequests.customerName)
-    .orderBy(desc(sql`SUM(${payments.amountPaise})`))
+    .orderBy(
+      desc(sql`SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      )`),
+    )
     .limit(1);
 
   const topCustomer: TopCustomerResult | null =

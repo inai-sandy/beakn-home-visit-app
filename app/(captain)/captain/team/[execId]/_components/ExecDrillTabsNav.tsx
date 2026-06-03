@@ -38,9 +38,17 @@ interface Props {
   /** Pass through any other query params (date filter, etc.) so the user
    *  doesn't lose them when switching tabs. */
   preservedQuery: Record<string, string>;
+  /** Where the tab Links point. Defaults to /captain/team; admin
+   *  captain-portal passes /admin/portal/<captainId>/team. */
+  basePath?: string;
 }
 
-export function ExecDrillTabsNav({ execId, activeTab, preservedQuery }: Props) {
+export function ExecDrillTabsNav({
+  execId,
+  activeTab,
+  preservedQuery,
+  basePath = '/captain/team',
+}: Props) {
   return (
     <nav aria-label="Drill-down sections" className="border-b bg-card">
       {/* Full-width border-b keeps the visual line edge-to-edge, but the
@@ -55,7 +63,7 @@ export function ExecDrillTabsNav({ execId, activeTab, preservedQuery }: Props) {
             return (
               <li key={tab.value}>
                 <Link
-                  href={`/captain/team/${execId}?${sp.toString()}`}
+                  href={`${basePath}/${execId}?${sp.toString()}`}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
                     'inline-flex items-center gap-2 px-3 py-3 text-sm whitespace-nowrap border-b-2 transition-colors',

@@ -103,11 +103,15 @@ export async function loadFinancialMetricsForDate(args: {
 }): Promise<DayCloseMetrics> {
   const { execUserId, istDateStr } = args;
 
-  // Revenue
+  // Revenue (Sandeep 2026-06-03: net cash = inbound − outbound).
   const [paymentAgg] = await db
     .select({
-      total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
-      cnt: sqlBuilder<number>`COUNT(*)::int`,
+      total: sqlBuilder<string | null>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      ), 0)::text`,
+      cnt: sqlBuilder<number>`COUNT(*) FILTER (WHERE ${payments.direction} = 'inbound')::int`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
@@ -116,7 +120,6 @@ export async function loadFinancialMetricsForDate(args: {
         eq(visitRequests.assignedExecUserId, execUserId),
         isNull(visitRequests.cancelledAt),
         eq(payments.paymentDate, istDateStr),
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
       ),
     );
@@ -277,10 +280,16 @@ export async function loadDayCloseMetrics(args: {
   // behalf of the exec, it should still land in the exec's hero metric.
   // The visit-request join + assignedExecUserId predicate makes the
   // attribution match real-world ownership.
+  // Sandeep 2026-06-03: net cash = inbound − outbound. Refunds reduce
+  // the hero revenue tile.
   const [paymentAgg] = await db
     .select({
-      total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
-      cnt: sqlBuilder<number>`COUNT(*)::int`,
+      total: sqlBuilder<string | null>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      ), 0)::text`,
+      cnt: sqlBuilder<number>`COUNT(*) FILTER (WHERE ${payments.direction} = 'inbound')::int`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
@@ -289,7 +298,6 @@ export async function loadDayCloseMetrics(args: {
         eq(visitRequests.assignedExecUserId, execUserId),
         isNull(visitRequests.cancelledAt),
         eq(payments.paymentDate, istDateStr),
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
       ),
     );

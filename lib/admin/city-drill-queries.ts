@@ -163,6 +163,10 @@ export async function loadCityOpenRequests(
       statusStageCode: statusStages.code,
       statusStageName: statusStages.name,
       assignedExecName: users.fullName,
+      // Sandeep 2026-06-03: outstanding subtracts NET paid (inbound −
+      // outbound). Previously only inbound was summed, so a refund
+      // returned to "phantom paid" status and the per-row outstanding
+      // under-counted.
       outstandingPaise: sql<number>`(
         COALESCE((
           SELECT MAX(total_order_value_paise)
@@ -171,10 +175,13 @@ export async function loadCityOpenRequests(
         ), 0)
         -
         COALESCE((
-          SELECT SUM(${payments.amountPaise})::int
+          SELECT SUM(
+            CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+                 WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+                 ELSE 0 END
+          )::int
           FROM ${payments}
           WHERE ${payments.visitRequestId} = ${visitRequests.id}
-            AND ${payments.direction} = 'inbound'
             AND ${payments.voidedAt} IS NULL
         ), 0)
       )::int`,

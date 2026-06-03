@@ -565,20 +565,24 @@ export interface ExecPendingCollectionRow {
   quotedAt: Date;
 }
 
-/** Outstanding = SUM(quotation.total_order_value_paise) - SUM(inbound payments).
- *  Listed only when outstanding > 0 and at least one quotation exists. */
+/** Outstanding = quotation_total − net_paid where net_paid = SUM(inbound) − SUM(outbound).
+ *  Sandeep 2026-06-03: refunds (outbound) now properly subtract from "paid" so
+ *  a fully-refunded request returns to its full quotation outstanding. Listed
+ *  only when outstanding > 0 and at least one quotation exists. */
 export async function loadExecPendingCollections(
   execUserId: string,
 ): Promise<ExecPendingCollectionRow[]> {
-  // Subquery: latest quotation per request (max submittedAt).
-  // Simpler aggregate: SUM payments inbound (not voided) per request.
   const rows = await db
     .select({
       requestId: visitRequests.id,
       customerName: visitRequests.customerName,
       cityName: cities.name,
       quotedPaise: sql<number>`COALESCE(SUM(DISTINCT ${quotations.totalOrderValuePaise}), 0)::bigint`,
-      paidPaise: sql<number>`COALESCE(SUM(CASE WHEN ${payments.direction} = 'inbound' AND ${payments.voidedAt} IS NULL THEN ${payments.amountPaise} ELSE 0 END), 0)::bigint`,
+      paidPaise: sql<number>`COALESCE(SUM(
+        CASE WHEN ${payments.voidedAt} IS NULL AND ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.voidedAt} IS NULL AND ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      ), 0)::bigint`,
       quotedAt: sql<Date>`MAX(${quotations.submittedAt})`,
     })
     .from(visitRequests)

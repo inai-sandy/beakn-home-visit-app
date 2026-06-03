@@ -57,7 +57,16 @@ function viewLabel(filter: DateFilter): string {
   return `${formatDate(filter.from)} – ${formatDate(filter.to)}`;
 }
 
-export function DashboardHeader({ filter }: { filter: DateFilter }) {
+export function DashboardHeader({
+  filter,
+  pathname = '/captain/dashboard',
+}: {
+  filter: DateFilter;
+  /** Where the date picker URL state should write to. Defaults to
+   *  the captain dashboard; admin captain-portal view passes
+   *  `/admin/portal/[captainId]/dashboard`. */
+  pathname?: string;
+}) {
   const label = viewLabel(filter);
   return (
     <header className="flex items-start justify-between gap-3 flex-wrap">
@@ -75,7 +84,7 @@ export function DashboardHeader({ filter }: { filter: DateFilter }) {
           <Icon name="calendar_today" size="xs" className="mr-1.5" />
           {label}
         </span>
-        <DateRangePicker filter={filter} pathname="/captain/dashboard" />
+        <DateRangePicker filter={filter} pathname={pathname} />
       </div>
     </header>
   );

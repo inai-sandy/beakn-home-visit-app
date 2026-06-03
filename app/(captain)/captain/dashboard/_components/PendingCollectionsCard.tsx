@@ -63,11 +63,16 @@ function BucketRow({
 export function PendingCollectionsCard({
   summary,
   filter,
+  basePath = '/captain',
 }: {
   summary: PendingCollectionsSummary;
   filter: DateFilter;
+  /** Route prefix for "View details". Defaults to `/captain`; admin
+   *  captain-portal view passes `/admin/portal/[captainId]`. */
+  basePath?: string;
 }) {
   void filter; // accepted for signature alignment; query layer handles mode
+  const collectionsHref = `${basePath}/collections`;
   return (
     <section
       aria-label="Pending collections"
@@ -102,7 +107,7 @@ export function PendingCollectionsCard({
           quotation was submitted >48h ago. */}
       {summary.staleCount > 0 && (
         <Link
-          href="/captain/collections"
+          href={collectionsHref}
           className="flex items-center gap-2 rounded-2xl border border-amber-400/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100/80 transition-colors"
         >
           <Icon name="warning" size="sm" className="shrink-0" aria-hidden />
@@ -138,7 +143,7 @@ export function PendingCollectionsCard({
 
       <div className="flex justify-end">
         <Link
-          href="/captain/collections"
+          href={collectionsHref}
           className="text-xs text-primary hover:underline inline-flex items-center gap-1"
         >
           View details

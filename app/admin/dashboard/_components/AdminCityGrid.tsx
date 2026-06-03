@@ -123,11 +123,19 @@ export function AdminCityGrid({ cards }: Props) {
 function CityCardItem({ card }: { card: CityCard }) {
   const health = classifyCity(card);
   const meta = HEALTH_META[health];
+  // Sandeep 2026-06-03 Ship 1: city tile opens the captain's portal
+  // for the city's owning captain (the captain dashboard scoped to
+  // their owned cities, in read-only mode inside the admin shell).
+  // If the city has no assigned captain we fall back to the legacy
+  // drill page so the tile is still useful (e.g. for setup).
+  const href = card.captain?.userId
+    ? `/admin/portal/${card.captain.userId}/dashboard`
+    : `/admin/operations/cities/${card.cityId}`;
 
   return (
     <li className="h-full">
       <Link
-        href={`/admin/operations/cities/${card.cityId}`}
+        href={href}
         // Open in a new tab so admin keeps the dashboard open while
         // drilling — Sandeep 2026-06-03. `rel="noopener noreferrer"`
         // prevents window.opener leakage to the new tab.

@@ -37,6 +37,8 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   { href: '/captain/collections', label: 'Finance', icon: 'payments' },
   // HVA-201: global leaderboard across all execs.
   { href: '/captain/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },
+  // Sandeep 2026-06-03: monthly target arena moved off dashboard.
+  { href: '/captain/targets', label: 'Team Targets', icon: 'flag' },
   { href: '/captain/reports', label: 'Reports', icon: 'monitoring' },
   { href: '/captain/resources', label: 'Resources', icon: 'folder' },
   { href: '/captain/announcements', label: 'Announcements', icon: 'campaign' },

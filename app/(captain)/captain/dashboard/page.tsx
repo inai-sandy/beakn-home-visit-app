@@ -9,14 +9,7 @@ import {
   loadTeamPerformance,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
-import {
-  getCurrentMonthWindow,
-  loadAllExecTargetProgress,
-  loadMonthlyTargetPaise,
-} from '@/lib/exec/target-progress';
 import { getIstDateString } from '@/lib/today/time';
-
-import { TeamTargetArena } from '@/components/targets/TeamTargetArena';
 
 import { DashboardHeader } from './_components/DashboardHeader';
 import { ExecStatusList } from './_components/ExecStatusList';
@@ -103,36 +96,21 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
   const raw = await searchParams;
   const filter = parseDateFilter(raw);
 
-  const monthWindow = getCurrentMonthWindow();
   const [
     performance,
     approvals,
     collections,
     execs,
-    monthlyTargetPaise,
   ] = await Promise.all([
     loadTeamPerformance(user.id, filter),
     loadPendingApprovals(user.id, filter),
     loadPendingCollections(user.id, filter),
     loadTeamExecStatuses(user.id, filter),
-    loadMonthlyTargetPaise(),
   ]);
-  // Second round-trip: needs targetPaise from above.
-  const teamTargetRows = await loadAllExecTargetProgress(
-    monthWindow,
-    monthlyTargetPaise,
-    { captainUserId: user.id },
-  );
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
       <DashboardHeader filter={filter} />
-
-      <TeamTargetArena
-        rows={teamTargetRows}
-        window={monthWindow}
-        title="Team targets"
-      />
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Left column — 2/5 of desktop width (= 40%) */}

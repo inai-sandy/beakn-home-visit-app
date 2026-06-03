@@ -1,11 +1,13 @@
 import Link from 'next/link';
 
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 import type {
   AdminCounts,
   AdminRevenueSnapshot,
 } from '@/lib/admin/dashboard-queries';
+import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
 
 import { formatRupees } from './format';
 
@@ -44,18 +46,21 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
               icon="payments"
               iconTone="text-emerald-600 bg-emerald-500/10"
               label="Received today"
+              explainer={METRIC_DEFINITIONS.revenue.explainer}
               value={formatRupees(revenue.receivedTodayPaise)}
             />
             <Row
               icon="hourglass_bottom"
               iconTone="text-amber-600 bg-amber-500/10"
               label="Outstanding"
+              explainer={METRIC_DEFINITIONS.outstanding.explainer}
               value={formatRupees(revenue.pendingOutstandingPaise)}
             />
             <Row
               icon="request_quote"
               iconTone="text-sky-600 bg-sky-500/10"
               label="Open quotation value"
+              explainer="Total face value of every quotation on a non-cancelled request — paid or not. Snapshot, ignores the date filter."
               value={formatRupees(revenue.openQuotationPaise)}
             />
           </ul>
@@ -69,18 +74,21 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
               icon="inbox"
               iconTone="text-sky-600 bg-sky-500/10"
               label="Open requests"
+              explainer="Non-cancelled visit requests that haven't yet been marked Order Executed Successfully. Snapshot — ignores the date filter."
               value={String(counts.openRequests)}
             />
             <Row
               icon="task_alt"
               iconTone="text-emerald-600 bg-emerald-500/10"
               label="Completed today"
+              explainer="Distinct requests that transitioned into Order Executed Successfully today (IST). This is the fulfillment milestone — separate from the SSOT Orders metric which counts Order Confirmed (the booking event)."
               value={String(counts.completedToday)}
             />
             <Row
               icon="cancel"
               iconTone="text-rose-600 bg-rose-500/10"
               label="Cancelled today"
+              explainer={METRIC_DEFINITIONS.cancelled_requests.explainer}
               value={String(counts.cancelledToday)}
             />
             <Row
@@ -94,6 +102,7 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
                   Pending captain approvals
                 </Link>
               }
+              explainer={METRIC_DEFINITIONS.pending_approvals.explainer}
               value={String(counts.pendingCaptainApprovals)}
               emphasise={counts.pendingCaptainApprovals > 0}
             />
@@ -108,12 +117,14 @@ function Row({
   icon,
   iconTone,
   label,
+  explainer,
   value,
   emphasise = false,
 }: {
   icon: string;
   iconTone: string;
   label: React.ReactNode;
+  explainer: string;
   value: string;
   emphasise?: boolean;
 }) {
@@ -126,7 +137,10 @@ function Row({
         >
           <Icon name={icon} size="xs" />
         </span>
-        <span className="text-muted-foreground truncate">{label}</span>
+        <span className="text-muted-foreground truncate inline-flex items-center gap-1">
+          {label}
+          <InfoTooltip iconOnly>{explainer}</InfoTooltip>
+        </span>
       </span>
       <span
         className={`font-semibold tabular-nums tracking-tight shrink-0 ${

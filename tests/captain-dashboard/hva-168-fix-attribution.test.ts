@@ -81,13 +81,19 @@ async function pinAtPendingApproval(input: {
   return req.id;
 }
 
-/** Flip a pending request to ORDER_EXECUTED_SUCCESSFULLY. */
+/** Flip a pending request to ORDER_CONFIRMED — the order-of-record
+ *  event for counting purposes. Real prod captain approval transitions
+ *  PENDING → ORDER_EXECUTED_SUCCESSFULLY directly, but those terminal-
+ *  positive requests have always had an earlier ORDER_CONFIRMED
+ *  transition (sequence 6) created by the exec when the order was
+ *  booked. The Metrics SSOT (2026-06-03) counts that booking event,
+ *  not the terminal-positive event. */
 async function approveAsCaptain(input: {
   requestId: string;
   captainUserId: string;
   changedAt: Date;
 }) {
-  const orderStage = await getStatusStage('ORDER_EXECUTED_SUCCESSFULLY');
+  const orderStage = await getStatusStage('ORDER_CONFIRMED');
   await db
     .update(visitRequests)
     .set({ statusStageId: orderStage.id })

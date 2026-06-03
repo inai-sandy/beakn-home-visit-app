@@ -14,6 +14,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getConfig } from '@/lib/config';
+import { loadMetrics } from '@/lib/metrics/registry';
 import {
   compareConversionPct,
   compareToTarget,
@@ -155,32 +156,50 @@ async function loadWindowAggregates(args: {
     };
   }
 
-  const [paymentAgg, taskAgg, quotationAgg, ordersAgg] = await Promise.all([
-    // 2026-05-27 fix: attribute payments to the request's ASSIGNED exec,
-    // not to whoever physically clicked Record Payment. Walk-bug: Arjun
-    // (captain) recorded ₹5,000 on Singham (Veera's request) and the
-    // team's Revenue tile showed ₹0 — because Arjun isn't on his own
-    // team. The visit-request join makes the attribution match reality.
-    db
-      .select({
-        total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
-      })
-      .from(payments)
-      .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
-      .where(
-        and(
-          inArray(visitRequests.assignedExecUserId, execIds as string[]),
-          isNull(visitRequests.cancelledAt),
-          gte(payments.paymentDate, from),
-          lte(payments.paymentDate, to),
-          eq(payments.direction, 'inbound'),
-          isNull(payments.voidedAt),
-        ),
-      ),
+  // Sandeep 2026-06-03 SSOT refactor:
+  //   - revenue / visits / quotations_count / orders_count now resolve
+  //     via the SSOT loaders. Same formula admin + exec use → numbers
+  //     agree across all three portals by construction. This includes
+  //     the corrected orders semantic (ORDER_CONFIRMED only, not the
+  //     legacy ORDER_CONFIRMED + ORDER_EXECUTED_SUCCESSFULLY union).
+  //   - Task-status counts (done / postponed / pending) stay bespoke.
+  //     They're a captain-only operational tile, not a cross-portal
+  //     metric, and the existing per-execIds aggregation already
+  //     matches the legacy semantic.
+  //
+  // The scope is "every request currently assigned to any exec in
+  // execIds". Two callers in practice:
+  //   - captain dashboard: execIds = captain's full team → use
+  //     captainUserId scope, which the SSOT resolves to exactly that
+  //     set via `sales_executives.captain_user_id`.
+  //   - exec dashboard self-view: execIds = [self] → use execUserId
+  //     scope directly.
+  // Anything else (synthetic multi-exec scopes) would need a sum-of-
+  // per-exec fan-out; none exist in the codebase today.
+  const range = { fromDate: from, toDate: to };
+  let scope: { execUserId?: string; captainUserId?: string };
+  if (execIds.length === 1) {
+    scope = { execUserId: execIds[0] };
+  } else {
+    const [captainRow] = await db
+      .select({ captainUserId: salesExecutives.captainUserId })
+      .from(salesExecutives)
+      .where(eq(salesExecutives.userId, execIds[0]))
+      .limit(1);
+    scope = captainRow?.captainUserId
+      ? { captainUserId: captainRow.captainUserId }
+      : {};
+  }
+
+  const [ssotMetrics, taskAgg] = await Promise.all([
+    loadMetrics(
+      ['revenue', 'visits', 'quotations_count', 'orders_count'],
+      scope,
+      range,
+    ),
     db
       .select({
         status: tasks.status,
-        taskType: tasks.taskType,
         count: sqlBuilder<number>`COUNT(*)::int`,
       })
       .from(tasks)
@@ -191,73 +210,23 @@ async function loadWindowAggregates(args: {
           lte(tasks.taskDate, to),
         ),
       )
-      .groupBy(tasks.status, tasks.taskType),
-    // 2026-05-27: attribute quotations to the request's assigned exec,
-    // not whoever clicked Submit. Captain-submitted quotations on
-    // behalf of an exec correctly count toward the team total now.
-    db
-      .select({ cnt: sqlBuilder<number>`COUNT(*)::int` })
-      .from(quotations)
-      .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
-      .where(
-        and(
-          inArray(visitRequests.assignedExecUserId, execIds as string[]),
-          isNull(visitRequests.cancelledAt),
-          // CALC INTEGRITY 2026-06-02: timestamptz cast must respect IST
-          // boundaries or after 18:30 UTC the date filter shifts and a
-          // quotation submitted just after IST midnight falls into the
-          // previous day's bucket. Same fix shipped on the leaderboard
-          // 2026-06-01 (queries.ts:199-200).
-          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${from}::date`,
-          sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${to}::date`,
-        ),
-      ),
-    db
-      .select({
-        cnt: sqlBuilder<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
-      })
-      .from(requestStatusHistory)
-      .innerJoin(statusStages, eq(statusStages.id, requestStatusHistory.toStatusStageId))
-      .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
-      .where(
-        and(
-          // HVA-168: attribute the order to the assigned exec, not to
-          // whoever fired the transition. Captain-approved orders
-          // (HVA-137 flow, where changed_by_user_id = captain) were
-          // previously excluded from the exec's tally.
-          inArray(visitRequests.assignedExecUserId, execIds as string[]),
-          inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
-          // CALC INTEGRITY 2026-06-02: same IST-cast fix as above; the
-          // leaderboard's twin fix lives at queries.ts:232-233.
-          sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${from}::date`,
-          sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${to}::date`,
-        ),
-      ),
+      .groupBy(tasks.status),
   ]);
 
-  const amountCollectedPaise = Number(paymentAgg[0]?.total ?? 0);
-  let visitsCompleted = 0;
   let taskDone = 0;
   let taskPostponed = 0;
   let taskPending = 0;
   for (const r of taskAgg) {
-    if (r.status === 'completed') {
-      taskDone += r.count;
-      if (VISIT_TASK_TYPES.includes(r.taskType as (typeof VISIT_TASK_TYPES)[number])) {
-        visitsCompleted += r.count;
-      }
-    } else if (r.status === 'postponed') {
-      taskPostponed += r.count;
-    } else if (r.status === 'pending') {
-      taskPending += r.count;
-    }
+    if (r.status === 'completed') taskDone += r.count;
+    else if (r.status === 'postponed') taskPostponed += r.count;
+    else if (r.status === 'pending') taskPending += r.count;
   }
 
   return {
-    revenueRupees: amountCollectedPaise / 100,
-    visitsCompleted,
-    quotationsCount: quotationAgg[0]?.cnt ?? 0,
-    ordersClosed: ordersAgg[0]?.cnt ?? 0,
+    revenueRupees: (ssotMetrics.revenue ?? 0) / 100,
+    visitsCompleted: ssotMetrics.visits ?? 0,
+    quotationsCount: ssotMetrics.quotations_count ?? 0,
+    ordersClosed: ssotMetrics.orders_count ?? 0,
     taskDone,
     taskPostponed,
     taskPending,

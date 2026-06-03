@@ -2,16 +2,21 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { DateRangePicker } from '@/app/(captain)/captain/dashboard/_components/DateRangePicker';
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import {
   loadCityExecs,
   loadCityHeader,
+  loadCityMetricsForWindow,
   loadCityOpenRequests,
 } from '@/lib/admin/city-drill-queries';
-import { loadAdminGlobalMetrics, loadCityCards } from '@/lib/admin/dashboard-queries';
 import { getServerSession } from '@/lib/auth-server';
+import {
+  resolveDateFilter,
+  type DateFilter,
+} from '@/lib/captain/dashboard-queries';
 import { getIstDateString } from '@/lib/today/time';
 import { cn } from '@/lib/utils';
 
@@ -21,25 +26,68 @@ import {
 } from '@/app/admin/dashboard/_components/format';
 
 // =============================================================================
-// Admin city drill — sub-sidebar layout
+// Admin city drill — admin shell, date-filtered metrics
 // =============================================================================
 //
-// Sandeep 2026-06-02: the page content was good but the overall feel
-// was flat. Restructured with a left sub-sidebar (sticky on lg+) for the
-// city context — captain identity, today's pulse, quick actions — and
-// the right main column for the scrollable lists (open requests + team
-// roster). Mobile (below lg) stacks everything in the same priority
-// order.
+// Sandeep 2026-06-03: this is the city ops surface. Stays in the admin
+// shell (no captain-portal escape — admins aren't captains). Metrics
+// are date-filtered via the same calendar picker the captain dashboard
+// uses, defaulting to TODAY single-date. URL state: ?date=YYYY-MM-DD or
+// ?from=YYYY-MM-DD&to=YYYY-MM-DD. Tap a city tile on /admin/dashboard
+// to open here in a new tab.
 //
-// Stays in the admin shell (the previous bug was the city tile linking
-// to /captain/* and dropping admins into the captain sidebar — we still
-// avoid that).
+// What's date-filtered:
+//   - Period metrics (visits / collections / orders / quotations /
+//     new requests / conversion%) for the window
+//
+// What's snapshot (not date-filtered):
+//   - City header + captain info
+//   - Team roster (current execs)
+//   - Open requests (currently-open snapshot, newest first capped at 50)
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
   params: Promise<{ cityId: string }>;
+  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+}
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/u;
+
+function parseDateFilter(sp: {
+  date?: string;
+  from?: string;
+  to?: string;
+}): DateFilter {
+  if (sp.from && sp.to && ISO_RE.test(sp.from) && ISO_RE.test(sp.to)) {
+    // Normalise so from <= to.
+    return sp.from <= sp.to
+      ? { mode: 'range', from: sp.from, to: sp.to }
+      : { mode: 'range', from: sp.to, to: sp.from };
+  }
+  if (sp.date && ISO_RE.test(sp.date)) {
+    return { mode: 'single', date: sp.date };
+  }
+  // Default to today single-date.
+  return { mode: 'single', date: getIstDateString() };
+}
+
+function windowLabel(filter: DateFilter): string {
+  if (filter.mode === 'single') {
+    return formatHumanDate(filter.date);
+  }
+  return `${formatHumanDate(filter.from)} – ${formatHumanDate(filter.to)}`;
+}
+
+function formatHumanDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC', // Avoids one-day-off when running on UTC server
+  });
 }
 
 export async function generateMetadata({
@@ -54,7 +102,10 @@ export async function generateMetadata({
   };
 }
 
-export default async function AdminCityDrillPage({ params }: PageProps) {
+export default async function AdminCityDrillPage({
+  params,
+  searchParams,
+}: PageProps) {
   const session = await getServerSession();
   if (!session) {
     const { cityId } = await params;
@@ -64,21 +115,23 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
   if (user.role !== 'super_admin') redirect('/admin/dashboard');
 
   const { cityId } = await params;
+  const sp = await searchParams;
+  const filter = parseDateFilter(sp);
+  const resolved = resolveDateFilter(filter);
   const istToday = getIstDateString();
 
-  const [header, execs, openRequests, todayMetrics, cityCards] =
-    await Promise.all([
-      loadCityHeader(cityId),
-      loadCityExecs(cityId, istToday),
-      loadCityOpenRequests(cityId),
-      loadAdminGlobalMetrics(istToday),
-      loadCityCards(istToday),
-    ]);
+  const [header, execs, openRequests, windowMetrics] = await Promise.all([
+    loadCityHeader(cityId),
+    loadCityExecs(cityId, istToday),
+    loadCityOpenRequests(cityId),
+    loadCityMetricsForWindow(
+      cityId,
+      resolved.target.from,
+      resolved.target.to,
+    ),
+  ]);
 
   if (!header) notFound();
-  void todayMetrics; // suppress unused — kept for future global-vs-city compare
-
-  const cityToday = cityCards.find((c) => c.cityId === cityId);
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -111,23 +164,36 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Page title strip — flat (no hero card here; the city context
-          card on the left replaces the previous heavy hero). */}
-      <header className="mb-5 sm:mb-6">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
-          City
-        </p>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
-          {header.cityName}
-        </h1>
+      {/* Page title + date picker on the same row */}
+      <header className="mb-5 sm:mb-6 flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+            City
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
+            {header.cityName}
+          </h1>
+        </div>
+        <DateRangePicker
+          filter={filter}
+          pathname={`/admin/operations/cities/${cityId}`}
+        />
       </header>
+
+      <p className="text-[11px] text-muted-foreground tabular-nums mb-5">
+        Metrics for{' '}
+        <span className="font-semibold text-foreground">
+          {windowLabel(filter)}
+        </span>
+        {' · '}
+        {resolved.daysInTarget} day
+        {resolved.daysInTarget === 1 ? '' : 's'}
+      </p>
 
       {/* Sub-sidebar layout: 340px context column @ lg+; 1-col stack below. */}
       <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-5 lg:gap-6">
         {/* ============================================================
             LEFT — sticky sub-sidebar with city context.
-            sticky top-20 sits below the desktop topbar (h-14) + a bit
-            of breathing room. On mobile, stacks naturally.
         ============================================================ */}
         <aside className="lg:sticky lg:top-20 lg:self-start space-y-4">
           {/* Captain identity card */}
@@ -171,36 +237,56 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
             </div>
           </section>
 
-          {/* Today's pulse — compact tiles stacked vertically */}
-          {cityToday && (
-            <section aria-label="Today's pulse" className="space-y-2">
-              <h2 className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold px-1">
-                Today
-              </h2>
-              <div className="grid grid-cols-3 gap-2">
-                <CompactStat
-                  label="Revenue"
-                  value={formatRupeesShort(cityToday.collectionsTodayPaise)}
-                  iconName="payments"
-                  iconTone="text-emerald-600 dark:text-emerald-300 bg-emerald-500/10"
-                />
-                <CompactStat
-                  label="Visits"
-                  value={String(cityToday.visitsToday)}
-                  iconName="directions_walk"
-                  iconTone="text-sky-600 dark:text-sky-300 bg-sky-500/10"
-                />
-                <CompactStat
-                  label="Orders"
-                  value={String(cityToday.ordersToday)}
-                  iconName="shopping_bag"
-                  iconTone="text-violet-600 dark:text-violet-300 bg-violet-500/10"
-                />
-              </div>
-            </section>
-          )}
+          {/* Period metrics — date-filtered */}
+          <section aria-label="Period metrics" className="space-y-2">
+            <h2 className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold px-1">
+              Window metrics
+            </h2>
+            <div className="grid grid-cols-3 gap-2">
+              <CompactStat
+                label="Revenue"
+                value={formatRupeesShort(windowMetrics.collectionsPaise)}
+                iconName="payments"
+                iconTone="text-emerald-600 dark:text-emerald-300 bg-emerald-500/10"
+              />
+              <CompactStat
+                label="Visits"
+                value={String(windowMetrics.visitsCount)}
+                iconName="directions_walk"
+                iconTone="text-sky-600 dark:text-sky-300 bg-sky-500/10"
+              />
+              <CompactStat
+                label="Orders"
+                value={String(windowMetrics.ordersCount)}
+                iconName="shopping_bag"
+                iconTone="text-violet-600 dark:text-violet-300 bg-violet-500/10"
+              />
+              <CompactStat
+                label="Quotations"
+                value={String(windowMetrics.quotationsCount)}
+                iconName="request_quote"
+                iconTone="text-amber-600 dark:text-amber-300 bg-amber-500/10"
+              />
+              <CompactStat
+                label="New reqs"
+                value={String(windowMetrics.newRequestsCount)}
+                iconName="inbox"
+                iconTone="text-rose-600 dark:text-rose-300 bg-rose-500/10"
+              />
+              <CompactStat
+                label="Conv."
+                value={
+                  windowMetrics.conversionPct === null
+                    ? '—'
+                    : `${windowMetrics.conversionPct}%`
+                }
+                iconName="donut_small"
+                iconTone="text-indigo-600 dark:text-indigo-300 bg-indigo-500/10"
+              />
+            </div>
+          </section>
 
-          {/* Quick actions */}
+          {/* Quick actions — admin-only, no captain-portal jumps */}
           <section aria-label="Quick actions" className="space-y-2">
             <h2 className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-semibold px-1">
               Quick actions
@@ -222,15 +308,6 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
                 icon="badge"
                 label="Manage executives"
               />
-              {/* Escape hatch — explicit jump into captain view if
-                  admin needs the full captain UX. NOT the default tap
-                  target on city cards (that's this very page). */}
-              <ActionLink
-                href={`/captain/requests?city=${cityId}`}
-                icon="open_in_new"
-                label="Open in captain portal"
-                description="Full captain UX with sidebar"
-              />
             </div>
           </section>
         </aside>
@@ -251,7 +328,8 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
                 </h2>
                 <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
                   {openRequests.length}
-                  {openRequests.length === 50 && '+'} active in this city
+                  {openRequests.length === 50 && '+'} currently active in this
+                  city
                 </p>
               </div>
             </header>
@@ -306,7 +384,7 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
             )}
           </section>
 
-          {/* Team roster */}
+          {/* Team roster — current snapshot, not date-filtered */}
           <section
             aria-label="Team roster"
             className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm space-y-4"
@@ -318,7 +396,7 @@ export default async function AdminCityDrillPage({ params }: PageProps) {
                 </h2>
                 <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
                   {execs.length} sales executive
-                  {execs.length === 1 ? '' : 's'}
+                  {execs.length === 1 ? '' : 's'} · today's task count
                 </p>
               </div>
             </header>

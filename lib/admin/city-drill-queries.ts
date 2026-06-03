@@ -1,15 +1,24 @@
-import { and, asc, desc, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
   cities,
   payments,
+  quotations,
+  requestStatusHistory,
   salesExecutives,
   statusStages,
   tasks,
   users,
   visitRequests,
 } from '@/db/schema';
+
+const VISIT_TASK_TYPES = [
+  'Customer home visit',
+  'Sales pitch',
+  'Outlet visit',
+] as const;
+const ORDER_CONFIRMED_CODE = 'ORDER_CONFIRMED';
 
 // =============================================================================
 // HVA-117 follow-up: admin city drill page data loaders
@@ -198,4 +207,183 @@ export async function loadCityOpenRequests(
     assignedExecName: r.assignedExecName ?? null,
     outstandingPaise: r.outstandingPaise ?? 0,
   }));
+}
+
+// =============================================================================
+// Window-scoped city metrics — for the admin city drill date picker
+// =============================================================================
+//
+// Sandeep 2026-06-03: admin needs to view a city's metrics over a date
+// range (e.g. "Hyderabad May 5 → June 3") directly inside the admin
+// shell — without escaping into the captain portal. This loader is the
+// data backbone for that filter.
+//
+// Calc-integrity discipline (saved memory `calc-integrity-non-negotiable`):
+//   * Orders + quotations COUNT(DISTINCT request_id) so a rollback +
+//     re-confirm within the window doesn't inflate the count.
+//   * All timestamptz date casts wrapped in
+//     `AT TIME ZONE 'Asia/Kolkata'` so the window boundary respects
+//     IST midnight, not UTC.
+//   * Inbound payments only (voidedAt IS NULL).
+//   * Tasks/payments columns that are already plain `date` get a
+//     direct `gte/lte` comparison; no TZ wrap needed.
+//
+// One round-trip, six parallel sub-queries.
+
+export interface CityWindowMetrics {
+  fromDate: string;
+  toDate: string;
+  visitsCount: number;
+  collectionsPaise: number;
+  ordersCount: number;
+  quotationsCount: number;
+  newRequestsCount: number;
+  /** orders / visits as percent; null when no visits in window. */
+  conversionPct: number | null;
+}
+
+export async function loadCityMetricsForWindow(
+  cityId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<CityWindowMetrics> {
+  const [
+    visitsRow,
+    collectionsRow,
+    ordersRow,
+    quotationsRow,
+    newReqRow,
+  ] = await Promise.all([
+    // Visits = completed visit-type tasks in window, for execs whose
+    // captain owns this city. Tasks don't carry city_id directly; the
+    // captain-to-city link is the bridge.
+    db
+      .select({ cnt: sql<number>`COUNT(*)::int` })
+      .from(tasks)
+      .innerJoin(
+        salesExecutives,
+        eq(salesExecutives.userId, tasks.execUserId),
+      )
+      .innerJoin(
+        cities,
+        eq(cities.captainUserId, salesExecutives.captainUserId),
+      )
+      .where(
+        and(
+          eq(cities.id, cityId),
+          inArray(
+            tasks.taskType,
+            VISIT_TASK_TYPES as readonly (typeof VISIT_TASK_TYPES)[number][],
+          ),
+          eq(tasks.status, 'completed'),
+          gte(tasks.taskDate, fromDate),
+          lte(tasks.taskDate, toDate),
+        ),
+      ),
+    // Inbound payments in window for requests in this city.
+    db
+      .select({
+        sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
+      })
+      .from(payments)
+      .innerJoin(
+        visitRequests,
+        eq(visitRequests.id, payments.visitRequestId),
+      )
+      .where(
+        and(
+          eq(visitRequests.cityId, cityId),
+          eq(payments.direction, 'inbound'),
+          isNull(payments.voidedAt),
+          gte(payments.paymentDate, fromDate),
+          lte(payments.paymentDate, toDate),
+        ),
+      ),
+    // ORDER_CONFIRMED transitions in window for requests in this city.
+    // DISTINCT request_id so rollback+reconfirm doesn't double-count.
+    db
+      .select({
+        cnt: sql<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+      })
+      .from(requestStatusHistory)
+      .innerJoin(
+        statusStages,
+        eq(statusStages.id, requestStatusHistory.toStatusStageId),
+      )
+      .innerJoin(
+        visitRequests,
+        eq(visitRequests.id, requestStatusHistory.requestId),
+      )
+      .where(
+        and(
+          eq(visitRequests.cityId, cityId),
+          eq(statusStages.code, ORDER_CONFIRMED_CODE),
+          gte(
+            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            fromDate,
+          ),
+          lte(
+            sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            toDate,
+          ),
+        ),
+      ),
+    // Quotations submitted in window for requests in this city.
+    // quotations are 1:1 with visit_request (UNIQUE FK), so no
+    // DISTINCT needed — but the IST timezone cast IS needed.
+    db
+      .select({ cnt: sql<number>`COUNT(*)::int` })
+      .from(quotations)
+      .innerJoin(
+        visitRequests,
+        eq(visitRequests.id, quotations.visitRequestId),
+      )
+      .where(
+        and(
+          eq(visitRequests.cityId, cityId),
+          gte(
+            sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            fromDate,
+          ),
+          lte(
+            sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            toDate,
+          ),
+        ),
+      ),
+    // New requests = visit_requests.created_at in window in this city.
+    db
+      .select({ cnt: sql<number>`COUNT(*)::int` })
+      .from(visitRequests)
+      .where(
+        and(
+          eq(visitRequests.cityId, cityId),
+          gte(
+            sql`(${visitRequests.createdAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            fromDate,
+          ),
+          lte(
+            sql`(${visitRequests.createdAt} AT TIME ZONE 'Asia/Kolkata')::date`,
+            toDate,
+          ),
+        ),
+      ),
+  ]);
+
+  const visitsCount = visitsRow[0]?.cnt ?? 0;
+  const ordersCount = ordersRow[0]?.cnt ?? 0;
+
+  return {
+    fromDate,
+    toDate,
+    visitsCount,
+    collectionsPaise: Number(collectionsRow[0]?.sum ?? '0'),
+    ordersCount,
+    quotationsCount: quotationsRow[0]?.cnt ?? 0,
+    newRequestsCount: newReqRow[0]?.cnt ?? 0,
+    conversionPct:
+      visitsCount === 0
+        ? null
+        : Math.round((ordersCount / visitsCount) * 100),
+  };
 }

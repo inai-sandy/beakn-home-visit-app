@@ -128,6 +128,11 @@ function CityCardItem({ card }: { card: CityCard }) {
     <li className="h-full">
       <Link
         href={`/admin/operations/cities/${card.cityId}`}
+        // Open in a new tab so admin keeps the dashboard open while
+        // drilling — Sandeep 2026-06-03. `rel="noopener noreferrer"`
+        // prevents window.opener leakage to the new tab.
+        target="_blank"
+        rel="noopener noreferrer"
         className={cn(
           // Card surface — flex column so the stats strip can be pushed
           // to the bottom (mt-auto) and every tile in the row has its

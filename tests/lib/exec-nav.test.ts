@@ -90,6 +90,7 @@ describe('EXEC_DRAWER_NAV', () => {
       'Assist',
       'Finance',
       'Leaderboard',
+      'Reports',
       'Resources',
       'Announcements',
       'Profile',

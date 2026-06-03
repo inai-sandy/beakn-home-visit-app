@@ -4,12 +4,12 @@ import { redirect } from 'next/navigation';
 
 import { Icon } from '@/components/ui/icon';
 import { getServerSession } from '@/lib/auth-server';
-import { groupReportsByCategory } from '@/lib/reports/registry';
+import { groupReportsByCategory, type ReportCategory } from '@/lib/reports/registry';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Reports — Captain',
+  title: 'My reports — Beakn',
 };
 
 const ICON_BY_CATEGORY: Record<string, string> = {
@@ -23,13 +23,20 @@ const ICON_BY_CATEGORY: Record<string, string> = {
   targets: 'flag',
 };
 
-export default async function CaptainReportsLandingPage() {
-  const session = await getServerSession();
-  if (!session) redirect('/login?next=/captain/reports');
-  const role = (session.user as { role?: string }).role;
-  if (role !== 'captain' && role !== 'super_admin') redirect('/login');
+// Reports that only make sense at team/global level (per-exec rollups,
+// captain rollups, city heatmaps, etc.). Hidden for execs viewing their
+// own scope.
+const EXEC_HIDDEN_CATEGORIES: ReportCategory[] = ['team', 'geography'];
 
-  const groups = groupReportsByCategory();
+export default async function ExecReportsLandingPage() {
+  const session = await getServerSession();
+  if (!session) redirect('/login?next=/exec/reports');
+  const role = (session.user as { role?: string }).role;
+  if (role !== 'sales_exec' && role !== 'super_admin') redirect('/login');
+
+  const groups = groupReportsByCategory().filter(
+    (g) => !EXEC_HIDDEN_CATEGORIES.includes(g.category),
+  );
   const totalReports = groups.reduce((s, g) => s + g.reports.length, 0);
 
   return (
@@ -39,11 +46,11 @@ export default async function CaptainReportsLandingPage() {
           Reports
         </p>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
-          Reports library
+          My reports
         </h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          {totalReports} reports scoped to your team. Same calc discipline as
-          the dashboard (net cash, IST, assigned-exec attribution).
+          {totalReports} reports scoped to you. Same numbers as the
+          dashboard, drilled down by period.
         </p>
       </header>
 
@@ -66,7 +73,7 @@ export default async function CaptainReportsLandingPage() {
             {group.reports.map((r) => (
               <li key={r.key} className="h-full">
                 <Link
-                  href={`/captain/reports/${r.key}`}
+                  href={`/exec/reports/${r.key}`}
                   className="block h-full rounded-2xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <p className="text-sm font-semibold tracking-tight inline-flex items-center gap-1">

@@ -1,4 +1,5 @@
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import type { DayCloseMetrics } from '@/lib/today/metrics';
 import { cn } from '@/lib/utils';
 
@@ -47,18 +48,21 @@ export function HeroMetrics({ metrics }: Props) {
         value={formatRupees(revenue)}
         icon="payments"
         accent="border-l-green-600"
+        explainer="Inbound payments collected against requests assigned to you, with payment_date = today (IST). Captain or admin recording on your behalf still credits you."
       />
       <HeroTile
         label="Visits completed"
         value={formatCount(visits)}
         icon="location_on"
         accent="border-l-blue-600"
+        explainer="Customer home visits / Sales pitches / Outlet visits you marked completed today (IST)."
       />
       <HeroTile
         label="Tasks done"
         value={formatCount(done)}
         icon="task_alt"
         accent="border-l-primary"
+        explainer="Total tasks of any type you marked completed today after submitting your day plan."
       />
     </section>
   );
@@ -69,11 +73,13 @@ function HeroTile({
   value,
   icon,
   accent,
+  explainer,
 }: {
   label: string;
   value: string;
   icon: string;
   accent: string;
+  explainer: string;
 }) {
   return (
     <div
@@ -85,7 +91,10 @@ function HeroTile({
     >
       <div className="flex items-center gap-2 text-muted-foreground">
         <Icon name={icon} size="sm" aria-hidden />
-        <p className="text-xs uppercase tracking-wide">{label}</p>
+        <p className="text-xs uppercase tracking-wide inline-flex items-center gap-1">
+          {label}
+          <InfoTooltip iconOnly>{explainer}</InfoTooltip>
+        </p>
       </div>
       <p className="text-3xl font-semibold tracking-tight">{value}</p>
     </div>

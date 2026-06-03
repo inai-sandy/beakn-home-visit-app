@@ -1,6 +1,9 @@
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 import type { AdminGlobalMetrics } from '@/lib/admin/dashboard-queries';
+import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
+import type { MetricKey } from '@/lib/metrics/types';
 import { cn } from '@/lib/utils';
 
 import { computeDelta, formatHours, type Delta } from './format';
@@ -32,9 +35,13 @@ interface TileSpec {
   iconTone: string;
   value: string;
   delta: Delta;
+  /** Explainer for the ⓘ popover. Pulled from METRIC_DEFINITIONS so
+   *  every portal shows the same wording for the same metric. */
+  explainer: string;
 }
 
 export function AdminKpiTiles({ today, yesterday }: Props) {
+  const def = (k: MetricKey) => METRIC_DEFINITIONS[k].explainer;
   const tiles: TileSpec[] = [
     {
       label: 'Visits',
@@ -42,6 +49,7 @@ export function AdminKpiTiles({ today, yesterday }: Props) {
       iconTone: 'text-sky-600 dark:text-sky-300 bg-sky-500/10',
       value: String(today.visitsToday),
       delta: computeDelta(today.visitsToday, yesterday.visitsToday),
+      explainer: def('visits'),
     },
     {
       label: 'Orders',
@@ -52,6 +60,7 @@ export function AdminKpiTiles({ today, yesterday }: Props) {
         today.completedOrdersToday,
         yesterday.completedOrdersToday,
       ),
+      explainer: def('orders_count'),
     },
     {
       label: 'Conversion',
@@ -64,6 +73,7 @@ export function AdminKpiTiles({ today, yesterday }: Props) {
         yesterday.conversionPct,
         'pp',
       ),
+      explainer: def('conversion_pct'),
     },
     {
       label: 'Productive',
@@ -74,6 +84,7 @@ export function AdminKpiTiles({ today, yesterday }: Props) {
         today.productiveMinutesToday,
         yesterday.productiveMinutesToday,
       ),
+      explainer: def('productive_minutes'),
     },
   ];
 
@@ -101,9 +112,10 @@ function Tile({ spec }: { spec: TileSpec }) {
         </span>
         <DeltaPill delta={spec.delta} />
       </div>
-      <p className="mt-4 text-[10px] uppercase tracking-[0.14em] font-semibold text-muted-foreground">
-        {spec.label}
-      </p>
+      <div className="mt-4 flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] font-semibold text-muted-foreground">
+        <span>{spec.label}</span>
+        <InfoTooltip iconOnly>{spec.explainer}</InfoTooltip>
+      </div>
       <p className="mt-0.5 text-2xl sm:text-3xl font-bold tabular-nums tracking-tight truncate">
         {spec.value}
       </p>

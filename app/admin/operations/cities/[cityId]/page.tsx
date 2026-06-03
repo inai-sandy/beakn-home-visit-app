@@ -6,6 +6,7 @@ import { DateRangePicker } from '@/app/(captain)/captain/dashboard/_components/D
 import { LeadAvatar } from '@/components/leads/LeadAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   loadCityExecs,
   loadCityHeader,
@@ -17,6 +18,7 @@ import {
   resolveDateFilter,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
+import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
 import { getIstDateString } from '@/lib/today/time';
 import { cn } from '@/lib/utils';
 
@@ -248,30 +250,35 @@ export default async function AdminCityDrillPage({
                 value={formatRupeesShort(windowMetrics.collectionsPaise)}
                 iconName="payments"
                 iconTone="text-emerald-600 dark:text-emerald-300 bg-emerald-500/10"
+                explainer={METRIC_DEFINITIONS.revenue.explainer}
               />
               <CompactStat
                 label="Visits"
                 value={String(windowMetrics.visitsCount)}
                 iconName="directions_walk"
                 iconTone="text-sky-600 dark:text-sky-300 bg-sky-500/10"
+                explainer={METRIC_DEFINITIONS.visits.explainer}
               />
               <CompactStat
                 label="Orders"
                 value={String(windowMetrics.ordersCount)}
                 iconName="shopping_bag"
                 iconTone="text-violet-600 dark:text-violet-300 bg-violet-500/10"
+                explainer={METRIC_DEFINITIONS.orders_count.explainer}
               />
               <CompactStat
                 label="Quotations"
                 value={String(windowMetrics.quotationsCount)}
                 iconName="request_quote"
                 iconTone="text-amber-600 dark:text-amber-300 bg-amber-500/10"
+                explainer={METRIC_DEFINITIONS.quotations_count.explainer}
               />
               <CompactStat
                 label="New reqs"
                 value={String(windowMetrics.newRequestsCount)}
                 iconName="inbox"
                 iconTone="text-rose-600 dark:text-rose-300 bg-rose-500/10"
+                explainer={METRIC_DEFINITIONS.new_requests.explainer}
               />
               <CompactStat
                 label="Conv."
@@ -282,6 +289,7 @@ export default async function AdminCityDrillPage({
                 }
                 iconName="donut_small"
                 iconTone="text-indigo-600 dark:text-indigo-300 bg-indigo-500/10"
+                explainer={METRIC_DEFINITIONS.conversion_pct.explainer}
               />
             </div>
           </section>
@@ -451,23 +459,28 @@ function CompactStat({
   value,
   iconName,
   iconTone,
+  explainer,
 }: {
   label: string;
   value: string;
   iconName: string;
   iconTone: string;
+  explainer?: string;
 }) {
   return (
     <div className="rounded-xl border bg-card p-2.5 space-y-1.5">
-      <span
-        className={cn(
-          'inline-flex h-7 w-7 items-center justify-center rounded-lg',
-          iconTone,
-        )}
-        aria-hidden
-      >
-        <Icon name={iconName} size="xs" />
-      </span>
+      <div className="flex items-start justify-between gap-1">
+        <span
+          className={cn(
+            'inline-flex h-7 w-7 items-center justify-center rounded-lg',
+            iconTone,
+          )}
+          aria-hidden
+        >
+          <Icon name={iconName} size="xs" />
+        </span>
+        {explainer ? <InfoTooltip iconOnly>{explainer}</InfoTooltip> : null}
+      </div>
       <div>
         <p className="text-[9px] uppercase tracking-[0.12em] font-semibold text-muted-foreground">
           {label}

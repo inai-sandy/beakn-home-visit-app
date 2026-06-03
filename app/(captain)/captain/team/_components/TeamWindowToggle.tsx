@@ -20,6 +20,9 @@ export type TeamWindow = 'today' | 'week' | 'month';
 
 interface Props {
   active: TeamWindow;
+  /** Path the toggle writes to. Defaults to /captain/team; admin
+   *  portal passes /admin/portal/<captainId>/team. */
+  basePath?: string;
 }
 
 const OPTIONS: ReadonlyArray<{ key: TeamWindow; label: string }> = [
@@ -28,7 +31,7 @@ const OPTIONS: ReadonlyArray<{ key: TeamWindow; label: string }> = [
   { key: 'month', label: 'This Month' },
 ];
 
-export function TeamWindowToggle({ active }: Props) {
+export function TeamWindowToggle({ active, basePath = '/captain/team' }: Props) {
   return (
     <nav
       aria-label="Date window"
@@ -39,7 +42,7 @@ export function TeamWindowToggle({ active }: Props) {
         // 'week' is the default — drop the query param when selecting it
         // so the canonical URL stays clean.
         const href =
-          opt.key === 'week' ? '/captain/team' : `/captain/team?window=${opt.key}`;
+          opt.key === 'week' ? basePath : `${basePath}?window=${opt.key}`;
         return (
           <Link
             key={opt.key}

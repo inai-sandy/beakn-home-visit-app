@@ -34,12 +34,15 @@ export interface TeamMember {
 
 interface Props {
   member: TeamMember;
+  /** Where the row links to. Defaults to /captain/team/<execId>; admin
+   *  captain-portal passes /admin/portal/<captainId>/team. */
+  basePath?: string;
 }
 
-export function TeamMemberCard({ member }: Props) {
+export function TeamMemberCard({ member, basePath = '/captain/team' }: Props) {
   return (
     <Link
-      href={`/captain/team/${member.userId}`}
+      href={`${basePath}/${member.userId}`}
       aria-label={`Open ${member.fullName}'s drill-down`}
       className={cn(
         'flex items-start gap-3 rounded-lg border bg-card px-3 py-2.5 shadow-sm',

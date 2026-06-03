@@ -138,10 +138,16 @@ async function loadRawMetrics(
       // of their team's execs (Arjun → Veera's deal, etc.); the action-
       // taker column `payments.recorded_by_user_id` would credit the
       // captain. HVA-201 fix 2026-06-01: group by `assigned_exec_user_id`.
+      // Sandeep 2026-06-03: revenue is net cash = inbound − outbound,
+      // not inbound only. Refunds reduce the leaderboard credit.
       db
         .select({
           execUserId: visitRequests.assignedExecUserId,
-          totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise}), 0)::bigint`,
+          totalPaise: sql<number>`COALESCE(SUM(
+            CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+                 WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+                 ELSE 0 END
+          ), 0)::bigint`,
         })
         .from(payments)
         .innerJoin(
@@ -150,7 +156,6 @@ async function loadRawMetrics(
         )
         .where(
           and(
-            eq(payments.direction, 'inbound'),
             sql`${payments.voidedAt} IS NULL`,
             gte(payments.paymentDate, fromDate),
             lte(payments.paymentDate, toDate),

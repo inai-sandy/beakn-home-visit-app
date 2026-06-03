@@ -7,23 +7,24 @@ import { visitRequestsScopeFilter } from './scope';
 import type { DateRange, MetricLoader, MetricScope } from './types';
 
 // =============================================================================
-// SSOT: revenue
+// SSOT: revenue (net cash collected)
 // =============================================================================
 //
-// `revenue` = SUM(payments.amount_paise) WHERE
-//   direction = 'inbound' AND voided_at IS NULL AND
-//   payment_date BETWEEN fromDate AND toDate AND
-//   <scope filter on the parent visit_request>
+// `revenue` = SUM(inbound) − SUM(outbound) over payments in the window.
+// Both directions are filtered by `voided_at IS NULL` (voids exclude
+// the payment entirely, regardless of direction) and by `payment_date`
+// between the range bounds.
 //
-// payment_date is a plain `date` column (no IST wrap needed). Direction
-// 'inbound' excludes refunds; voided_at IS NULL excludes payments
-// reversed after the fact.
+// Sandeep 2026-06-03: previously this counted only inbound payments,
+// so a request with a ₹5,000 inbound + ₹10,000 refund on the same day
+// showed +₹5,000 revenue even though the customer's money has fully
+// left the till. Refunds reduce realised revenue; this loader now
+// reflects net cash.
 //
-// Attribution semantics: we filter on the visit_request's
-// assigned_exec_user_id (not the user who recorded the payment) — this
-// matches the saved memory rule attribution-vs-action-taker. Captains
-// or admins recording payments on behalf of execs still credit the
-// exec.
+// payment_date is a plain `date` column (no IST wrap needed). Scope
+// is anchored on visit_requests.assigned_exec_user_id (saved memory
+// `attribution-vs-action-taker` — credit follows the deal owner, not
+// the user who recorded the payment / refund).
 // =============================================================================
 
 export const loadRevenue: MetricLoader<number> = async (
@@ -34,13 +35,16 @@ export const loadRevenue: MetricLoader<number> = async (
 
   const [row] = await db
     .select({
-      sum: sql<string | null>`COALESCE(SUM(${payments.amountPaise})::text, '0')`,
+      sum: sql<string | null>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      )::text, '0')`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
     .where(
       and(
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
         gte(payments.paymentDate, range.fromDate),
         lte(payments.paymentDate, range.toDate),

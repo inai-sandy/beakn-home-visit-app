@@ -19,9 +19,11 @@ import { Input } from '@/components/ui/input';
 
 interface Props {
   initial: string;
+  /** Where the debounced URL push lands. Defaults to /captain/team. */
+  basePath?: string;
 }
 
-export function TeamSearchInput({ initial }: Props) {
+export function TeamSearchInput({ initial, basePath = '/captain/team' }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [value, setValue] = useState(initial);
@@ -37,11 +39,11 @@ export function TeamSearchInput({ initial }: Props) {
       else next.delete('q');
       const qs = next.toString();
       startTransition(() =>
-        router.push(qs.length > 0 ? `/captain/team?${qs}` : '/captain/team'),
+        router.push(qs.length > 0 ? `${basePath}?${qs}` : basePath),
       );
     }, 300);
     return () => clearTimeout(handle);
-  }, [value, initial, router, searchParams]);
+  }, [value, initial, router, searchParams, basePath]);
 
   return (
     <div className="relative">

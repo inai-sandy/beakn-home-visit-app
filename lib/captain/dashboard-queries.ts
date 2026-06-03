@@ -622,11 +622,18 @@ export async function loadPendingCollectionsForExecIds(
       visitRequestId: quotations.visitRequestId,
       totalOrderValuePaise: quotations.totalOrderValuePaise,
       submittedAt: quotations.submittedAt,
+      // Sandeep 2026-06-03: paid = net inbound − outbound on non-voided
+      // payments. Previously only inbound was summed, so a refund left
+      // a "phantom paid" amount on the request and outstanding under-
+      // counted by the refund value.
       paidPaise: sqlBuilder<string | null>`COALESCE((
-        SELECT SUM(${payments.amountPaise})::text
+        SELECT SUM(
+          CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+               WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+               ELSE 0 END
+        )::text
         FROM ${payments}
         WHERE ${payments.visitRequestId} = ${quotations.visitRequestId}
-          AND ${payments.direction} = 'inbound'
           AND ${payments.voidedAt} IS NULL
       ), '0')`,
     })

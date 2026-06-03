@@ -34,6 +34,10 @@ interface Props {
   };
   cities: ReadonlyArray<{ id: string; name: string }>;
   quickStats: QuickStats;
+  /** Where the BackButton's fallback link points. Defaults to
+   *  /captain/team; admin portal overrides to
+   *  /admin/portal/<captainId>/team. */
+  backFallback?: string;
 }
 
 function formatRupeesCompact(rupees: number): string {
@@ -44,13 +48,18 @@ function formatRupeesCompact(rupees: number): string {
   }).format(rupees);
 }
 
-export function ExecDrillDownHeader({ exec, cities, quickStats }: Props) {
+export function ExecDrillDownHeader({
+  exec,
+  cities,
+  quickStats,
+  backFallback = '/captain/team',
+}: Props) {
   return (
     <>
       <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b">
         <div className="mx-auto max-w-2xl px-4 sm:px-6 h-14 flex items-center gap-3">
           <BackButton
-            fallback="/captain/team"
+            fallback={backFallback}
             ariaLabel="Back to My Team"
             size="icon"
             className="h-11 w-11 shrink-0"

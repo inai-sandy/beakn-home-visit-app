@@ -187,9 +187,14 @@ export async function loadAllExecTargetProgress(
   // assigned exec (NOT payments.recorded_by_user_id — attribution
   // principle).
   const revRows = await db
+    // Sandeep 2026-06-03: revenue = net cash (inbound − outbound).
     .select({
       execUserId: visitRequests.assignedExecUserId,
-      totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise})::bigint, 0)::int`,
+      totalPaise: sql<number>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      )::bigint, 0)::int`,
     })
     .from(payments)
     .innerJoin(
@@ -198,7 +203,6 @@ export async function loadAllExecTargetProgress(
     )
     .where(
       and(
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
         gte(payments.paymentDate, window.monthStart),
         lte(payments.paymentDate, window.monthEnd),
@@ -298,9 +302,14 @@ export async function loadOneExecTargetProgress(
     .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
     .where(eq(visitRequests.assignedExecUserId, execUserId));
 
+  // Sandeep 2026-06-03: revenue = net cash (inbound − outbound).
   const [revRow] = await db
     .select({
-      totalPaise: sql<number>`COALESCE(SUM(${payments.amountPaise})::bigint, 0)::int`,
+      totalPaise: sql<number>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      )::bigint, 0)::int`,
     })
     .from(payments)
     .innerJoin(
@@ -309,7 +318,6 @@ export async function loadOneExecTargetProgress(
     )
     .where(
       and(
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
         eq(visitRequests.assignedExecUserId, execUserId),
         gte(payments.paymentDate, window.monthStart),

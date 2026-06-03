@@ -130,7 +130,10 @@ export default async function AdminPortalCollectionsPage({
 
         <FinanceMethodologyNote />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div
+          id="finance-list"
+          className="scroll-mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3"
+        >
           <FinanceAgingBuckets buckets={buckets} />
           <FinanceFiltersBar
             team={[]}

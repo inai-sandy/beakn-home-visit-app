@@ -155,7 +155,11 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
 
     const workflow = getSubgroup('Workflow & Status');
     expect(workflow.comingSoon).toBeUndefined();
-    expect(workflow.items.map((i) => i.label)).toEqual(['Holidays']);
+    expect(workflow.items.map((i) => i.label)).toEqual([
+      'Status Stages',
+      'Transitions',
+      'Holidays',
+    ]);
   });
 
   it('shipped subgroups have their HVA-89 leaves', () => {

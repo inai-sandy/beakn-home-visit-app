@@ -50,6 +50,47 @@ export const statusStages = pgTable(
   ],
 );
 
+// HVA-223: admin-editable transition rules. One row per (from, to)
+// legal pair, seeded at migration 0060 to mirror the current
+// hardcoded enforcement in lib/status-transition.ts.
+//
+// Phase A (this ticket): table is the source of truth ONLY for
+// `requires_datetime` — drives the AdvanceStatusButton calendar-picker
+// decision. Other columns are read-only display in the admin grid;
+// engine enforcement migration is HVA-225.
+export const statusTransitions = pgTable(
+  'status_transitions',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    fromStageId: uuid('from_stage_id')
+      .notNull()
+      .references(() => statusStages.id, { onDelete: 'restrict' }),
+    toStageId: uuid('to_stage_id')
+      .notNull()
+      .references(() => statusStages.id, { onDelete: 'restrict' }),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    allowedRole: varchar('allowed_role', { length: 32 })
+      .notNull()
+      .default('any'),
+    requiresReason: boolean('requires_reason').notNull().default(false),
+    requiresQuotation: boolean('requires_quotation').notNull().default(false),
+    requiresDatetime: boolean('requires_datetime').notNull().default(false),
+    autoTaskType: varchar('auto_task_type', { length: 64 }),
+    emitsEvent: varchar('emits_event', { length: 100 }),
+    description: text('description'),
+    isActive: boolean('is_active').notNull().default(true),
+    ...timestamps(),
+  },
+  (table) => [
+    uniqueIndex('status_transitions_pair_unique').on(
+      table.fromStageId,
+      table.toStageId,
+    ),
+    index('status_transitions_from_idx').on(table.fromStageId),
+    index('status_transitions_to_idx').on(table.toStageId),
+  ],
+);
+
 export const visitRequests = pgTable(
   'visit_requests',
   {

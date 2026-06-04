@@ -175,6 +175,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
             href: '/admin/settings/workflow/status-stages',
           },
           {
+            label: 'Transitions',
+            icon: 'compare_arrows',
+            href: '/admin/settings/workflow/transitions',
+          },
+          {
             label: 'Holidays',
             icon: 'event',
             href: '/admin/settings/workflow/holidays',

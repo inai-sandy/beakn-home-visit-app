@@ -101,19 +101,31 @@ interface Props {
 }
 
 export function FinanceSnapshot({ snapshot, basePath }: Props) {
-  const { orderBook, pipeline, receivedPaise, totalQuotedPaise, outstandingPaise } =
-    snapshot;
+  const {
+    orderBook,
+    pipeline,
+    receivedPaise,
+    totalQuotedPaise,
+    outstandingPaise,
+    creditsOwedPaise,
+    outstandingCount,
+    creditsOwedCount,
+  } = snapshot;
 
   const collectionPct =
     totalQuotedPaise > 0
       ? Math.round((receivedPaise / totalQuotedPaise) * 100)
       : 0;
-  const totalQuoteCount = orderBook.count + pipeline.count;
+
+  const hasCredits = creditsOwedPaise > 0;
 
   return (
     <section
       aria-label="Money snapshot"
-      className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+      className={cn(
+        'grid grid-cols-2 gap-3',
+        hasCredits ? 'lg:grid-cols-5' : 'lg:grid-cols-4',
+      )}
     >
       <Tile
         label="Order Book"
@@ -147,17 +159,24 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
         label="Outstanding"
         amountPaise={outstandingPaise}
         subline={
-          outstandingPaise < 0
-            ? 'Credit owed to customer'
-            : outstandingPaise === 0
-              ? 'Fully collected'
-              : `Across ${totalQuoteCount} quote${totalQuoteCount === 1 ? '' : 's'}`
+          outstandingCount === 0
+            ? 'Fully collected'
+            : `Across ${outstandingCount} customer${outstandingCount === 1 ? '' : 's'}`
         }
-        icon={outstandingPaise < 0 ? 'sync_alt' : 'hourglass_top'}
+        icon="hourglass_top"
         tone="rose"
         href={`${basePath}/outstanding`}
-        negativeIsAmber
       />
+      {hasCredits && (
+        <Tile
+          label="Credits owed"
+          amountPaise={creditsOwedPaise}
+          subline={`Refund liability across ${creditsOwedCount} customer${creditsOwedCount === 1 ? '' : 's'}`}
+          icon="sync_alt"
+          tone="amber"
+          href={`${basePath}/credits-owed`}
+        />
+      )}
     </section>
   );
 }

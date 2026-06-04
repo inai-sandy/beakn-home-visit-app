@@ -80,13 +80,22 @@ export interface FinanceSnapshot {
   pipeline: { totalPaise: number; count: number };
   /** Net inbound − net outbound on ALL quoted requests (pipeline +
    *  order book), voided excluded. Pre-confirmation deposits count
-   *  toward Received. Can exceed total quoted when refunds outpace
-   *  inbound — surfaced as negative outstanding. */
+   *  toward Received. */
   receivedPaise: number;
   /** Total of (order book + pipeline) value. */
   totalQuotedPaise: number;
-  /** Outstanding = totalQuoted − received. Can be negative ("credit owed"). */
+  /** SUM(GREATEST(0, quoted - paid)) per request. Per-row clamped so
+   *  one over-paid customer can't silently cancel another customer's
+   *  real outstanding. Non-negative by construction. */
   outstandingPaise: number;
+  /** SUM(GREATEST(0, paid - quoted)) per request — the refund
+   *  liability we owe back to over-paying customers. Non-negative.
+   *  Reconciles: totalQuoted + creditsOwed = received + outstanding. */
+  creditsOwedPaise: number;
+  /** Number of requests with quoted > 0 still owed by the customer. */
+  outstandingCount: number;
+  /** Number of requests where net_paid exceeds quoted. */
+  creditsOwedCount: number;
 }
 
 export interface FinanceAgingBucket {
@@ -231,6 +240,9 @@ export async function loadFinanceSnapshot(
       receivedPaise: 0,
       totalQuotedPaise: 0,
       outstandingPaise: 0,
+      creditsOwedPaise: 0,
+      outstandingCount: 0,
+      creditsOwedCount: 0,
     };
   }
 
@@ -267,17 +279,33 @@ export async function loadFinanceSnapshot(
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .where(where);
 
-  // 2026-05-27 fix: Received now counts inbound − outbound on EVERY
-  // quoted request, not just Order Book. Pre-confirmation deposits
-  // (Singham case: ₹5,000 on a ₹25,000 quote at VISIT_SCHEDULED) are
-  // legitimate cash the captain has collected.
-  const [payRow] = await db
+  // 2026-06-04 calc-integrity fix — two separate semantics:
+  //
+  //   Received: net cash collected across EVERY non-cancelled request,
+  //     whether or not it has a quotation yet. This matches the
+  //     Received drilldown table (which already includes pre-quote
+  //     deposits). The previous version inner-joined quotations and
+  //     dropped pre-quote cash → tile understated by the unquoted-but-
+  //     paid amount.
+  //
+  //   Outstanding: SUM(GREATEST(0, quoted − net_paid)) per QUOTED
+  //     request. Per-row clamp so one over-paid customer can't silently
+  //     cancel another customer's real outstanding (Modi's ₹23k overpay
+  //     was reducing the portfolio outstanding by ₹23k).
+  //
+  //   Credits owed: SUM(GREATEST(0, net_paid − quoted)) per QUOTED
+  //     request. Refund liability — money we owe back to over-paying
+  //     customers.
+  //
+  // Reconciles: totalQuoted + creditsOwed = received_on_quoted +
+  //   outstanding. The unquoted slice of received is "deposits we hold
+  //   but haven't quoted yet" — it doesn't enter the quote-axis math.
+  const [receivedRow] = await db
     .select({
-      received: sql<number>`COALESCE(SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END), 0)::bigint`,
+      received: sql<string>`COALESCE(SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END)::text, '0')`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
     .where(
       and(
         isNull(payments.voidedAt),
@@ -289,10 +317,41 @@ export async function loadFinanceSnapshot(
         args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
       ),
     );
+  const receivedPaise = Number(receivedRow?.received ?? 0);
+
+  const perRequestRows = await db
+    .select({
+      quoted: quotations.totalOrderValuePaise,
+      paid: sql<string>`COALESCE((
+        SELECT SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE -${payments.amountPaise} END)::text
+        FROM ${payments}
+        WHERE ${payments.visitRequestId} = ${visitRequests.id}
+          AND ${payments.voidedAt} IS NULL
+      ), '0')`,
+    })
+    .from(visitRequests)
+    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .where(where);
+
+  let outstandingPaise = 0;
+  let creditsOwedPaise = 0;
+  let outstandingCount = 0;
+  let creditsOwedCount = 0;
+  for (const r of perRequestRows) {
+    const quoted = Number(r.quoted);
+    const paid = Number(r.paid ?? 0);
+    const diff = quoted - paid;
+    if (diff > 0) {
+      outstandingPaise += diff;
+      outstandingCount += 1;
+    } else if (diff < 0) {
+      creditsOwedPaise += -diff;
+      creditsOwedCount += 1;
+    }
+  }
 
   const orderBookTotal = Number(aggRow?.orderBookTotal ?? 0);
   const pipelineTotal = Number(aggRow?.pipelineTotal ?? 0);
-  const receivedPaise = Number(payRow?.received ?? 0);
   const totalQuotedPaise = orderBookTotal + pipelineTotal;
 
   return {
@@ -306,10 +365,10 @@ export async function loadFinanceSnapshot(
     },
     receivedPaise,
     totalQuotedPaise,
-    // Outstanding now spans BOTH axes — a deposit on a pre-confirmation
-    // quote reduces the captain's "money owed" total even though the
-    // order isn't yet on the books in the strict sense.
-    outstandingPaise: totalQuotedPaise - receivedPaise,
+    outstandingPaise,
+    creditsOwedPaise,
+    outstandingCount,
+    creditsOwedCount,
   };
 }
 

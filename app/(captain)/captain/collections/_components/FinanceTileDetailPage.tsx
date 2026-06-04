@@ -33,6 +33,7 @@ export const FINANCE_TILE_SLUGS = [
   'pipeline',
   'received',
   'outstanding',
+  'credits-owed',
 ] as const;
 export type FinanceTileSlug = (typeof FINANCE_TILE_SLUGS)[number];
 
@@ -66,6 +67,11 @@ const TITLES: Record<
     title: 'Outstanding',
     subtitle:
       'Requests with money still owed, sorted by outstanding desc. Fully-paid or refunded-out rows do not appear.',
+  },
+  'credits-owed': {
+    title: 'Credits owed',
+    subtitle:
+      'Customers who have paid more than their quoted amount — the company owes the difference back as a refund liability. Only shown when at least one row qualifies.',
   },
 };
 
@@ -121,6 +127,7 @@ export async function FinanceTileDetailPage({
       'order-book': { section: 'order_book', sort: 'outstanding_desc' },
       pipeline: { section: 'pipeline', sort: 'date_asc' },
       outstanding: { section: 'all', sort: 'outstanding_desc' },
+      'credits-owed': { section: 'all', sort: 'value_desc' },
     };
     const cfg = sectionMap[slug];
     const { rows } = await loadFinanceOrderList({
@@ -137,7 +144,9 @@ export async function FinanceTileDetailPage({
             ? 'order_book'
             : slug === 'pipeline'
               ? 'pipeline'
-              : 'outstanding'
+              : slug === 'outstanding'
+                ? 'outstanding'
+                : 'credits_owed'
         }
         rows={rows}
         requestHref={requestHref}

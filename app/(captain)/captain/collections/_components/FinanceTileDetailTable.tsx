@@ -44,7 +44,7 @@ function formatPaymentDate(iso: string): string {
 }
 
 interface OrderDetailTableProps {
-  variant: 'order_book' | 'pipeline' | 'outstanding';
+  variant: 'order_book' | 'pipeline' | 'outstanding' | 'credits_owed';
   rows: FinanceOrderRow[];
   /** Where each row's customer name links. Defaults to /requests/[id]. */
   requestHref?: (requestId: string) => string;
@@ -59,7 +59,11 @@ export function OrderDetailTable({
     requestHref ?? ((id: string) => `/requests/${id}`);
 
   const filtered =
-    variant === 'outstanding' ? rows.filter((r) => r.outstandingPaise > 0) : rows;
+    variant === 'outstanding'
+      ? rows.filter((r) => r.outstandingPaise > 0)
+      : variant === 'credits_owed'
+        ? rows.filter((r) => r.outstandingPaise < 0)
+        : rows;
 
   if (filtered.length === 0) {
     return (
@@ -69,7 +73,9 @@ export function OrderDetailTable({
             ? 'No quotations awaiting confirmation.'
             : variant === 'outstanding'
               ? 'Nothing outstanding right now.'
-              : 'No confirmed orders.'}
+              : variant === 'credits_owed'
+                ? 'No customers have over-paid.'
+                : 'No confirmed orders.'}
         </p>
       </div>
     );
@@ -90,7 +96,9 @@ export function OrderDetailTable({
                 <th className="text-right py-2.5 px-4">Paid (net)</th>
               )}
               {variant !== 'pipeline' && (
-                <th className="text-right py-2.5 px-4">Outstanding</th>
+                <th className="text-right py-2.5 px-4">
+                  {variant === 'credits_owed' ? 'Credit owed' : 'Outstanding'}
+                </th>
               )}
               <th className="text-right py-2.5 px-4">Age</th>
             </tr>
@@ -128,12 +136,18 @@ export function OrderDetailTable({
                   <td
                     className={cn(
                       'py-3 px-4 text-right tabular-nums font-medium whitespace-nowrap',
-                      r.outstandingPaise > 0
+                      variant === 'credits_owed'
                         ? 'text-amber-700 dark:text-amber-300'
-                        : '',
+                        : r.outstandingPaise > 0
+                          ? 'text-amber-700 dark:text-amber-300'
+                          : '',
                     )}
                   >
-                    {formatRupees(r.outstandingPaise)}
+                    {formatRupees(
+                      variant === 'credits_owed'
+                        ? -r.outstandingPaise
+                        : r.outstandingPaise,
+                    )}
                   </td>
                 )}
                 <td className="py-3 px-4 text-right text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">

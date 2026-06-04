@@ -288,6 +288,11 @@ export const CONFIG_SCHEMA = {
       'assist.processing',
       'assist.dispatched',
       'assist.rejected',
+      // HVA-50 — admin toggles a notification_rules row enabled/disabled.
+      'notification_rule_toggled',
+      // HVA-222 — admin edits the status_stages catalog (create / update /
+      // delete). before/after JSON carries the full row delta.
+      'status_stage_changed',
     ],
     editable: true,
   },

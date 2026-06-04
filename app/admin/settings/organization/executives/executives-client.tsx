@@ -79,20 +79,56 @@ export function ExecutivesClient({
   const router = useRouter();
   const [modal, setModal] = useState<ModalMode>({ kind: "closed" });
   const [filterCaptainId, setFilterCaptainId] = useState<string>("__all__");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
-  const filtered =
-    filterCaptainId === "__all__"
-      ? executives
-      : executives.filter((e) => e.captainUserId === filterCaptainId);
+  const searchLower = search.trim().toLowerCase();
+  const filtered = executives.filter((e) => {
+    if (filterCaptainId !== "__all__" && e.captainUserId !== filterCaptainId) {
+      return false;
+    }
+    if (searchLower.length === 0) return true;
+    return (
+      e.fullName.toLowerCase().includes(searchLower) ||
+      e.phone.toLowerCase().includes(searchLower) ||
+      (e.email?.toLowerCase().includes(searchLower) ?? false) ||
+      e.captainName.toLowerCase().includes(searchLower) ||
+      (e.cityName?.toLowerCase().includes(searchLower) ?? false)
+    );
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * PAGE_SIZE;
+  const paged = filtered.slice(startIdx, startIdx + PAGE_SIZE);
 
   return (
     <>
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input
+            type="search"
+            inputMode="search"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search name, phone, email, city…"
+            className="h-9 w-64"
+            aria-label="Search executives"
+          />
           <Label className="text-xs uppercase tracking-wide text-muted-foreground">
             Filter
           </Label>
-          <Select value={filterCaptainId} onValueChange={setFilterCaptainId}>
+          <Select
+            value={filterCaptainId}
+            onValueChange={(v) => {
+              setFilterCaptainId(v);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="h-9 rounded-input w-full sm:min-w-48 sm:w-auto">
               <SelectValue placeholder="All captains" />
             </SelectTrigger>
@@ -125,7 +161,7 @@ export function ExecutivesClient({
         </div>
       ) : (
         <ul className="space-y-3">
-          {filtered.map((e) => (
+          {paged.map((e) => (
             <li key={e.id} className="rounded-3xl border bg-card p-5 shadow-sm">
               <div className="flex flex-wrap items-start gap-4">
                 <div className="flex-1 min-w-0 space-y-2">
@@ -168,6 +204,38 @@ export function ExecutivesClient({
             </li>
           ))}
         </ul>
+      )}
+
+      {totalPages > 1 && (
+        <nav
+          aria-label="Pagination"
+          className="flex items-center justify-between gap-3 mt-4"
+        >
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Showing {startIdx + 1}–{Math.min(startIdx + PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage <= 1}
+              onClick={() => setPage(safePage - 1)}
+            >
+              Prev
+            </Button>
+            <span className="text-xs text-muted-foreground tabular-nums self-center">
+              {safePage} / {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(safePage + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </nav>
       )}
 
       {(modal.kind === "add" || modal.kind === "edit") && (

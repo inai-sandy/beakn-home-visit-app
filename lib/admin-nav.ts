@@ -170,6 +170,11 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'rule',
         items: [
           {
+            label: 'Status Stages',
+            icon: 'route',
+            href: '/admin/settings/workflow/status-stages',
+          },
+          {
             label: 'Holidays',
             icon: 'event',
             href: '/admin/settings/workflow/holidays',

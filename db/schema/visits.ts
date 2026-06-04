@@ -35,11 +35,18 @@ export const statusStages = pgTable(
     name: varchar('name', { length: 100 }).notNull(),
     sequenceNumber: integer('sequence_number').notNull(),
     isActive: boolean('is_active').notNull().default(true),
+    // HVA-222: explicit terminal flag, admin-editable. Defaults false;
+    // the highest-seq stage was backfilled true at migration 0059 time.
+    isTerminal: boolean('is_terminal').notNull().default(false),
+    // HVA-222: admin-facing prose, not surfaced to execs / customers.
+    description: text('description'),
     ...timestamps(),
   },
   (table) => [
     uniqueIndex('status_stages_code_unique').on(table.code),
-    uniqueIndex('status_stages_sequence_unique').on(table.sequenceNumber),
+    // HVA-222: sequence is NO LONGER unique. Reordering needs free
+    // intermediate states; `code` is the stable identifier.
+    index('status_stages_sequence_idx').on(table.sequenceNumber),
   ],
 );
 

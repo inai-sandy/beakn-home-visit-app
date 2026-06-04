@@ -71,7 +71,39 @@ describe('buildDayBuckets', () => {
     });
     expect(days).toEqual(['2026-06-04']);
   });
+
+  // HVA-227 — every chart now honors a user-supplied date range. The
+  // loader must zero-fill the full custom window even when it's wider
+  // or narrower than the default 30 days.
+  it('zero-fills a custom 7-day window for graphRevenueTrend', async () => {
+    const fromDate = shiftDateString(istToday, -6);
+    const range = { fromDate, toDate: istToday };
+    const rows = await graphRevenueTrend({
+      scope: { kind: 'global' },
+      range,
+    });
+    expect(rows).toHaveLength(7);
+    expect(rows[0].day).toBe(fromDate);
+    expect(rows[rows.length - 1].day).toBe(istToday);
+  });
+
+  it('zero-fills a custom 90-day window for graphRevenueTrend', async () => {
+    const fromDate = shiftDateString(istToday, -89);
+    const range = { fromDate, toDate: istToday };
+    const rows = await graphRevenueTrend({
+      scope: { kind: 'global' },
+      range,
+    });
+    expect(rows).toHaveLength(90);
+  });
 });
+
+function shiftDateString(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = Date.UTC(y, m - 1, d) + days * 86_400_000;
+  const dt = new Date(t);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
 
 describe('graphRevenueTrend', () => {
   it('zero-fills days with no payments', async () => {

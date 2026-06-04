@@ -115,6 +115,48 @@ export const CONFIG_SCHEMA = {
     },
   },
 
+  // HVA-224: how long captain has before PENDING_CAPTAIN_APPROVAL gets
+  // escalated to admin via push + WhatsApp. Cron at
+  // /api/cron/escalate-stale-approvals runs hourly; emits
+  // `request.approval_overdue` once per request per breach (deduped via
+  // audit_log's `approval_escalated` events). 0 disables the SLA.
+  pending_captain_approval_timeout_hours: {
+    type: 'number',
+    category: 'workflow',
+    description:
+      'Hours a request can sit in PENDING_CAPTAIN_APPROVAL before admin gets a push + WhatsApp escalation. Set to 0 to disable the SLA.',
+    defaultValue: 24,
+    editable: true,
+    validation: { min: 0, max: 24 * 30 },
+  },
+
+  // HVA-224: how many days after ORDER_CONFIRMED a refund (outbound
+  // payment) is still allowed. Enforced at the action layer in
+  // lib/payments/actions.ts when admin/captain records an outbound
+  // payment. 0 disables the window — refunds always allowed.
+  refund_window_days: {
+    type: 'number',
+    category: 'workflow',
+    description:
+      'Refunds (outbound payments) blocked after this many days from ORDER_CONFIRMED. Set to 0 to disable the window (refunds always allowed).',
+    defaultValue: 30,
+    editable: true,
+    validation: { min: 0, max: 3650 },
+  },
+
+  // HVA-224: how long to retain audit_log rows before the nightly prune
+  // job deletes them. Cron at /api/cron/prune-audit-log runs daily at
+  // 02:30 IST. 0 disables pruning — rows kept forever.
+  audit_log_retention_months: {
+    type: 'number',
+    category: 'workflow',
+    description:
+      'Audit log rows older than this are pruned by the nightly cron. Set to 0 to keep audit history forever.',
+    defaultValue: 24,
+    editable: true,
+    validation: { min: 0, max: 120 },
+  },
+
   // -------------------------------------------------------------------------
   // AI defaults — spec §11
   // -------------------------------------------------------------------------
@@ -296,6 +338,14 @@ export const CONFIG_SCHEMA = {
       // HVA-223 — admin toggles a status_transitions row's
       // requires_datetime flag (Phase A; other flags become editable in HVA-225).
       'status_transition_changed',
+      // HVA-224 — hourly cron flags a PENDING_CAPTAIN_APPROVAL row that's
+      // breached `pending_captain_approval_timeout_hours`. Deduped at
+      // emit-time so each (request, breach) pair logs once.
+      'approval_escalated',
+      // HVA-224 — daily cron deletes audit_log rows older than
+      // `audit_log_retention_months`. before_state carries the count
+      // pruned + cutoff timestamp.
+      'audit_log_pruned',
     ],
     editable: true,
   },

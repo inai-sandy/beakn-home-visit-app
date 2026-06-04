@@ -101,12 +101,16 @@ describe('HVA-67 transition service: forward path', () => {
 });
 
 describe('HVA-67 transition service: rejections', () => {
-  it('rejects backwards transition with FORWARD_ONLY', async () => {
+  it('HVA-225 — rolls back when ASSIGNED → SUBMITTED rollback row is is_active=true (seed default)', async () => {
+    // HVA-225 reframes this case. Pre-HVA-225 the engine rejected every
+    // backward move without an explicit flag. Post-HVA-225 backward moves
+    // are allowed iff the matching `status_transitions` row is_active.
+    // The seed marks every rollback row active, so by default backward
+    // transitions DO succeed via the rollback row's emits_event path.
     const { requestId, captainId } = await makeAssignableRequest();
     const assigned = await getStatusStage('ASSIGNED');
     const submitted = await getStatusStage('SUBMITTED');
 
-    // Move forward first.
     await transitionRequestStatus({
       requestId,
       nextStatusId: assigned.id,
@@ -114,18 +118,13 @@ describe('HVA-67 transition service: rejections', () => {
       actorRole: 'captain',
     });
 
-    // Now attempt SUBMITTED ← ASSIGNED.
     const result = await transitionRequestStatus({
       requestId,
       nextStatusId: submitted.id,
       actorUserId: captainId,
       actorRole: 'captain',
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe('FORWARD_ONLY');
-      expect(result.status).toBe(400);
-    }
+    expect(result.ok).toBe(true);
   });
 
   it('rejects skip-stage transition (SUBMITTED → VISIT_SCHEDULED) with FORWARD_ONLY', async () => {
@@ -320,7 +319,11 @@ describe('HVA-141 transition service: allowRollback', () => {
     }
   });
 
-  it('allowRollback=false (default) with target seq = current-1 still rejects', async () => {
+  it('HVA-225 — rollback caller flag is now a no-op (table is the law)', async () => {
+    // Pre-HVA-225 default behavior was to refuse rollback unless the
+    // caller passed allowRollback=true. Post-HVA-225 the flag is a
+    // no-op — the seeded rollback row's is_active=true is what allows
+    // it. So omitting the flag now still succeeds.
     const { requestId, captainId } = await advanceToVisitScheduled();
     const assigned = await getStatusStage('ASSIGNED');
 
@@ -329,10 +332,10 @@ describe('HVA-141 transition service: allowRollback', () => {
       nextStatusId: assigned.id,
       actorUserId: captainId,
       actorRole: 'captain',
-      // allowRollback NOT supplied — defaults to false.
+      // allowRollback NOT supplied — flag is deprecated. Engine still
+      // allows the move because status_transitions has the row active.
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+    expect(result.ok).toBe(true);
   });
 
   it('allowRollback=true with target seq = current+1 still succeeds (forward path unaffected)', async () => {
@@ -456,7 +459,11 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
     if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
   });
 
-  it('without the option set, PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED is rejected (forward-only intact)', async () => {
+  it('HVA-225 — allowSpecificBackwardTransition flag is now a no-op (table-driven)', async () => {
+    // Pre-HVA-225 default behavior required the specific-pair flag to
+    // permit PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED. Post-
+    // HVA-225 the flag is a no-op — the seeded specific_backward row
+    // with is_active=true authorises the move.
     const { requestId, captainId } = await advanceTo(
       'PENDING_CAPTAIN_APPROVAL',
     );
@@ -467,9 +474,8 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       nextStatusId: installation.id,
       actorUserId: captainId,
       actorRole: 'captain',
-      // No allowSpecificBackwardTransition.
+      // No allowSpecificBackwardTransition — flag is deprecated.
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toBe('FORWARD_ONLY');
+    expect(result.ok).toBe(true);
   });
 });

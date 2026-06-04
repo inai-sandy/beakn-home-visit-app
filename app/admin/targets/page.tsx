@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { TeamTargetArena } from '@/components/targets/TeamTargetArena';
+import { AdminExecWarningRoster } from '@/components/warnings/AdminExecWarningRoster';
 import { getServerSession } from '@/lib/auth-server';
 import {
   getCurrentMonthWindow,
   loadAllExecTargetProgress,
   loadMonthlyTargetPaise,
 } from '@/lib/exec/target-progress';
+import { loadAdminExecWarningRoster } from '@/lib/warnings/queries';
 
 // =============================================================================
 // /admin/targets — dedicated team targets page
@@ -32,7 +34,10 @@ export default async function AdminTargetsPage() {
   if (role !== 'super_admin') redirect('/login');
 
   const monthWindow = getCurrentMonthWindow();
-  const monthlyTargetPaise = await loadMonthlyTargetPaise();
+  const [monthlyTargetPaise, warningRoster] = await Promise.all([
+    loadMonthlyTargetPaise(),
+    loadAdminExecWarningRoster(),
+  ]);
   const rows = await loadAllExecTargetProgress(monthWindow, monthlyTargetPaise);
 
   return (
@@ -49,6 +54,8 @@ export default async function AdminTargetsPage() {
         window={monthWindow}
         title="All executives — monthly targets"
       />
+
+      <AdminExecWarningRoster rows={warningRoster} />
     </main>
   );
 }

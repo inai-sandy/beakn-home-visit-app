@@ -103,6 +103,10 @@ const SAFE_TRUNCATE_TABLES = [
   'tasks',
   'verifications',
   'visit_requests',
+  // HVA-228 — warnings reference users(issued_by_user_id, exec_user_id,
+  // revoked_by_user_id) with ON DELETE RESTRICT. Must be truncated
+  // before the DELETE FROM users step.
+  'warnings',
 ];
 
 export async function truncateAll(): Promise<void> {

@@ -70,6 +70,15 @@ import {
   type AssistCreatedContext,
   type AssistStatusChangeContext,
 } from './assist-events';
+import {
+  composeFifthHardWarningForAdmin,
+  composeHardWarningInApp,
+  composeSoftWarningInApp,
+  composeWarningRevokedInApp,
+  type ExecFifthHardWarningContext,
+  type ExecWarningContext,
+  type ExecWarningRevokedContext,
+} from './exec-warnings';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -239,6 +248,19 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
       ctx as unknown as AssistStatusChangeContext,
     );
   },
+  // HVA-228: warnings — soft + hard + revoke + fifth-hard alert.
+  // `exec.fifth_hard_warning` targets super_admin via the rule; the
+  // composer renders the same body regardless of role.
+  'exec.soft_warning_issued': (ctx) =>
+    composeSoftWarningInApp(ctx as unknown as ExecWarningContext),
+  'exec.hard_warning_issued': (ctx) =>
+    composeHardWarningInApp(ctx as unknown as ExecWarningContext),
+  'exec.warning_revoked': (ctx) =>
+    composeWarningRevokedInApp(ctx as unknown as ExecWarningRevokedContext),
+  'exec.fifth_hard_warning': (ctx) =>
+    composeFifthHardWarningForAdmin(
+      ctx as unknown as ExecFifthHardWarningContext,
+    ),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

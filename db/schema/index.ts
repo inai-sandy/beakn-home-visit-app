@@ -15,3 +15,4 @@ export * from './config';
 export * from './notes';
 export * from './content';
 export * from './assist';
+export * from './warnings';

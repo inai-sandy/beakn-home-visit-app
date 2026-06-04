@@ -346,6 +346,18 @@ export const CONFIG_SCHEMA = {
       // `audit_log_retention_months`. before_state carries the count
       // pruned + cutoff timestamp.
       'audit_log_pruned',
+      // HVA-228 — admin issues a soft/hard performance warning to an
+      // exec. before_state null on insert; after_state carries the
+      // exec_user_id + kind + metric/period/values + reason +
+      // hardCountAtIssue (1..5).
+      'warning_issued',
+      // HVA-228 — admin revokes a warning after offline discussion
+      // with the captain. before_state.revokedAt=null; after_state
+      // carries the revokedReason + revokedByUserId.
+      'warning_revoked',
+      // HVA-228 — admin manually deactivates an exec after 5 hard
+      // warnings (system flags, admin fires).
+      'user_deactivated',
     ],
     editable: true,
   },

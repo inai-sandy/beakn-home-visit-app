@@ -9,19 +9,25 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
 // HVA-104 + 2026-05-26 fix: forward-only status advance.
-// When the NEXT stage is VISIT_SCHEDULED, we open a date+time dialog
-// instead of one-tapping — without that picker, visit_scheduled_at
-// stays NULL and Calendar/Reschedule/Rebalance can't function.
-// Other transitions stay one-tap (existing HVA-104 behaviour).
+// HVA-223 2026-06-04: the "should I open a calendar picker?" decision
+// now comes from status_transitions.requires_datetime (admin-editable
+// at /admin/settings/workflow/transitions) instead of the hardcoded
+// VISIT_SCHEDULED check. Default seeded behavior is identical to the
+// old code, but admin can now mark any transition as needing a picker.
 
 interface AdvanceStatusButtonProps {
   requestId: string;
   nextStatus: { id: string; code: string; name: string };
+  /** From status_transitions.requires_datetime for (current → next).
+   *  When true, clicking the button opens the date+time picker
+   *  dialog instead of one-tap advance. */
+  requiresDatetime?: boolean;
 }
 
 export function AdvanceStatusButton({
   requestId,
   nextStatus,
+  requiresDatetime = false,
 }: AdvanceStatusButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -29,7 +35,7 @@ export function AdvanceStatusButton({
   const busy = submitting || isPending;
   const [scheduleOpen, setScheduleOpen] = useState(false);
 
-  const needsScheduleDialog = nextStatus.code === "VISIT_SCHEDULED";
+  const needsScheduleDialog = requiresDatetime;
 
   async function onClick() {
     if (busy) return;

@@ -18,6 +18,7 @@ import {
   users,
   visitRequests,
 } from "@/db/schema";
+import { loadTransitionByPair } from "@/lib/admin/transitions";
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
 import { canCaptainEditRequest } from "@/lib/captain/edit-auth";
@@ -271,6 +272,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
 
   const isTerminal = futureStages.length === 0;
   const nextStage = futureStages[0] ?? null;
+
+  // HVA-223: per-transition flags from status_transitions catalog.
+  // Replaces the hardcoded `nextStatus.code === 'VISIT_SCHEDULED'`
+  // check in AdvanceStatusButton — admin can now mark any transition
+  // as needing a date+time picker via /admin/settings/workflow/transitions.
+  const nextTransition = nextStage
+    ? await loadTransitionByPair(reqRow.currentStageCode, nextStage.code)
+    : null;
+  const nextRequiresDatetime = nextTransition?.requiresDatetime ?? false;
   const mapsUrl = buildMapsUrl(reqRow.latitude, reqRow.longitude);
   const interest = Array.isArray(reqRow.interest) ? reqRow.interest : [];
 
@@ -826,6 +836,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
                     code: nextStage.code,
                     name: nextStage.name,
                   }}
+                  requiresDatetime={nextRequiresDatetime}
                 />
               )}
             </section>

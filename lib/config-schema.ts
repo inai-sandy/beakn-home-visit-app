@@ -293,6 +293,9 @@ export const CONFIG_SCHEMA = {
       // HVA-222 — admin edits the status_stages catalog (create / update /
       // delete). before/after JSON carries the full row delta.
       'status_stage_changed',
+      // HVA-223 — admin toggles a status_transitions row's
+      // requires_datetime flag (Phase A; other flags become editable in HVA-225).
+      'status_transition_changed',
     ],
     editable: true,
   },

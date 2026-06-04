@@ -40,6 +40,8 @@ import { loadDayCloseMetrics } from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
 
 import { ExecTargetCard } from '@/components/targets/ExecTargetCard';
+import { WarningCountsPill } from '@/components/warnings/WarningCountsPill';
+import { loadActiveWarningCounts } from '@/lib/warnings/queries';
 
 import { ExecDashboardHeader } from './_components/ExecDashboardHeader';
 import { HeroMetrics } from './_components/HeroMetrics';
@@ -254,9 +256,14 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     filter.mode === 'single' ? filter.date : filter.from;
   const dayCloseLabel = formatSelectedDateLabel(selectedSingleDate);
 
+  const warningCounts = await loadActiveWarningCounts(user.id);
+
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
       <ExecDashboardHeader filter={filter} />
+      {(warningCounts.softActive > 0 || warningCounts.hardActive > 0) && (
+        <WarningCountsPill counts={warningCounts} />
+      )}
       {targetProgress && (
         <ExecTargetCard progress={targetProgress} window={monthWindow} />
       )}

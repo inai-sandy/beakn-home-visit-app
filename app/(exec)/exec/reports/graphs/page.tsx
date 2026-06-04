@@ -10,40 +10,42 @@ import { defaultReportRange } from '@/lib/reports/types';
 import { getIstDateString } from '@/lib/today/time';
 
 // =============================================================================
-// /admin/reports/graphs — Sprint 4 graphs surface (HVA-226)
+// /exec/reports/graphs — exec-scoped graphs view (HVA-226)
 // =============================================================================
 //
-// Curated 6-chart visual dashboard. Bundle loader runs the 6 queries in
-// parallel server-side, then GraphsView hydrates each card client-side
-// (recharts is client-only). Default window is the last 30 IST days.
-//
-// Captain and exec mirror this page with a narrower scope; the chart
-// components are identical.
+// Same 6 charts as /admin/reports/graphs, scoped to the exec themself.
+// Exec sees only requests where `assigned_exec_user_id` = caller id.
+// The "Top execs" chart degrades to a single bar in this scope.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Graphs — Beakn admin',
+  title: 'Graphs — My performance',
 };
 
-export default async function AdminReportsGraphsPage() {
+export default async function ExecReportsGraphsPage() {
   const session = await getServerSession();
-  if (!session) redirect('/login?next=/admin/reports/graphs');
-  if ((session.user as { role?: string }).role !== 'super_admin') {
+  if (!session) redirect('/login?next=/exec/reports/graphs');
+  const user = session.user as { id: string; role?: string };
+  if (
+    user.role !== 'sales_executive' &&
+    user.role !== 'captain' &&
+    user.role !== 'super_admin'
+  ) {
     redirect('/login');
   }
 
   const range = defaultReportRange(getIstDateString());
   const bundle = await loadGraphsBundle({
-    scope: { kind: 'global' },
+    scope: { kind: 'exec', execUserId: user.id },
     range,
   });
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
       <Link
-        href="/admin/reports"
+        href="/exec/reports"
         className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <Icon name="arrow_back" size="xs" />
@@ -56,10 +58,10 @@ export default async function AdminReportsGraphsPage() {
             Reports — Graphs
           </p>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Visual dashboard
+            My performance
           </h1>
           <p className="text-sm text-muted-foreground">
-            Curated 6-chart view of the last 30 days · all teams, all cities.
+            Last 30 days — only the requests assigned to you.
           </p>
         </div>
         <span className="text-[11px] text-muted-foreground bg-muted/40 rounded-md px-2 py-1.5 whitespace-nowrap w-fit">
@@ -69,7 +71,7 @@ export default async function AdminReportsGraphsPage() {
 
       <GraphsView
         bundle={bundle}
-        scope={{ kind: 'global' }}
+        scope={{ kind: 'exec', execUserId: user.id }}
         windowLabel="the last 30 days"
       />
     </main>

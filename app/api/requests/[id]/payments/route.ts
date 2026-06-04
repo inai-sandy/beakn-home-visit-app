@@ -1,11 +1,18 @@
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { cities, payments, users, visitRequests } from '@/db/schema';
+import {
+  cities,
+  payments,
+  requestStatusHistory,
+  statusStages,
+  users,
+  visitRequests,
+} from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import {
   ForbiddenError,
@@ -13,6 +20,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { getConfig } from '@/lib/config';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { paymentSchema } from '@/lib/validators/payment';
@@ -175,6 +183,49 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       { ok: false, error: 'Cannot record a payment on a cancelled/rejected request.' },
       { status: 409 },
     );
+  }
+
+  // 6b. HVA-224: refund window. When the admin-configured
+  // `refund_window_days` > 0, an outbound payment is rejected if
+  // ORDER_CONFIRMED happened more than that many days ago. Window = 0
+  // disables the check (refunds always allowed). Window applies only to
+  // refunds whose request has actually been confirmed — pre-confirmation
+  // deposit refunds (rare) are not gated.
+  if (body.direction === 'outbound') {
+    const refundWindowDays = await getConfig('refund_window_days');
+    if (refundWindowDays > 0) {
+      const [orderConfirmedRow] = await db
+        .select({ changedAt: requestStatusHistory.changedAt })
+        .from(requestStatusHistory)
+        .innerJoin(
+          statusStages,
+          eq(statusStages.id, requestStatusHistory.toStatusStageId),
+        )
+        .where(
+          and(
+            eq(requestStatusHistory.requestId, requestUuid),
+            eq(statusStages.code, 'ORDER_CONFIRMED'),
+          ),
+        )
+        .orderBy(desc(requestStatusHistory.transitionOrder))
+        .limit(1);
+
+      if (orderConfirmedRow) {
+        const daysSinceConfirmed = Math.floor(
+          (Date.now() - orderConfirmedRow.changedAt.getTime()) /
+            (1000 * 60 * 60 * 24),
+        );
+        if (daysSinceConfirmed > refundWindowDays) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: `Refund window closed — order was confirmed ${daysSinceConfirmed} days ago (window is ${refundWindowDays} days). Contact admin to change the window.`,
+            },
+            { status: 409 },
+          );
+        }
+      }
+    }
   }
 
   // 7. Insert.

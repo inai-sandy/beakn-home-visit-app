@@ -158,6 +158,9 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
     expect(workflow.items.map((i) => i.label)).toEqual([
       'Status Stages',
       'Transitions',
+      'Approval Timeout',
+      'Refund Window',
+      'Audit Retention',
       'Holidays',
     ]);
   });

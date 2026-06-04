@@ -180,6 +180,21 @@ export const ADMIN_NAV: AdminNavGroup[] = [
             href: '/admin/settings/workflow/transitions',
           },
           {
+            label: 'Approval Timeout',
+            icon: 'hourglass_top',
+            href: '/admin/settings/workflow/approval-timeout',
+          },
+          {
+            label: 'Refund Window',
+            icon: 'undo',
+            href: '/admin/settings/workflow/refund-window',
+          },
+          {
+            label: 'Audit Retention',
+            icon: 'history',
+            href: '/admin/settings/workflow/audit-retention',
+          },
+          {
             label: 'Holidays',
             icon: 'event',
             href: '/admin/settings/workflow/holidays',

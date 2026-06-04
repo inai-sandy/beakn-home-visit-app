@@ -75,7 +75,7 @@ describe('loadFinanceSnapshot — per-row clamp regression', () => {
       phone: '+919100900001',
       fullName: 'FinExec',
     });
-    const city = await getOrCreateCity('FinanceCity1');
+    const city = await getOrCreateCity('Bangalore');
 
     // Request A: underpaid by ₹10k (quoted 25k, paid 15k → owes 10k)
     const a = await seedVisitRequest({
@@ -130,7 +130,7 @@ describe('loadFinanceSnapshot — per-row clamp regression', () => {
       phone: '+919100900002',
       fullName: 'FinExec2',
     });
-    const city = await getOrCreateCity('FinanceCity2');
+    const city = await getOrCreateCity('Chennai');
 
     // Singham case: quoted 75k, paid 5k inbound + refunded 10k outbound
     // → net paid = -5k, owes the customer 5k back, original 75k still outstanding
@@ -169,7 +169,7 @@ describe('loadFinanceSnapshot — per-row clamp regression', () => {
       phone: '+919100900003',
       fullName: 'FinExec3',
     });
-    const city = await getOrCreateCity('FinanceCity3');
+    const city = await getOrCreateCity('Hyderabad');
 
     // Unquoted request with a pre-quote deposit of ₹3k.
     const d = await seedVisitRequest({

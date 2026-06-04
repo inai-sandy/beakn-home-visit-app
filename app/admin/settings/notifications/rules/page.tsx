@@ -1,27 +1,16 @@
-import { asc } from 'drizzle-orm';
+import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Pagination } from '@/components/lists/Pagination';
 import { Icon } from '@/components/ui/icon';
 import { db } from '@/db/client';
 import { notificationRules } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
+import { computePageRange, parsePage } from '@/lib/pagination';
 
 import { RuleToggle } from './_components/RuleToggle';
-
-// =============================================================================
-// HVA-50: /admin/settings/notifications/rules — toggle notification rules
-// =============================================================================
-//
-// Reads `notification_rules`, groups by event_type, renders a table per
-// event with one row per (channel, recipient_role) and a switch toggling
-// `enabled`. The engine reads only enabled=true rules, so toggling here
-// directly changes what fires in prod.
-//
-// Body composition still lives in code (lib/notifications/compose/*) —
-// `template_key` is shown but read-only for now (admin-edit comes in a
-// later ticket when body composition moves to the DB).
-// =============================================================================
 
 export const dynamic = 'force-dynamic';
 
@@ -62,14 +51,53 @@ function eventTypeLabel(eventType: string): string {
     .join(' · ');
 }
 
-export default async function NotificationRulesAdminPage() {
+interface PageProps {
+  searchParams: Promise<{
+    q?: string;
+    event?: string;
+    channel?: string;
+    page?: string;
+  }>;
+}
+
+export default async function NotificationRulesAdminPage({
+  searchParams,
+}: PageProps) {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/admin/settings/notifications/rules');
   if ((session.user as { role?: string }).role !== 'super_admin') {
     redirect('/admin/dashboard');
   }
 
-  const rows = await db
+  const sp = await searchParams;
+  const search = (sp.q ?? '').trim();
+  const eventFilter = sp.event && sp.event !== 'all' ? sp.event : undefined;
+  const channelFilter =
+    sp.channel && sp.channel !== 'all' ? sp.channel : undefined;
+  const page = parsePage(sp.page);
+  const PAGE_SIZE = 50;
+  const basePath = '/admin/settings/notifications/rules';
+
+  const wherePredicate = and(
+    eventFilter ? eq(notificationRules.eventType, eventFilter) : undefined,
+    channelFilter ? eq(notificationRules.channel, channelFilter) : undefined,
+    search.length > 0
+      ? or(
+          ilike(notificationRules.eventType, `%${search}%`),
+          ilike(notificationRules.recipientRole, `%${search}%`),
+          ilike(notificationRules.templateKey, `%${search}%`),
+        )
+      : undefined,
+  );
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`COUNT(*)::int` })
+    .from(notificationRules)
+    .where(wherePredicate);
+
+  const range = computePageRange({ total, page, pageSize: PAGE_SIZE });
+
+  const rows: RuleRow[] = await db
     .select({
       id: notificationRules.id,
       eventType: notificationRules.eventType,
@@ -79,11 +107,25 @@ export default async function NotificationRulesAdminPage() {
       templateKey: notificationRules.templateKey,
     })
     .from(notificationRules)
+    .where(wherePredicate)
     .orderBy(
       asc(notificationRules.eventType),
       asc(notificationRules.channel),
       asc(notificationRules.recipientRole),
-    );
+    )
+    .limit(range.pageSize)
+    .offset(range.offset);
+
+  // For the event_type + channel dropdowns, load the full distinct set
+  // (small, ~10 events × 5 channels — cheap one-time query).
+  const eventOptions = await db
+    .selectDistinct({ value: notificationRules.eventType })
+    .from(notificationRules)
+    .orderBy(asc(notificationRules.eventType));
+  const channelOptions = await db
+    .selectDistinct({ value: notificationRules.channel })
+    .from(notificationRules)
+    .orderBy(asc(notificationRules.channel));
 
   const grouped = new Map<string, RuleRow[]>();
   for (const r of rows) {
@@ -92,7 +134,7 @@ export default async function NotificationRulesAdminPage() {
   }
 
   const enabledCount = rows.filter((r) => r.enabled).length;
-  const totalCount = rows.length;
+  const showingCount = rows.length;
 
   return (
     <main className="min-h-svh bg-background">
@@ -105,16 +147,85 @@ export default async function NotificationRulesAdminPage() {
             Notification rules
           </h1>
           <p className="text-sm text-muted-foreground">
-            {enabledCount} of {totalCount} rules enabled. Toggle a switch to
-            change what fires.
+            {total === 0
+              ? 'No notification rules match the current filter.'
+              : `${enabledCount} of ${showingCount} shown on this page enabled · ${total} total match${total === 1 ? '' : 'es'}.`}
           </p>
         </header>
 
-        {totalCount === 0 ? (
+        <form
+          method="GET"
+          action={basePath}
+          className="rounded-2xl border bg-card p-3 grid grid-cols-1 sm:grid-cols-4 gap-3"
+        >
+          <label className="space-y-1 sm:col-span-2">
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Search
+            </span>
+            <input
+              name="q"
+              defaultValue={search}
+              placeholder="Event, recipient, template…"
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Event type
+            </span>
+            <select
+              name="event"
+              defaultValue={eventFilter ?? 'all'}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="all">All events</option>
+              {eventOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Channel
+            </span>
+            <select
+              name="channel"
+              defaultValue={channelFilter ?? 'all'}
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+            >
+              <option value="all">All channels</option>
+              {channelOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {CHANNEL_LABELS[o.value] ?? o.value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="sm:col-span-4 flex justify-end gap-2">
+            <Link
+              href={basePath}
+              className="h-10 px-4 rounded-md border text-sm font-medium hover:bg-accent inline-flex items-center"
+            >
+              Reset
+            </Link>
+            <button
+              type="submit"
+              className="h-10 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            >
+              Apply
+            </button>
+          </div>
+        </form>
+
+        {total === 0 ? (
           <div className="rounded-3xl border bg-muted/40 p-10 text-center">
             <Icon name="rule" size="lg" className="text-muted-foreground/70 mx-auto" />
             <p className="text-sm text-muted-foreground mt-3">
-              No notification rules seeded yet.
+              {search.length > 0 || eventFilter || channelFilter
+                ? 'No rules match the current filter.'
+                : 'No notification rules seeded yet.'}
             </p>
           </div>
         ) : (
@@ -165,6 +276,17 @@ export default async function NotificationRulesAdminPage() {
               );
             })}
           </section>
+        )}
+
+        {range.totalPages > 1 && (
+          <Pagination
+            pathname={basePath}
+            page={page}
+            totalPages={range.totalPages}
+            from={range.offset + 1}
+            to={Math.min(range.offset + range.pageSize, total)}
+            total={total}
+          />
         )}
       </div>
     </main>

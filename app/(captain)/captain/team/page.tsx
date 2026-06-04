@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { Pagination } from '@/components/lists/Pagination';
 import { db } from '@/db/client';
 import { salesExecutives, users } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
@@ -11,6 +12,7 @@ import {
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
 import { loadTeamExecMetrics } from '@/lib/captain/team-queries';
+import { computePageRange, parsePage } from '@/lib/pagination';
 import { getIstDateString } from '@/lib/today/time';
 
 import { EmptyTeamState } from './_components/EmptyTeamState';
@@ -36,8 +38,10 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ window?: string; q?: string }>;
+  searchParams: Promise<{ window?: string; q?: string; page?: string }>;
 }
+
+const PAGE_SIZE = 50;
 
 function parseWindow(raw: unknown): TeamWindow {
   if (raw === 'today' || raw === 'week' || raw === 'month') return raw;
@@ -68,6 +72,7 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const window = parseWindow(params.window);
   const search = (params.q ?? '').trim();
+  const page = parsePage(params.page);
   const dateFilter = buildDateFilter(window);
 
   // super_admin has no team to list — show the empty state. They can use
@@ -100,6 +105,20 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
             OR LOWER(${users.phone}) LIKE ${`%${searchTerm}%`})`
       : undefined;
 
+  const whereClause = and(
+    eq(salesExecutives.captainUserId, user.id),
+    eq(users.isActive, true),
+    searchPredicate,
+  );
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`COUNT(*)::int` })
+    .from(salesExecutives)
+    .innerJoin(users, eq(users.id, salesExecutives.userId))
+    .where(whereClause);
+
+  const range = computePageRange({ total, page, pageSize: PAGE_SIZE });
+
   const teamRoster = await db
     .select({
       userId: salesExecutives.userId,
@@ -108,14 +127,10 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
     })
     .from(salesExecutives)
     .innerJoin(users, eq(users.id, salesExecutives.userId))
-    .where(
-      and(
-        eq(salesExecutives.captainUserId, user.id),
-        eq(users.isActive, true),
-        searchPredicate,
-      ),
-    )
-    .orderBy(asc(users.fullName));
+    .where(whereClause)
+    .orderBy(asc(users.fullName))
+    .limit(range.pageSize)
+    .offset(range.offset);
 
   if (teamRoster.length === 0) {
     return (
@@ -184,6 +199,17 @@ export default async function CaptainTeamPage({ searchParams }: PageProps) {
           </li>
         ))}
       </ul>
+
+      {range.totalPages > 1 && (
+        <Pagination
+          pathname="/captain/team"
+          page={page}
+          totalPages={range.totalPages}
+          from={range.offset + 1}
+          to={Math.min(range.offset + range.pageSize, total)}
+          total={total}
+        />
+      )}
     </div>
   );
 }

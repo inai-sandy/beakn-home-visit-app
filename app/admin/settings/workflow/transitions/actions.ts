@@ -12,14 +12,32 @@ import { getServerSession } from '@/lib/auth-server';
 import { logEvent } from '@/lib/audit';
 
 // =============================================================================
-// HVA-223: status_transitions admin actions
+// HVA-223 + HVA-225: status_transitions admin actions
 // =============================================================================
 //
-// Phase A — only `requires_datetime` is editable (drives the
-// AdvanceStatusButton calendar dialog). The other flags will become
-// editable in HVA-225 when lib/status-transition.ts gets refactored to
-// read enforcement from the table.
+// HVA-225 lifted the Phase A guard — every flag on a transition row is
+// now editable + enforced by lib/status-transition.ts. Two actions:
+//   - setTransitionRequiresDatetimeAction (kept; thin wrapper around the
+//     generalised action so per-cell switch UI still works)
+//   - updateTransitionAction (full per-row patch)
 // =============================================================================
+
+const TASK_TYPE_ENUM = [
+  'customer_home_visit',
+  'sales_pitch',
+  'outlet_visit',
+  'follow_up',
+  'installation',
+  'stall_activity',
+  'other',
+] as const;
+
+const ALLOWED_ROLE_ENUM = [
+  'sales_executive',
+  'captain',
+  'super_admin',
+  'any',
+] as const;
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -33,28 +51,44 @@ async function requireSuperAdmin() {
   return { ok: true as const, userId: user.id };
 }
 
-const schema = z.object({
+// HVA-225 — full per-row patch.
+const updateSchema = z.object({
   id: z.string().uuid(),
+  allowedRole: z.enum(ALLOWED_ROLE_ENUM),
+  requiresReason: z.boolean(),
+  requiresQuotation: z.boolean(),
   requiresDatetime: z.boolean(),
+  autoTaskType: z.enum(TASK_TYPE_ENUM).nullable(),
+  isActive: z.boolean(),
+  description: z.string().trim().max(2000).nullable(),
 });
 
-export async function setTransitionRequiresDatetimeAction(
-  input: z.infer<typeof schema>,
+export async function updateTransitionAction(
+  input: z.infer<typeof updateSchema>,
 ): Promise<ActionResult> {
   const auth = await requireSuperAdmin();
   if (!auth.ok) return auth;
 
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: 'Invalid input' };
+  const parsed = updateSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? 'Invalid input',
+    };
+  }
 
   const toStage = alias(statusStages, 'to_stage');
   const [before] = await db
     .select({
       id: statusTransitions.id,
-      fromStageId: statusTransitions.fromStageId,
-      toStageId: statusTransitions.toStageId,
-      toCode: toStage.code,
+      allowedRole: statusTransitions.allowedRole,
+      requiresReason: statusTransitions.requiresReason,
+      requiresQuotation: statusTransitions.requiresQuotation,
       requiresDatetime: statusTransitions.requiresDatetime,
+      autoTaskType: statusTransitions.autoTaskType,
+      isActive: statusTransitions.isActive,
+      description: statusTransitions.description,
+      toCode: toStage.code,
     })
     .from(statusTransitions)
     .innerJoin(toStage, eq(toStage.id, statusTransitions.toStageId))
@@ -63,24 +97,30 @@ export async function setTransitionRequiresDatetimeAction(
 
   if (!before) return { ok: false, error: 'Transition not found' };
 
-  // HVA-223 Phase A guard: the calendar dialog + side-effect plumbing
-  // (auto-task creation, visit_scheduled_at column) is only wired for
-  // transitions whose target is VISIT_SCHEDULED. Enabling the picker on
-  // other transitions would open the dialog but the submit would
-  // currently fail. HVA-225 will generalise the side-effect mechanism so
-  // any transition with auto_task_type set can carry a calendar.
+  // Calendar plumbing guard: scheduleVisitAction (the action behind the
+  // calendar dialog) only knows how to handle the VISIT_SCHEDULED path
+  // — it sets visit_scheduled_at + auto-creates a customer_home_visit
+  // task. Enabling requires_datetime on a different transition would
+  // open the picker but the submit would fail. Lifted in HVA-226 when
+  // the calendar action becomes generic.
   if (parsed.data.requiresDatetime && before.toCode !== 'VISIT_SCHEDULED') {
     return {
       ok: false,
       error:
-        'Calendar picker is only wired for transitions to VISIT_SCHEDULED today. Enabling on other stages needs HVA-225 (generalised side-effect side).',
+        'Calendar picker action is only wired for VISIT_SCHEDULED today. Enabling on other stages needs HVA-226 (generalised calendar/auto-task plumbing).',
     };
   }
 
   await db
     .update(statusTransitions)
     .set({
+      allowedRole: parsed.data.allowedRole,
+      requiresReason: parsed.data.requiresReason,
+      requiresQuotation: parsed.data.requiresQuotation,
       requiresDatetime: parsed.data.requiresDatetime,
+      autoTaskType: parsed.data.autoTaskType,
+      isActive: parsed.data.isActive,
+      description: parsed.data.description,
       updatedAt: new Date(),
     })
     .where(eq(statusTransitions.id, parsed.data.id));
@@ -90,10 +130,72 @@ export async function setTransitionRequiresDatetimeAction(
     actorUserId: auth.userId,
     targetEntityType: 'status_transition',
     targetEntityId: parsed.data.id,
-    beforeState: { requiresDatetime: before.requiresDatetime },
-    afterState: { requiresDatetime: parsed.data.requiresDatetime },
+    beforeState: {
+      allowedRole: before.allowedRole,
+      requiresReason: before.requiresReason,
+      requiresQuotation: before.requiresQuotation,
+      requiresDatetime: before.requiresDatetime,
+      autoTaskType: before.autoTaskType,
+      isActive: before.isActive,
+      description: before.description,
+    },
+    afterState: {
+      allowedRole: parsed.data.allowedRole,
+      requiresReason: parsed.data.requiresReason,
+      requiresQuotation: parsed.data.requiresQuotation,
+      requiresDatetime: parsed.data.requiresDatetime,
+      autoTaskType: parsed.data.autoTaskType,
+      isActive: parsed.data.isActive,
+      description: parsed.data.description,
+    },
   });
 
   revalidatePath('/', 'layout');
   return { ok: true };
+}
+
+// HVA-223 wrapper kept so the existing per-cell switch in
+// TransitionsClient.tsx keeps working without a UI rewrite. Forwards to
+// updateTransitionAction with the other fields preserved.
+const switchSchema = z.object({
+  id: z.string().uuid(),
+  requiresDatetime: z.boolean(),
+});
+
+export async function setTransitionRequiresDatetimeAction(
+  input: z.infer<typeof switchSchema>,
+): Promise<ActionResult> {
+  const auth = await requireSuperAdmin();
+  if (!auth.ok) return auth;
+
+  const parsed = switchSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input' };
+
+  const [row] = await db
+    .select({
+      id: statusTransitions.id,
+      allowedRole: statusTransitions.allowedRole,
+      requiresReason: statusTransitions.requiresReason,
+      requiresQuotation: statusTransitions.requiresQuotation,
+      autoTaskType: statusTransitions.autoTaskType,
+      isActive: statusTransitions.isActive,
+      description: statusTransitions.description,
+    })
+    .from(statusTransitions)
+    .where(eq(statusTransitions.id, parsed.data.id))
+    .limit(1);
+  if (!row) return { ok: false, error: 'Transition not found' };
+
+  return updateTransitionAction({
+    id: row.id,
+    allowedRole: row.allowedRole as 'sales_executive' | 'captain' | 'super_admin' | 'any',
+    requiresReason: row.requiresReason,
+    requiresQuotation: row.requiresQuotation,
+    requiresDatetime: parsed.data.requiresDatetime,
+    autoTaskType: row.autoTaskType as
+      | (typeof TASK_TYPE_ENUM)[number]
+      | null,
+    isActive: row.isActive,
+    description: row.description,
+  });
 }

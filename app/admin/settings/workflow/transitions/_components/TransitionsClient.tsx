@@ -1,15 +1,54 @@
 'use client';
 
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Icon } from '@/components/ui/icon';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 
 import type { TransitionRow } from '@/lib/admin/transitions';
 
-import { setTransitionRequiresDatetimeAction } from '../actions';
+import {
+  setTransitionRequiresDatetimeAction,
+  updateTransitionAction,
+} from '../actions';
+
+const ALLOWED_ROLES = [
+  'sales_executive',
+  'captain',
+  'super_admin',
+  'any',
+] as const;
+
+const TASK_TYPES = [
+  'customer_home_visit',
+  'sales_pitch',
+  'outlet_visit',
+  'follow_up',
+  'installation',
+  'stall_activity',
+  'other',
+] as const;
 
 interface Props {
   transitions: TransitionRow[];
@@ -35,41 +74,64 @@ const KIND_BADGE: Record<string, { label: string; tone: string }> = {
 };
 
 export function TransitionsClient({ transitions }: Props) {
+  const [editing, setEditing] = useState<TransitionRow | null>(null);
+
   return (
-    <div className="rounded-2xl border bg-card overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-[11px] uppercase tracking-wide text-muted-foreground bg-muted/40">
-            <tr>
-              <th className="text-left py-2.5 px-3">From</th>
-              <th className="text-left py-2.5 px-3">To</th>
-              <th className="text-left py-2.5 px-3">Kind</th>
-              <th className="text-left py-2.5 px-3">Role</th>
-              <th className="text-center py-2.5 px-3" title="Requires reason">
-                Reason
-              </th>
-              <th className="text-center py-2.5 px-3" title="Requires quotation">
-                Quote
-              </th>
-              <th className="text-center py-2.5 px-3" title="Requires date+time picker">
-                Date+time
-              </th>
-              <th className="text-left py-2.5 px-3">Auto-task</th>
-              <th className="text-left py-2.5 px-3">Event</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {transitions.map((t) => (
-              <TransitionRowView key={t.id} row={t} />
-            ))}
-          </tbody>
-        </table>
+    <>
+      <div className="rounded-2xl border bg-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-[11px] uppercase tracking-wide text-muted-foreground bg-muted/40">
+              <tr>
+                <th className="text-left py-2.5 px-3">From</th>
+                <th className="text-left py-2.5 px-3">To</th>
+                <th className="text-left py-2.5 px-3">Kind</th>
+                <th className="text-left py-2.5 px-3">Role</th>
+                <th className="text-center py-2.5 px-3" title="Requires reason">
+                  Reason
+                </th>
+                <th className="text-center py-2.5 px-3" title="Requires quotation">
+                  Quote
+                </th>
+                <th className="text-center py-2.5 px-3" title="Requires date+time picker">
+                  Date+time
+                </th>
+                <th className="text-left py-2.5 px-3">Auto-task</th>
+                <th className="text-left py-2.5 px-3">Event</th>
+                <th className="text-center py-2.5 px-3">Active</th>
+                <th className="text-right py-2.5 px-3">Edit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {transitions.map((t) => (
+                <TransitionRowView
+                  key={t.id}
+                  row={t}
+                  onEdit={() => setEditing(t)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+
+      {editing && (
+        <EditTransitionModal
+          row={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </>
   );
 }
 
-function TransitionRowView({ row }: { row: TransitionRow }) {
+function TransitionRowView({
+  row,
+  onEdit,
+}: {
+  row: TransitionRow;
+  onEdit: () => void;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const kindBadge = KIND_BADGE[row.kind] ?? {
@@ -155,6 +217,179 @@ function TransitionRowView({ row }: { row: TransitionRow }) {
           <span className="text-muted-foreground/50">—</span>
         )}
       </td>
+      <td className="py-2.5 px-3 text-center">
+        {row.isActive ? (
+          <span className="text-emerald-600 text-xs">●</span>
+        ) : (
+          <Badge variant="outline" className="text-[10px] border-rose-300 text-rose-700">
+            Disabled
+          </Badge>
+        )}
+      </td>
+      <td className="py-2.5 px-3 text-right">
+        <Button size="sm" variant="outline" onClick={onEdit}>
+          <Icon name="edit" size="xs" />
+        </Button>
+      </td>
     </tr>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Edit modal — full per-row patch
+// -----------------------------------------------------------------------------
+
+function EditTransitionModal({
+  row,
+  onClose,
+}: {
+  row: TransitionRow;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [allowedRole, setAllowedRole] = useState(row.allowedRole);
+  const [requiresReason, setRequiresReason] = useState(row.requiresReason);
+  const [requiresQuotation, setRequiresQuotation] = useState(
+    row.requiresQuotation,
+  );
+  const [requiresDatetime, setRequiresDatetime] = useState(row.requiresDatetime);
+  const [autoTaskType, setAutoTaskType] = useState<string>(
+    row.autoTaskType ?? '__none__',
+  );
+  const [isActive, setIsActive] = useState(row.isActive);
+  const [description, setDescription] = useState(row.description ?? '');
+
+  function save() {
+    startTransition(async () => {
+      const result = await updateTransitionAction({
+        id: row.id,
+        allowedRole: allowedRole as (typeof ALLOWED_ROLES)[number],
+        requiresReason,
+        requiresQuotation,
+        requiresDatetime,
+        autoTaskType:
+          autoTaskType === '__none__'
+            ? null
+            : (autoTaskType as (typeof TASK_TYPES)[number]),
+        isActive,
+        description: description.trim().length > 0 ? description.trim() : null,
+      });
+      if (result.ok) {
+        toast.success(`Updated ${row.fromCode} → ${row.toCode}`);
+        router.refresh();
+        onClose();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>
+            Edit transition: {row.fromName} → {row.toName}
+          </DialogTitle>
+          <DialogDescription>
+            <span className="font-mono text-[11px]">
+              {row.fromCode} → {row.toCode}
+            </span>{' '}
+            ·{' '}
+            {KIND_BADGE[row.kind]?.label ?? row.kind}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="edit-role">Allowed role</Label>
+              <Select value={allowedRole} onValueChange={setAllowedRole}>
+                <SelectTrigger id="edit-role" className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALLOWED_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="edit-auto-task">Auto-create task</Label>
+              <Select value={autoTaskType} onValueChange={setAutoTaskType}>
+                <SelectTrigger id="edit-auto-task" className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— None —</SelectItem>
+                  {TASK_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-2">
+              <Switch
+                checked={requiresReason}
+                onCheckedChange={setRequiresReason}
+              />
+              <span className="text-sm">Requires reason</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Switch
+                checked={requiresQuotation}
+                onCheckedChange={setRequiresQuotation}
+              />
+              <span className="text-sm">Requires quotation</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Switch
+                checked={requiresDatetime}
+                onCheckedChange={setRequiresDatetime}
+              />
+              <span className="text-sm">Date+time picker</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <Switch checked={isActive} onCheckedChange={setIsActive} />
+              <span className="text-sm">Active</span>
+            </label>
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="edit-description">Description (admin-only)</Label>
+            <Textarea
+              id="edit-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              maxLength={2000}
+              placeholder="Optional internal note."
+            />
+          </div>
+
+          {row.emitsEvent && (
+            <p className="text-[11px] text-muted-foreground bg-muted/30 rounded px-2 py-1.5 font-mono">
+              Emits event: {row.emitsEvent} (read-only — change requires a code update)
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={pending}>
+            {pending ? 'Saving…' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,10 +1,19 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db/client';
-import { cities, requestStatusHistory, statusStages, users, visitRequests } from '@/db/schema';
+import {
+  cities,
+  quotations,
+  requestStatusHistory,
+  statusStages,
+  statusTransitions,
+  users,
+  visitRequests,
+} from '@/db/schema';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { logEvent } from '@/lib/audit';
-import { type Role } from '@/lib/auth/roles';
+import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 
 // =============================================================================
@@ -46,6 +55,35 @@ export type StatusTransitionError =
       message: string;
       currentSequence: number;
       attemptedSequence: number;
+    }
+  // HVA-225 — admin disabled this transition via /admin/settings/workflow/transitions.
+  | {
+      ok: false;
+      status: 400;
+      error: 'TRANSITION_INACTIVE';
+      message: string;
+    }
+  // HVA-225 — admin set allowed_role on the transition; actor doesn't match.
+  | {
+      ok: false;
+      status: 403;
+      error: 'ROLE_NOT_ALLOWED';
+      message: string;
+      requiredRole: string;
+    }
+  // HVA-225 — admin set requires_reason=true; advance had empty/null reason.
+  | {
+      ok: false;
+      status: 400;
+      error: 'REASON_REQUIRED';
+      message: string;
+    }
+  // HVA-225 — admin set requires_quotation=true; request has no quotation row.
+  | {
+      ok: false;
+      status: 400;
+      error: 'QUOTATION_REQUIRED';
+      message: string;
     }
   | { ok: false; status: 503; error: 'TX_FAILED'; message: string };
 
@@ -235,47 +273,125 @@ export async function transitionRequestStatus(
     };
   }
 
-  // 4. Forward-only enforcement (with HVA-141 rollback exception).
-  //    - Default: strict +1 (the immediate next stage only). Used by
-  //      the generic "Move to Next Stage" button + HVA-81 assign.
-  //    - allowForwardSkip=true: any strictly-forward target accepted
-  //      (nextSeq > currentSeq). Backward and same-stage still rejected.
-  //      Used by HVA-68 mark-installation-complete (seq 7 → 9 jump).
-  //    - allowRollback=true: accept exactly nextSeq === currentSeq - 1.
-  //      Multi-stage backward not allowed. Used by HVA-141 rollback.
-  //    - allowSpecificBackwardTransition: accept exactly the named
-  //      (fromCode, toCode) pair regardless of seq distance. Used by
-  //      HVA-137 captain reject (PENDING_CAPTAIN_APPROVAL →
-  //      INSTALLATION_SCHEDULED, a 3-stage backward jump). Any other
-  //      pair is still rejected.
-  const isStrictlyForward =
-    nextRow.sequenceNumber > currentRow.currentStageSeq;
-  const isExactlyNext =
-    nextRow.sequenceNumber === currentRow.currentStageSeq + 1;
-  const isExactlyPrev =
-    allowRollback && nextRow.sequenceNumber === currentRow.currentStageSeq - 1;
-  const isNamedBackwardPair =
-    allowSpecificBackwardTransition !== undefined &&
-    currentRow.currentStageCode === allowSpecificBackwardTransition.fromCode &&
-    nextRow.code === allowSpecificBackwardTransition.toCode &&
-    nextRow.sequenceNumber < currentRow.currentStageSeq;
-  const forwardOk =
-    isNamedBackwardPair ||
-    isExactlyPrev ||
-    (allowForwardSkip ? isStrictlyForward : isExactlyNext);
-  if (!forwardOk) {
+  // 4. HVA-225 — table-driven transition validation.
+  //
+  // Replaces the legacy flag-based validation (allowForwardSkip /
+  // allowRollback / allowSpecificBackwardTransition). The engine now
+  // consults `status_transitions` for every (fromCode, toCode) pair.
+  //
+  // Caller flags (allowForwardSkip / allowRollback / allowSpecificBackwardTransition)
+  // are KEPT in the signature for back-compat but no longer affect
+  // validation — every legal pair was seeded at migration 0060. If a
+  // caller passes a flag for a pair that isn't in the table, the
+  // transition is rejected via the standard TRANSITION_NOT_ALLOWED /
+  // FORWARD_ONLY paths below.
+  //
+  // Note the cycle of validation:
+  //   a) pair exists in table  →  if not, FORWARD_ONLY
+  //   b) is_active = true       →  if not, TRANSITION_INACTIVE
+  //   c) allowed_role           →  if not, ROLE_NOT_ALLOWED
+  //   d) requires_reason        →  if reason empty, REASON_REQUIRED
+  //   e) requires_quotation     →  if no quote row, QUOTATION_REQUIRED
+  //
+  // super_admin always bypasses (c).
+  void allowForwardSkip;
+  void allowRollback;
+  void allowSpecificBackwardTransition;
+
+  const fromStageAlias = alias(statusStages, 'from_stage_t');
+  const toStageAlias = alias(statusStages, 'to_stage_t');
+  const [transitionRow] = await db
+    .select({
+      id: statusTransitions.id,
+      kind: statusTransitions.kind,
+      allowedRole: statusTransitions.allowedRole,
+      requiresReason: statusTransitions.requiresReason,
+      requiresQuotation: statusTransitions.requiresQuotation,
+      requiresDatetime: statusTransitions.requiresDatetime,
+      autoTaskType: statusTransitions.autoTaskType,
+      emitsEvent: statusTransitions.emitsEvent,
+      isActive: statusTransitions.isActive,
+    })
+    .from(statusTransitions)
+    .innerJoin(
+      fromStageAlias,
+      eq(fromStageAlias.id, statusTransitions.fromStageId),
+    )
+    .innerJoin(
+      toStageAlias,
+      eq(toStageAlias.id, statusTransitions.toStageId),
+    )
+    .where(
+      and(
+        eq(fromStageAlias.code, currentRow.currentStageCode),
+        eq(toStageAlias.code, nextRow.code),
+      ),
+    )
+    .limit(1);
+
+  if (!transitionRow) {
     return {
       ok: false,
       status: 400,
       error: 'FORWARD_ONLY',
-      message: allowRollback
-        ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Rollback supports only a single backward step (currentSeq - 1).`
-        : allowForwardSkip
-          ? `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Forward-only — target must be strictly after current.`
-          : `Cannot transition from sequence ${currentRow.currentStageSeq} to ${nextRow.sequenceNumber}. Only the immediate next stage is allowed.`,
+      message: `Transition from ${currentRow.currentStageCode} to ${nextRow.code} is not configured. Ask admin to add it at /admin/settings/workflow/transitions.`,
       currentSequence: currentRow.currentStageSeq,
       attemptedSequence: nextRow.sequenceNumber,
     };
+  }
+
+  if (!transitionRow.isActive) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'TRANSITION_INACTIVE',
+      message: `Admin has disabled this transition (${currentRow.currentStageCode} → ${nextRow.code}). Ask admin to re-enable it at /admin/settings/workflow/transitions.`,
+    };
+  }
+
+  // Role check — super_admin always allowed; `any` means everyone; else
+  // actor's role must match the configured role.
+  if (
+    actorRole !== USER_ROLES.SUPER_ADMIN &&
+    transitionRow.allowedRole !== 'any' &&
+    transitionRow.allowedRole !== actorRole
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'ROLE_NOT_ALLOWED',
+      message: `This transition requires role "${transitionRow.allowedRole}"; your role is "${actorRole}".`,
+      requiredRole: transitionRow.allowedRole,
+    };
+  }
+
+  if (transitionRow.requiresReason) {
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length === 0) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'REASON_REQUIRED',
+        message: 'This transition requires a reason note.',
+      };
+    }
+  }
+
+  if (transitionRow.requiresQuotation) {
+    const [quote] = await db
+      .select({ id: quotations.id })
+      .from(quotations)
+      .where(eq(quotations.visitRequestId, requestId))
+      .limit(1);
+    if (!quote) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'QUOTATION_REQUIRED',
+        message:
+          'This transition requires a quotation to be submitted first.',
+      };
+    }
   }
 
   // 5. Single transaction:
@@ -350,60 +466,41 @@ export async function transitionRequestStatus(
     userAgent: userAgent ?? null,
   });
 
-  // 2026-05-30: fire request.pending_approval whenever the new stage is
-  // PENDING_CAPTAIN_APPROVAL. Captain + admin care; exec is the actor so
-  // doesn't need a self-ping. Fire-and-forget — never block the response.
-  if (nextRow.code === 'PENDING_CAPTAIN_APPROVAL') {
+  // HVA-225 — table-driven event dispatch. The transition row's
+  // `emits_event` field is the canonical source for which notification
+  // event fires after a successful transition. Replaces the legacy
+  // hardcoded customerStageEventMap + the PENDING_CAPTAIN_APPROVAL
+  // dispatch.
+  //
+  // Context carries every field the existing event composers consume —
+  // customer-facing events read customerPhone / trackingToken /
+  // whatsappOptIn; admin/captain events read cityCaptainUserId /
+  // execName. The notification engine routes by event_type → rules and
+  // drops fields it doesn't need.
+  const dispatchEventType = transitionRow.emitsEvent;
+  if (dispatchEventType) {
     setImmediate(() => {
-      dispatchNotification('request.pending_approval', {
-        requestId,
-        customerName: currentRow.customerName,
-        cityName: currentRow.cityName,
-        cityCaptainUserId: currentRow.cityCaptainUserId,
-        // HVA-49: exec name for the captain_pending_approval WhatsApp body.
-        execName: currentRow.execName ?? 'A team member',
-      }).catch((err) => {
-        transitionLog.warn(
-          { err: err instanceof Error ? err.message : String(err), requestId },
-          'pending_approval_dispatch_failed',
-        );
-      });
-    });
-  }
-
-  // HVA-47: customer-facing WhatsApp dispatches at the 3 emotional
-  // stages — QUOTATION_SUBMITTED, ORDER_CONFIRMED, INSTALLATION_COMPLETE
-  // / ORDER_EXECUTED_SUCCESSFULLY. Context carries customerPhone (the
-  // `customer` recipient role's directAddress) + customerName +
-  // trackingToken (for the template URL parameter). Fire-and-forget.
-  const customerStageEventMap: Record<string, string> = {
-    QUOTATION_SUBMITTED: 'request.quotation_submitted',
-    ORDER_CONFIRMED: 'request.order_confirmed',
-    INSTALLATION_COMPLETE: 'request.installation_complete',
-    ORDER_EXECUTED_SUCCESSFULLY: 'request.installation_complete',
-  };
-  const customerEvent = customerStageEventMap[nextRow.code];
-  if (customerEvent && currentRow.customerPhone && currentRow.trackingToken) {
-    setImmediate(() => {
-      dispatchNotification(customerEvent, {
+      dispatchNotification(dispatchEventType, {
         requestId,
         customerName: currentRow.customerName,
         customerPhone: currentRow.customerPhone,
         trackingToken: currentRow.trackingToken,
-        // HVA-79: opt-in gate read by the engine's customer resolver.
         customerWhatsappOptIn: currentRow.whatsappOptIn,
+        cityName: currentRow.cityName,
+        cityCaptainUserId: currentRow.cityCaptainUserId,
+        execName: currentRow.execName ?? 'A team member',
       }).catch((err) => {
         transitionLog.warn(
           {
             err: err instanceof Error ? err.message : String(err),
             requestId,
-            event: customerEvent,
+            event: dispatchEventType,
           },
-          'customer_whatsapp_dispatch_failed',
+          'transition_event_dispatch_failed',
         );
       });
     });
-  } else if (!customerStageEventMap[nextRow.code] && nextRow.code !== 'PENDING_CAPTAIN_APPROVAL') {
+  } else {
     transitionLog.info(
       {
         requestId,

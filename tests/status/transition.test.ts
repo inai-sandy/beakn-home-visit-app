@@ -409,6 +409,11 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       nextStatusId: installation.id,
       actorUserId: captainId,
       actorRole: 'captain',
+      // HVA-225 seed keeps the captain-reject row strict: requires
+      // reason. The legacy `allowSpecificBackwardTransition` flag is a
+      // no-op now (table is the law) but the engine still needs the
+      // reason because `requires_reason=true` on this row.
+      reason: 'Installer needs to redo step 3',
       allowSpecificBackwardTransition: {
         fromCode: 'PENDING_CAPTAIN_APPROVAL',
         toCode: 'INSTALLATION_SCHEDULED',
@@ -474,7 +479,10 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       nextStatusId: installation.id,
       actorUserId: captainId,
       actorRole: 'captain',
-      // No allowSpecificBackwardTransition — flag is deprecated.
+      // No allowSpecificBackwardTransition — flag is deprecated. But
+      // the seed keeps requires_reason=true on this row, so the engine
+      // still needs a reason.
+      reason: 'Send back for rework',
     });
     expect(result.ok).toBe(true);
   });

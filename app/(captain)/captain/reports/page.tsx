@@ -34,17 +34,26 @@ export default async function CaptainReportsLandingPage() {
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      <header>
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
-          Reports
-        </p>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mt-1">
-          Reports library
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          {totalReports} reports scoped to your team. Same calc discipline as
-          the dashboard (net cash, IST, assigned-exec attribution).
-        </p>
+      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-semibold">
+            Reports
+          </p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+            Reports library
+          </h1>
+          <p className="text-sm text-muted-foreground max-w-2xl">
+            {totalReports} reports scoped to your team. Same calc discipline as
+            the dashboard (net cash, IST, assigned-exec attribution).
+          </p>
+        </div>
+        <Link
+          href="/captain/reports/graphs"
+          className="inline-flex items-center gap-2 rounded-2xl border bg-card px-4 py-2 text-sm font-medium hover:bg-accent transition-colors w-fit"
+        >
+          <Icon name="bar_chart" size="sm" />
+          Graphs view
+        </Link>
       </header>
 
       {groups.map((group) => (

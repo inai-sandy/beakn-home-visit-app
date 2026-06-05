@@ -24,6 +24,8 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // statuses. Placed second since this is the captain's primary workflow.
   { href: '/captain/requests', label: 'Requests', icon: 'list_alt' },
   { href: '/captain/team', label: 'My Team', icon: 'groups' },
+  // 2026-06-05: team-wide task list with sort/filter/pagination.
+  { href: '/captain/tasks', label: 'Tasks', icon: 'task' },
   // 2026-05-26: team-wide visit + task calendar so the captain can see
   // coverage at a glance instead of drilling into each exec.
   { href: '/captain/calendar', label: 'Team Calendar', icon: 'calendar_month' },

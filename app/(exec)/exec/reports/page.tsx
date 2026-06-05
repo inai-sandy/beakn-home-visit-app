@@ -32,7 +32,17 @@ export default async function ExecReportsLandingPage() {
   const session = await getServerSession();
   if (!session) redirect('/login?next=/exec/reports');
   const role = (session.user as { role?: string }).role;
-  if (role !== 'sales_exec' && role !== 'super_admin') redirect('/login');
+  // Canonical role string is `sales_executive` per lib/auth/roles.ts —
+  // the old `sales_exec` typo redirected every real exec to /login.
+  // 2026-06-05 fix: Sandeep reported "Reports are not showing up in the
+  // sales executive portal" — root cause.
+  if (
+    role !== 'sales_executive' &&
+    role !== 'captain' &&
+    role !== 'super_admin'
+  ) {
+    redirect('/login');
+  }
 
   const groups = groupReportsByCategory().filter(
     (g) => !EXEC_HIDDEN_CATEGORIES.includes(g.category),

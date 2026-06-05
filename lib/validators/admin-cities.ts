@@ -1,40 +1,78 @@
 import { z } from 'zod';
 
 // =============================================================================
-// HVA-110: validators for /admin/settings/organization/cities PATCH endpoint
+// HVA-110 + HVA-90: validators for /admin/settings/organization/cities PATCH
 // =============================================================================
 //
-// Only one editable column in this ship: captain_routing_email. The field
-// accepts a valid RFC 5322 email or blank/null (blank resets to NULL,
-// which triggers HVA-42's [UNROUTED] fallback path).
+// HVA-110 shipped with one editable column: `captain_routing_email`.
+// HVA-90 (this update) adds two more — `discord_webhook_url` and
+// `other_routing_email` — and ships a multi-field PATCH where each
+// field is optional. Clients only send the fields they want to change;
+// the server treats an absent field as "no change to this column."
 //
-// The schema accepts string | null | undefined and normalises to one of:
-//   - string (trimmed, lowercased) when an email was provided
-//   - null when the user blanked the field
+// Per-column normalisation:
+//   - captainRoutingEmail  → email | null (HVA-110 contract preserved)
+//   - otherRoutingEmail    → email | null (only valid on the "Other" row)
+//   - discordWebhookUrl    → URL string | null. Server then live-pings
+//                            Discord via lib/admin/discord-webhook-validator.
 //
-// Done via preprocess so the same shape works whether the client sends
-// `{}`, `{captainRoutingEmail: ''}`, `{captainRoutingEmail: null}`, or
-// a real email.
 // =============================================================================
 
-export const cityRoutingEmailUpdateSchema = z.object({
-  captainRoutingEmail: z.preprocess(
-    (v) => {
-      if (v === null || v === undefined) return null;
-      if (typeof v === 'string') {
-        const t = v.trim();
-        return t === '' ? null : t.toLowerCase();
-      }
-      return v;
-    },
+const emailOrNullPreprocessor = z.preprocess(
+  (v) => {
+    // Absent (key omitted) → undefined → schema treats as "no change."
+    if (v === undefined) return undefined;
+    // Explicit null OR empty/whitespace string → null → schema treats as "clear column."
+    if (v === null) return null;
+    if (typeof v === 'string') {
+      const t = v.trim();
+      return t === '' ? null : t.toLowerCase();
+    }
+    return v;
+  },
+  z.union([
+    z.string().email('Enter a valid email address').max(255),
+    z.null(),
+  ]),
+);
+
+const webhookOrNullPreprocessor = z.preprocess(
+  (v) => {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    if (typeof v === 'string') {
+      const t = v.trim();
+      return t === '' ? null : t;
+    }
+    return v;
+  },
+  z.union([
     z
-      .union([
-        z.string().email('Enter a valid email address').max(255),
-        z.null(),
-      ]),
-  ),
+      .string()
+      .url('Enter a valid URL (https://discord.com/api/webhooks/...)')
+      .max(500),
+    z.null(),
+  ]),
+);
+
+// HVA-110 single-field schema kept for back-compat — old clients that
+// PATCH just the routing email continue to work without code changes.
+export const cityRoutingEmailUpdateSchema = z.object({
+  captainRoutingEmail: emailOrNullPreprocessor,
 });
 
 export type CityRoutingEmailUpdateInput = z.infer<
   typeof cityRoutingEmailUpdateSchema
 >;
+
+// HVA-90 multi-field schema. Every field is optional; only included
+// fields are written. `.partial()` would leave the preprocessors in
+// place, but `z.object` with three explicit `.optional()` fields is
+// the most legible shape for callers reading the type.
+export const cityConfigUpdateSchema = z.object({
+  captainRoutingEmail: emailOrNullPreprocessor.optional(),
+  otherRoutingEmail: emailOrNullPreprocessor.optional(),
+  discordWebhookUrl: webhookOrNullPreprocessor.optional(),
+});
+
+export type CityConfigUpdateInput = z.infer<typeof cityConfigUpdateSchema>;

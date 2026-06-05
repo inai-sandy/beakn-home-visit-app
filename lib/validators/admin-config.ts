@@ -36,6 +36,31 @@ export type CustomerSupportPhoneUpdateInput = z.infer<
 >;
 
 // =============================================================================
+// HVA-90: admin_support_phone — mirrors customer_support_phone shape.
+// Used by the forgot-password modal.
+// =============================================================================
+
+export const adminSupportPhoneUpdateSchema = z.object({
+  value: z.preprocess(
+    (v) => {
+      if (v === null || v === undefined) return '';
+      if (typeof v !== 'string') return v;
+      return v;
+    },
+    z
+      .string()
+      .refine(
+        (v) => v === '' || PHONE_PATTERN.test(v),
+        'Enter +91 followed by exactly 10 digits (e.g. +919876543210), or leave blank to reset.',
+      ),
+  ),
+});
+
+export type AdminSupportPhoneUpdateInput = z.infer<
+  typeof adminSupportPhoneUpdateSchema
+>;
+
+// =============================================================================
 // Monthly exec target update — input as a rupee number (the form sends
 // ₹7L not 70000000), API converts to paise before persisting.
 // =============================================================================

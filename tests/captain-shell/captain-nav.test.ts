@@ -54,6 +54,11 @@ describe('HVA-152: shared captain nav config', () => {
           "label": "My Team",
         },
         {
+          "href": "/captain/tasks",
+          "icon": "task",
+          "label": "Tasks",
+        },
+        {
           "href": "/captain/calendar",
           "icon": "calendar_month",
           "label": "Team Calendar",

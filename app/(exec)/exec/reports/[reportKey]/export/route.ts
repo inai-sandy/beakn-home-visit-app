@@ -28,7 +28,11 @@ export async function GET(
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
   const user = session.user as { id: string; role?: string };
-  if (user.role !== 'sales_exec' && user.role !== 'super_admin') {
+  if (
+    user.role !== 'sales_executive' &&
+    user.role !== 'captain' &&
+    user.role !== 'super_admin'
+  ) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 

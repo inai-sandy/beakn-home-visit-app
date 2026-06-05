@@ -46,7 +46,13 @@ export default async function ExecReportDetailPage({ params, searchParams }: Pag
     redirect(`/login?next=/exec/reports/${reportKey}`);
   }
   const user = session.user as { id: string; role?: string };
-  if (user.role !== 'sales_exec' && user.role !== 'super_admin') redirect('/login');
+  if (
+    user.role !== 'sales_executive' &&
+    user.role !== 'captain' &&
+    user.role !== 'super_admin'
+  ) {
+    redirect('/login');
+  }
 
   const { reportKey } = await params;
   const def = findReport(reportKey);

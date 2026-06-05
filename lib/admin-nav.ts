@@ -69,6 +69,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'list_alt',
         href: '/admin/operations/requests',
       },
+      // 2026-06-05: global tasks list with filter/sort/pagination.
+      {
+        label: 'All Tasks',
+        icon: 'task',
+        href: '/admin/tasks',
+      },
       {
         label: 'Other-city Queue',
         icon: 'priority_high',

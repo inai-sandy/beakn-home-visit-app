@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { PerformanceCard } from '@/app/(captain)/captain/dashboard/_components/PerformanceCard';
 import { DayCloseMetricTiles } from '@/components/today/DayCloseMetricTiles';
 import { BestOfPeriodCards } from '@/components/dashboard/BestOfPeriodCards';
 import { LeadsEnrolledCard } from '@/components/dashboard/LeadsEnrolledCard';
@@ -27,7 +26,6 @@ import {
   loadExecCompletedTasksToday,
   loadExecDashboardSummary,
   loadExecPendingTasks,
-  loadExecPerformance,
   loadExecPostponedTasksOpen,
 } from '@/lib/exec/dashboard-queries';
 import {
@@ -36,10 +34,13 @@ import {
   loadOneExecTargetProgress,
 } from '@/lib/exec/target-progress';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
-import { loadDayCloseMetrics } from '@/lib/today/metrics';
+import {
+  loadDayCloseMetrics,
+  loadFinancialMetricsForDate,
+} from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
 
-import { StreakBadge } from '@/components/leaderboard/StreakBadge';
+import { ExecStreakLine } from '@/components/leaderboard/ExecStreakLine';
 import { ExecTargetCard } from '@/components/targets/ExecTargetCard';
 import { ExecWarningStats } from '@/components/warnings/ExecWarningStats';
 import { loadStreakForExec } from '@/lib/leaderboard/streak';
@@ -164,7 +165,6 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     todayMetrics,
     dayCloseData,
     weekly,
-    performance,
     leadsBreakdown,
     bestOfPeriod,
     allOutcomeOptions,
@@ -177,8 +177,10 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     loadExecPostponedTasksOpen(user.id),
     loadExecCompletedTasksToday(user.id),
     // HVA-171 Fix 5: Hero is locked to TODAY regardless of calendar pick.
-    // Skip the helper call when no plan today; HeroMetrics gracefully
-    // renders zeros via the empty shape.
+    // 2026-06-05 fix: when there's no day plan yet, fall back to
+    // loadFinancialMetricsForDate so revenue collected today still
+    // shows. Previously this returned EMPTY_HERO_METRICS → revenue
+    // displayed 0 even when payments existed for the exec today.
     todayPlan
       ? loadDayCloseMetrics({
           execUserId: user.id,
@@ -186,13 +188,15 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
           dayPlanSubmittedAt: todayPlan.submittedAt,
           istDateStr: istDate,
         })
-      : Promise.resolve(EMPTY_HERO_METRICS),
+      : loadFinancialMetricsForDate({
+          execUserId: user.id,
+          istDateStr: istDate,
+        }),
     // HVA-171 Fix 2: Day Closure tracks the calendar via the same helper
     // the captain drill-down uses. Single-mode + no-plan returns
     // `metrics: null`; range-mode always returns aggregated metrics.
     loadExecDayClose(user.id, filter),
     loadExecWeeklyReport(user.id),
-    loadExecPerformance(user.id, filter),
     loadExecLeadsBreakdown(user.id),
     loadExecBestOfPeriod({
       execUserId: user.id,
@@ -258,7 +262,7 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     filter.mode === 'single' ? filter.date : filter.from;
   const dayCloseLabel = formatSelectedDateLabel(selectedSingleDate);
 
-  const [warningCounts, streakDays] = await Promise.all([
+  const [warningCounts, streakSummary] = await Promise.all([
     loadActiveWarningCounts(user.id),
     loadStreakForExec(user.id),
   ]);
@@ -266,18 +270,7 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
       <ExecDashboardHeader filter={filter} />
-      {streakDays > 0 && (
-        <div className="flex items-center justify-between gap-2 rounded-2xl border bg-card p-3">
-          <p className="text-[12px] text-muted-foreground">
-            You&apos;ve been active for{' '}
-            <span className="font-semibold text-foreground">
-              {streakDays} consecutive day{streakDays === 1 ? '' : 's'}
-            </span>
-            . Keep it going.
-          </p>
-          <StreakBadge days={streakDays} variant="lg" />
-        </div>
-      )}
+      <ExecStreakLine summary={streakSummary} />
       <ExecWarningStats counts={warningCounts} />
       {targetProgress && (
         <ExecTargetCard progress={targetProgress} window={monthWindow} />
@@ -313,7 +306,9 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
         )}
       </section>
       <WeeklyReportCard data={weekly} />
-      <PerformanceCard performance={performance} />
+      {/* 2026-06-05: PerformanceCard removed — duplicated the same
+          today-numbers HeroMetrics already shows in a more visual
+          layout. */}
       <BestOfPeriodCards data={bestOfPeriod} windowLabel={bestOfWindow.label} />
       <LeadsEnrolledCard data={leadsBreakdown} />
     </main>

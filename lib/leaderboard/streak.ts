@@ -108,11 +108,67 @@ export async function loadStreaksForExecs(
   return streaks;
 }
 
-/** Convenience wrapper for the single-exec exec dashboard. */
+export interface ExecStreakSummary {
+  /** Consecutive active IST days ending yesterday. 0 = no activity yesterday. */
+  days: number;
+  /** Most recent IST date (within the 60-day lookback window) where the
+   *  exec had at least one qualifying transition. Null if no qualifying
+   *  activity in the window — exec is genuinely new or fully inactive. */
+  lastActiveDay: string | null;
+}
+
+/**
+ * Single-exec helper for the exec /dashboard. Returns the active-day
+ * count PLUS the most-recent active day, so the dashboard can show a
+ * "0 days — last active May 19" fallback when the streak is dead but
+ * the exec did work somewhere in the last 60 days.
+ */
 export async function loadStreakForExec(
   execUserId: string,
   istToday?: string,
-): Promise<number> {
-  const map = await loadStreaksForExecs([execUserId], istToday);
-  return map.get(execUserId) ?? 0;
+): Promise<ExecStreakSummary> {
+  const today = istToday ?? getIstDateString();
+  const oldestDay = shiftDateString(today, -STREAK_LOOKBACK_DAYS);
+  const dayCol = sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`;
+
+  const rows = await db
+    .select({
+      day: sql<string>`${dayCol}::text`,
+    })
+    .from(requestStatusHistory)
+    .innerJoin(
+      statusStages,
+      eq(statusStages.id, requestStatusHistory.toStatusStageId),
+    )
+    .innerJoin(
+      visitRequests,
+      eq(visitRequests.id, requestStatusHistory.requestId),
+    )
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        inArray(statusStages.code, ['VISIT_COMPLETED', 'ORDER_CONFIRMED']),
+        gte(dayCol, oldestDay),
+        lt(dayCol, today),
+      ),
+    )
+    .groupBy(dayCol);
+
+  if (rows.length === 0) {
+    return { days: 0, lastActiveDay: null };
+  }
+
+  const activeDays = new Set(rows.map((r) => r.day));
+  const sortedDesc = Array.from(activeDays).sort((a, b) =>
+    b.localeCompare(a),
+  );
+  const lastActiveDay = sortedDesc[0];
+
+  let count = 0;
+  for (let offset = 1; offset <= STREAK_LOOKBACK_DAYS; offset += 1) {
+    const day = shiftDateString(today, -offset);
+    if (activeDays.has(day)) count += 1;
+    else break;
+  }
+  return { days: count, lastActiveDay };
 }

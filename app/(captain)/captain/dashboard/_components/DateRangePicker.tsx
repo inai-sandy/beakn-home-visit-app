@@ -94,9 +94,14 @@ export function DateRangePicker({ filter, pathname }: Props) {
   function applyFilter() {
     const params = new URLSearchParams();
     if (tab === 'single') {
-      // Skip the param entirely when picking today — keeps URLs clean for
-      // the default view.
-      if (singleDate !== today) params.set('date', singleDate);
+      // 2026-06-05: always emit ?date= when the user explicitly picks
+      // single-day mode. The previous "skip when today" optimization
+      // broke the leaderboard — its default with no params is a 7-day
+      // range, so picking today silently fell through to the weekly
+      // default instead of showing a today-only leaderboard. The cost
+      // is an extra query param on the captain dashboard's clean URL;
+      // the benefit is correct single-day filtering everywhere.
+      params.set('date', singleDate);
     } else {
       params.set('from', rangeFrom);
       params.set('to', rangeTo);

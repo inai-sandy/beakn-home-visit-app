@@ -90,7 +90,7 @@ describe('loadStreakForExec', () => {
       phone: '+919920000002',
       fullName: 'Exec NoActivity',
     });
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(0);
   });
 
@@ -102,7 +102,7 @@ describe('loadStreakForExec', () => {
       fullName: 'Exec OneDay',
     });
     await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-1));
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(1);
   });
 
@@ -117,7 +117,7 @@ describe('loadStreakForExec', () => {
     for (let i = 1; i <= 5; i += 1) {
       await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-i));
     }
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(5);
   });
 
@@ -134,7 +134,7 @@ describe('loadStreakForExec', () => {
     await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-2));
     await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-4));
     await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-5));
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(2);
   });
 
@@ -147,7 +147,7 @@ describe('loadStreakForExec', () => {
     });
     // Only today has activity → streak = 0 (we ignore today by design).
     await recordCompletion(exec.id, captain.id, city.id, ANCHOR_IST_TODAY);
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(0);
   });
 
@@ -165,8 +165,34 @@ describe('loadStreakForExec', () => {
       istDateMinus(-1),
       'ORDER_CONFIRMED',
     );
-    const streak = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(streak).toBe(1);
+  });
+
+  it('lastActiveDay is null when the exec has zero qualifying history', async () => {
+    const captain = await seedCaptain({ phone: '+919920000070' });
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000071',
+      fullName: 'Exec NoHistory',
+    });
+    const summary = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(summary).toEqual({ days: 0, lastActiveDay: null });
+  });
+
+  it('lastActiveDay returns the most recent active day when streak is 0', async () => {
+    const captain = await seedCaptain({ phone: '+919920000080' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000081',
+      fullName: 'Exec Dormant',
+    });
+    // Active 10 days ago, then nothing → days = 0, lastActiveDay = the
+    // 10-days-ago date.
+    const targetDay = istDateMinus(-10);
+    await recordCompletion(exec.id, captain.id, city.id, targetDay);
+    const summary = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(summary.days).toBe(0);
+    expect(summary.lastActiveDay).toBe(targetDay);
   });
 });
 

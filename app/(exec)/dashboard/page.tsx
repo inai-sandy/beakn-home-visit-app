@@ -39,12 +39,11 @@ import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
 import { loadDayCloseMetrics } from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
 
+import { StreakBadge } from '@/components/leaderboard/StreakBadge';
 import { ExecTargetCard } from '@/components/targets/ExecTargetCard';
-import { ExecWarningBanner } from '@/components/warnings/ExecWarningBanner';
-import {
-  loadActiveWarningCounts,
-  loadWarningHistory,
-} from '@/lib/warnings/queries';
+import { ExecWarningStats } from '@/components/warnings/ExecWarningStats';
+import { loadStreakForExec } from '@/lib/leaderboard/streak';
+import { loadActiveWarningCounts } from '@/lib/warnings/queries';
 
 import { ExecDashboardHeader } from './_components/ExecDashboardHeader';
 import { HeroMetrics } from './_components/HeroMetrics';
@@ -259,17 +258,27 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
     filter.mode === 'single' ? filter.date : filter.from;
   const dayCloseLabel = formatSelectedDateLabel(selectedSingleDate);
 
-  const [warningCounts, warningHistory] = await Promise.all([
+  const [warningCounts, streakDays] = await Promise.all([
     loadActiveWarningCounts(user.id),
-    loadWarningHistory(user.id, 3),
+    loadStreakForExec(user.id),
   ]);
-  const latestActive =
-    warningHistory.find((r) => r.revokedAt === null) ?? null;
 
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
       <ExecDashboardHeader filter={filter} />
-      <ExecWarningBanner counts={warningCounts} latest={latestActive} />
+      {streakDays > 0 && (
+        <div className="flex items-center justify-between gap-2 rounded-2xl border bg-card p-3">
+          <p className="text-[12px] text-muted-foreground">
+            You&apos;ve been active for{' '}
+            <span className="font-semibold text-foreground">
+              {streakDays} consecutive day{streakDays === 1 ? '' : 's'}
+            </span>
+            . Keep it going.
+          </p>
+          <StreakBadge days={streakDays} variant="lg" />
+        </div>
+      )}
+      <ExecWarningStats counts={warningCounts} />
       {targetProgress && (
         <ExecTargetCard progress={targetProgress} window={monthWindow} />
       )}

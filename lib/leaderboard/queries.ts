@@ -14,6 +14,8 @@ import {
 } from '@/db/schema';
 import { getConfig } from '@/lib/config';
 
+import { loadStreaksForExecs } from './streak';
+
 // =============================================================================
 // HVA-201: leaderboard data layer
 // =============================================================================
@@ -62,6 +64,11 @@ export interface LeaderboardRow {
    *  ending immediately before this window). Positive = climbed; negative
    *  = dropped; 0 = unchanged; null = new (not in prior period). */
   rankDelta: number | null;
+  /** HVA-201 streak: consecutive IST days (ending yesterday) with at
+   *  least one VISIT_COMPLETED or ORDER_CONFIRMED transition assigned
+   *  to this exec. 0 = no activity yesterday. Computed by
+   *  `loadStreaksForExecs` and merged into rows in `loadLeaderboard`. */
+  streakDays: number;
 }
 
 export interface LoadLeaderboardArgs {
@@ -623,6 +630,11 @@ export async function loadLeaderboard(
     }
   }
 
+  // HVA-201 streak — one batch query for all execs on the board.
+  const streaks = await loadStreaksForExecs(
+    currentRanked.map((p) => p.identity.execUserId),
+  );
+
   return currentRanked.map((p) => {
     const priorRank = priorRankByExec.get(p.identity.execUserId);
     // delta = priorRank - currentRank → positive means climbed.
@@ -637,6 +649,7 @@ export async function loadLeaderboard(
       compositeScore: p.compositeScore,
       rank: p.rank,
       rankDelta,
+      streakDays: streaks.get(p.identity.execUserId) ?? 0,
     };
   });
 }

@@ -5,29 +5,27 @@ import { redirect } from "next/navigation";
 import { db } from "@/db/client";
 import { cities, users } from "@/db/schema";
 import { getServerSession } from "@/lib/auth-server";
+import { getConfig } from "@/lib/config";
 
 import { CitiesClient } from "./cities-client";
+import { SupportPhonesSection } from "./support-phones-section";
 
 // =============================================================================
-// HVA-110: /admin/settings/organization/cities
+// HVA-110 + HVA-90: /admin/settings/organization/cities
 // =============================================================================
 //
-// Cities config MVP — captain_routing_email is the only editable column.
-// Discord webhooks + support phones + Other routing config are deferred
-// to HVA-90.
+// HVA-110 shipped with `captain_routing_email` as the only editable
+// column. HVA-90 (2026-06-05) lights up the deferred fields:
 //
-// List view shows every city + Other row. Each row carries city name,
-// the currently-assigned captain (read-only here — HVA-91 owns captain
-// → city writes), and the editable captain_routing_email.
+//   - Discord webhook URL (per-city, with live ping validation on save)
+//   - other_routing_email (only on the "Other" row, replaces the
+//     "field is fixed" lockout)
+//   - customer_support_phone + admin_support_phone (top-of-page
+//     inline editor — read by the tracking page footer + forgot-
+//     password modal respectively)
 //
-// Schema path for captain lookup: cities.captain_user_id → users.id.
-// Direct FK column; no subtype-table join needed for the display. The
-// `cities.captain_routing_email` column is independent of who the captain
-// is — admin curates routing email as a separate concern (HVA-90 design).
-//
-// super_admin only. Captain or sales_executive → redirected to their role
-// home (proxy.ts handles non-authed). Defense-in-depth here too because the
-// route is reachable via direct URL.
+// super_admin only. Captain or sales_executive redirected. Reuses
+// HVA-91/HVA-110 lookup paths.
 // =============================================================================
 
 export const dynamic = "force-dynamic";
@@ -40,20 +38,26 @@ export default async function CitiesAdminPage() {
 
   const captainAlias = alias(users, "captain_user");
 
-  const rows = await db
-    .select({
-      id: cities.id,
-      name: cities.name,
-      state: cities.state,
-      captainUserId: cities.captainUserId,
-      captainName: captainAlias.fullName,
-      captainIsActive: captainAlias.isActive,
-      captainRoutingEmail: cities.captainRoutingEmail,
-      isActive: cities.isActive,
-    })
-    .from(cities)
-    .leftJoin(captainAlias, eq(captainAlias.id, cities.captainUserId))
-    .orderBy(asc(cities.name));
+  const [rows, customerSupportPhone, adminSupportPhone] = await Promise.all([
+    db
+      .select({
+        id: cities.id,
+        name: cities.name,
+        state: cities.state,
+        captainUserId: cities.captainUserId,
+        captainName: captainAlias.fullName,
+        captainIsActive: captainAlias.isActive,
+        captainRoutingEmail: cities.captainRoutingEmail,
+        otherRoutingEmail: cities.otherRoutingEmail,
+        discordWebhookUrl: cities.discordWebhookUrl,
+        isActive: cities.isActive,
+      })
+      .from(cities)
+      .leftJoin(captainAlias, eq(captainAlias.id, cities.captainUserId))
+      .orderBy(asc(cities.name)),
+    getConfig("customer_support_phone"),
+    getConfig("admin_support_phone"),
+  ]);
 
   return (
     <main className="min-h-svh bg-background">
@@ -63,10 +67,15 @@ export default async function CitiesAdminPage() {
             <h1 className="text-2xl font-semibold tracking-tight">Cities</h1>
             <p className="text-sm text-muted-foreground">
               {rows.length} {rows.length === 1 ? "city" : "cities"} — edit
-              captain routing email for new customer requests.
+              captain routing email, Discord webhook, and Other-row fallback.
             </p>
           </div>
         </header>
+
+        <SupportPhonesSection
+          customerSupportPhone={customerSupportPhone ?? ""}
+          adminSupportPhone={adminSupportPhone ?? ""}
+        />
 
         <CitiesClient cities={rows} />
       </div>

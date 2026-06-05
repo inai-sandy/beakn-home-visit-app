@@ -241,6 +241,10 @@ export const CONFIG_SCHEMA = {
       'executive_deactivated',
       'executive_activated',
       'city_routing_email_updated',
+      // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
+      // alongside captain_routing_email on /admin/settings/organization/cities.
+      // Single before/after JSON carrying every changed column.
+      'city_config_updated',
       'installation_marked_complete',
       'customer_rejection_marked',
       'quotation_created',

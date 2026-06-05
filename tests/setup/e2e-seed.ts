@@ -25,6 +25,11 @@ export interface SeededE2EUsers {
   captain: { id: string; phone: string; password: string; fullName: string };
   superAdmin: { id: string; phone: string; password: string; fullName: string };
   cityId: string;
+  /** A sample assigned visit_request that's visible to both captain
+   *  (in /captain/requests) and exec (in /requests). HVA-198 PR-B uses
+   *  it to verify the list views render + the request detail page
+   *  loads. */
+  sampleRequest: { id: string; customerName: string; trackingToken: string };
 }
 
 interface UserSeed {
@@ -96,6 +101,31 @@ export async function seedE2EUsers(
       VALUES (${veeraId}, ${arjunId}, ${city.id})
     `;
 
+    // A sample visit_request that's already assigned to Veera + Arjun
+    // so both the captain and exec requests list pages render with at
+    // least one row. Status is ASSIGNED (sequence 2) — past the
+    // "unassigned" bucket but pre-visit.
+    const [assignedStage] = await sql<{ id: string }[]>`
+      SELECT id FROM status_stages WHERE code = 'ASSIGNED' LIMIT 1
+    `;
+    if (!assignedStage) {
+      throw new Error(
+        'status_stages seed missing — ASSIGNED row not present. Migrations may be incomplete.',
+      );
+    }
+    const [request] = await sql<{ id: string; tracking_token: string }[]>`
+      INSERT INTO visit_requests (
+        customer_name, customer_phone, address, city_id,
+        bhk, interest, tracking_token, source,
+        status_stage_id, assigned_exec_user_id, assigned_captain_user_id, assigned_at
+      ) VALUES (
+        'E2E Customer', '+919876500001', '123 Test Lane, Hyderabad', ${city.id},
+        '3BHK'::bhk_type, '["Complete Lighting"]'::jsonb, 'e2etoken1234567890abcd', 'web',
+        ${assignedStage.id}, ${veeraId}, ${arjunId}, NOW()
+      )
+      RETURNING id, tracking_token
+    `;
+
     return {
       exec: {
         id: veeraId,
@@ -116,6 +146,11 @@ export async function seedE2EUsers(
         fullName: SANDEEP.fullName,
       },
       cityId: city.id,
+      sampleRequest: {
+        id: request.id,
+        customerName: 'E2E Customer',
+        trackingToken: request.tracking_token,
+      },
     };
   } finally {
     await sql.end({ timeout: 5 });

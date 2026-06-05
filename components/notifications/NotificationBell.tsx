@@ -8,6 +8,14 @@ import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Icon } from '@/components/ui/icon';
 import {
   Sheet,
@@ -62,6 +70,13 @@ export function NotificationBell({
   const [items, setItems] = useState(initialNotifications);
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
   const [isPending, startTransition] = useTransition();
+  // HVA-229: clicking a notification now opens a Dialog with the full
+  // body text + an optional "Open detail page" link. The drawer's
+  // Sheet stays open behind it so the user can keep scanning after
+  // closing the dialog. Previously a click immediately navigated, so
+  // long messages (warnings, captain notes) couldn't be read in place.
+  const [selectedItem, setSelectedItem] =
+    useState<InAppNotificationRow | null>(null);
 
   // HVA-53: poll-driven live updates. Initial cursor is the newest item the
   // server already gave us (+1ms baked in by the route handler when the
@@ -122,14 +137,15 @@ export function NotificationBell({
       );
       setUnreadCount((c) => Math.max(0, c - 1));
     }
+    // HVA-229: open the detail popup. Mark-as-read still happens via the
+    // server action; navigation is no longer automatic — admin/captain/
+    // exec can read the full body in the popup and click "Open detail
+    // page" if they want to navigate.
+    setSelectedItem(item);
     startTransition(async () => {
       const result = await markNotificationReadAction(item.id);
       if (!result.ok) {
         toast.error('Could not mark as read');
-      }
-      if (item.linkUrl) {
-        setOpen(false);
-        router.push(item.linkUrl);
       }
     });
   }
@@ -305,6 +321,54 @@ export function NotificationBell({
           </div>
         )}
       </SheetContent>
+
+      {/* HVA-229: notification detail popup. Sits inside the same root
+          as the Sheet so the bell can render both without z-index war —
+          Radix portals each into the body separately. */}
+      {selectedItem && (
+        <Dialog
+          open
+          onOpenChange={(isOpen) => !isOpen && setSelectedItem(null)}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-start gap-2 pr-6">
+                <Icon
+                  name={getEventTypeIcon(selectedItem.eventType)}
+                  size="sm"
+                  className="text-primary mt-0.5"
+                />
+                <span className="leading-snug">{selectedItem.title}</span>
+              </DialogTitle>
+              <DialogDescription className="text-[11px] text-muted-foreground">
+                {formatDistanceToNow(selectedItem.createdAt, {
+                  addSuffix: true,
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground/90">
+              {selectedItem.body}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              {selectedItem.linkUrl && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const url = selectedItem.linkUrl;
+                    setSelectedItem(null);
+                    setOpen(false);
+                    if (url) router.push(url);
+                  }}
+                >
+                  <Icon name="open_in_new" size="xs" />
+                  Open detail page
+                </Button>
+              )}
+              <Button onClick={() => setSelectedItem(null)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Sheet>
   );
 }

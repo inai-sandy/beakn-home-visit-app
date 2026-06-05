@@ -61,6 +61,14 @@ export function LeadsFilterClient({
   // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push, not a mutation
   const [isPending, startTransition] = useTransition();
 
+  // HVA-150 / HVA-200: optimistic Add Lead. Parent (this component)
+  // owns the row state since the leads list is client-side. Optimistic
+  // rows live here until the matching server row lands via
+  // router.refresh; on reconcile we swap the temp id so the merge below
+  // dedups by id.
+  type LocalLead = LeadRow & { pending?: boolean };
+  const [optimistic, setOptimistic] = useState<LocalLead[]>([]);
+
   // The search input is the only control with debounce. Type chips push
   // immediately.
   const [searchText, setSearchText] = useState(initial.q);
@@ -152,41 +160,113 @@ export function LeadsFilterClient({
         })}
       </nav>
 
-      {rows.length === 0 ? (
-        <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
-          <Icon
-            name="person_add"
-            size="lg"
-            className="text-muted-foreground/70 mx-auto"
-          />
-          <p className="text-sm text-muted-foreground">
-            {initial.q
-              ? `No leads matching "${initial.q}".`
-              : initial.type !== 'all'
-                ? `No ${initial.type.toLowerCase()} leads.`
-                : 'No leads yet. Tap + to capture your first lead.'}
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-2" aria-label="Contacts">
-          {rows.map((lead) => (
-            <li key={lead.id}>
-              <ContactCard
-                id={lead.id}
-                name={lead.name}
-                type={lead.type}
-                cityName={lead.cityName}
-                capturedByName={lead.capturedByName}
-                requestCount={lead.requestCount}
-                converted={lead.convertedToRequestId !== null}
-                hrefPrefix="/leads"
+      {(() => {
+        // Merge server + optimistic, dedup by id. Optimistic rows
+        // appear at the top (most recently added) until the server
+        // refresh dedups them out.
+        const seen = new Set<string>();
+        const merged: LocalLead[] = [];
+        for (const o of optimistic) {
+          if (!seen.has(o.id)) {
+            merged.push(o);
+            seen.add(o.id);
+          }
+        }
+        for (const r of rows) {
+          if (!seen.has(r.id)) {
+            merged.push(r);
+            seen.add(r.id);
+          }
+        }
+        if (merged.length === 0) {
+          return (
+            <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
+              <Icon
+                name="person_add"
+                size="lg"
+                className="text-muted-foreground/70 mx-auto"
               />
-            </li>
-          ))}
-        </ul>
-      )}
+              <p className="text-sm text-muted-foreground">
+                {initial.q
+                  ? `No leads matching "${initial.q}".`
+                  : initial.type !== 'all'
+                    ? `No ${initial.type.toLowerCase()} leads.`
+                    : 'No leads yet. Tap + to capture your first lead.'}
+              </p>
+            </div>
+          );
+        }
+        return (
+          <ul className="space-y-2" aria-label="Contacts">
+            {merged.map((lead) => (
+              <li
+                key={lead.id}
+                className={lead.pending ? 'opacity-70 pointer-events-none' : undefined}
+              >
+                <ContactCard
+                  id={lead.id}
+                  name={lead.name}
+                  type={lead.type}
+                  cityName={lead.cityName}
+                  capturedByName={lead.capturedByName}
+                  requestCount={lead.requestCount}
+                  converted={lead.convertedToRequestId !== null}
+                  hrefPrefix="/leads"
+                />
+              </li>
+            ))}
+          </ul>
+        );
+      })()}
 
-      <AddLeadFab cities={cities} businessTypes={businessTypes} />
+      <AddLeadFab
+        cities={cities}
+        businessTypes={businessTypes}
+        optimistic={{
+          onAdd: (insert) => {
+            const tempRow: LocalLead = {
+              id: insert.id,
+              type: insert.type,
+              name: insert.name,
+              phone: insert.phone,
+              email: null,
+              cityId: insert.cityId,
+              cityName: insert.cityName ?? '',
+              bhk: null,
+              firmName: null,
+              businessTypeId: null,
+              businessTypeName: null,
+              interest: [],
+              notes: null,
+              capturedDate: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              convertedToRequestId: null,
+              convertedAt: null,
+              requestCount: 0,
+              capturedByUserId: '',
+              capturedByName: null,
+              visibilityReason: 'captor',
+              pending: true,
+            };
+            setOptimistic((prev) => [tempRow, ...prev]);
+          },
+          onReconcile: (tempId, serverLeadId) => {
+            setOptimistic((prev) =>
+              prev.map((l) =>
+                l.id === tempId ? { ...l, id: serverLeadId, pending: false } : l,
+              ),
+            );
+            // Drop the optimistic row after a short window so we don't
+            // carry stale state if the router.refresh hasn't landed yet.
+            setTimeout(() => {
+              setOptimistic((prev) => prev.filter((l) => l.id !== serverLeadId));
+            }, 3000);
+          },
+          onRemove: (tempId) => {
+            setOptimistic((prev) => prev.filter((l) => l.id !== tempId));
+          },
+        }}
+      />
 
       {/* Spacer so the last card isn't hidden behind the bottom nav. */}
       <div className="h-24 lg:h-0" />

@@ -52,7 +52,32 @@ function todayIso(): string {
   return `${y}-${m}-${day}`;
 }
 
-export function PaymentRecordButton({ requestId }: { requestId: string }) {
+/** HVA-150 opt-in optimistic Record Payment contract. Parent owns the
+ *  payments list state; the dialog only fires events. */
+export interface PaymentOptimisticHandlers {
+  onAdd: (insert: {
+    id: string;
+    amountPaise: number;
+    paymentDate: string;
+    mode: string;
+    label: string | null;
+    referenceNumber: string | null;
+    notes: string | null;
+  }) => void;
+  onReconcile: (tempId: string, serverPaymentId: string) => void;
+  onRemove: (tempId: string) => void;
+}
+
+export function PaymentRecordButton({
+  requestId,
+  optimistic,
+}: {
+  requestId: string;
+  /** HVA-150 opt-in: when provided, dialog inserts a pending row in the
+   *  parent payments list, closes immediately, and reconciles on the
+   *  server result. */
+  optimistic?: PaymentOptimisticHandlers;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -66,7 +91,11 @@ export function PaymentRecordButton({ requestId }: { requestId: string }) {
         <span>Add payment</span>
       </Button>
       {open && (
-        <PaymentDialog requestId={requestId} onClose={() => setOpen(false)} />
+        <PaymentDialog
+          requestId={requestId}
+          onClose={() => setOpen(false)}
+          optimistic={optimistic}
+        />
       )}
     </>
   );
@@ -75,9 +104,11 @@ export function PaymentRecordButton({ requestId }: { requestId: string }) {
 function PaymentDialog({
   requestId,
   onClose,
+  optimistic,
 }: {
   requestId: string;
   onClose: () => void;
+  optimistic?: PaymentOptimisticHandlers;
 }) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
@@ -103,10 +134,32 @@ function PaymentDialog({
     setSubmitting(true);
     setFieldErrors({});
     setGeneralError(null);
+    const trimmedRef = referenceNumber.trim();
+    const trimmedLabel = label.trim();
+    const trimmedNotes = notes.trim();
+    // HVA-150 opt-in: when the parent passes optimistic handlers, insert
+    // a pending row + close the dialog immediately, then post in the
+    // background and reconcile on result. Same shape as the canonical
+    // NotesSection pattern.
+    let tempId: string | null = null;
+    if (optimistic) {
+      tempId = `payment-temp-${
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2)
+      }`;
+      optimistic.onAdd({
+        id: tempId,
+        amountPaise: paise,
+        paymentDate,
+        mode,
+        label: trimmedLabel || null,
+        referenceNumber: trimmedRef || null,
+        notes: trimmedNotes || null,
+      });
+      onClose();
+    }
     try {
-      const trimmedRef = referenceNumber.trim();
-      const trimmedLabel = label.trim();
-      const trimmedNotes = notes.trim();
       const res = await fetch(`/api/requests/${requestId}/payments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -124,19 +177,35 @@ function PaymentDialog({
         ok?: boolean;
         error?: string;
         fieldErrors?: Record<string, string>;
+        payment?: { id: string };
       };
       if (!res.ok || !j.ok) {
-        setFieldErrors(j.fieldErrors ?? {});
-        setGeneralError(j.error ?? `Request failed (${res.status})`);
+        if (tempId && optimistic) {
+          optimistic.onRemove(tempId);
+        } else {
+          setFieldErrors(j.fieldErrors ?? {});
+          setGeneralError(j.error ?? `Request failed (${res.status})`);
+        }
         toast.error(j.error ?? "Could not record payment.");
         return;
       }
       toast.success("Payment recorded.");
+      if (tempId && optimistic) {
+        const serverPaymentId = j.payment?.id;
+        if (serverPaymentId) {
+          optimistic.onReconcile(tempId, serverPaymentId);
+        } else {
+          // API didn't return the row id — drop the optimistic copy so
+          // router.refresh seeds it from the canonical server list.
+          optimistic.onRemove(tempId);
+        }
+      }
       startTransition(() => {
         router.refresh();
       });
-      onClose();
+      if (!optimistic) onClose();
     } catch (err) {
+      if (tempId && optimistic) optimistic.onRemove(tempId);
       setGeneralError(err instanceof Error ? err.message : "Network error");
     } finally {
       setSubmitting(false);

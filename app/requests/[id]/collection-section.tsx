@@ -1,7 +1,6 @@
 import { asc, eq } from "drizzle-orm";
 
 import { Badge } from "@/components/ui/badge";
-import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import { payments, quotations, users } from "@/db/schema";
 import { type Role, USER_ROLES } from "@/lib/auth/roles";
@@ -10,10 +9,8 @@ import { formatInrFromPaise } from "@/lib/money";
 import { formatIstDateTime } from "@/lib/request-detail";
 import { cn } from "@/lib/utils";
 
-import { PaymentRecordButton } from "./payment-record-button";
-import { PaymentVoidButton } from "./payment-void-button";
+import { PaymentsBlock } from "./payments-block";
 import { QuotationEditButton } from "./quotation-edit-button";
-import { RefundRecordButton } from "./refund-record-button";
 
 // =============================================================================
 // HVA-70: Collection section on /requests/[id]
@@ -195,103 +192,30 @@ export async function CollectionSection({
         )}
       </div>
 
-      {/* ---------- Payments block ---------- */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h3 className="text-sm font-semibold tracking-tight uppercase text-muted-foreground">
-            Payments
-          </h3>
-          <div className="flex gap-2 flex-wrap">
-            {canRecordPayment && <PaymentRecordButton requestId={requestId} />}
-            {canRefund && <RefundRecordButton requestId={requestId} />}
-          </div>
-        </div>
-        {paymentRows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No payments recorded yet.
-          </p>
-        ) : (
-          <ol className="space-y-2">
-            {paymentRows.map((p) => {
-              const voided = p.voidedAt !== null;
-              const isRefund = p.direction === "outbound";
-              return (
-                <li
-                  key={p.id}
-                  className={cn(
-                    "rounded-2xl border px-4 py-3",
-                    voided && "bg-muted/50 opacity-60",
-                    isRefund && !voided && "border-amber-500/40 bg-amber-500/5",
-                  )}
-                >
-                  <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p
-                        className={cn(
-                          "text-base font-semibold font-mono",
-                          voided && "line-through",
-                        )}
-                      >
-                        {isRefund ? "−" : "+"}
-                        {formatInrFromPaise(Number(p.amountPaise))}
-                      </p>
-                      <Badge variant="outline" className="text-[10px]">
-                        {p.mode}
-                      </Badge>
-                      {isRefund && (
-                        <Badge
-                          variant="secondary"
-                          className="text-[10px] bg-amber-500/20 text-amber-900"
-                        >
-                          Refund
-                        </Badge>
-                      )}
-                      {voided && (
-                        <Badge variant="destructive" className="text-[10px]">
-                          Voided
-                        </Badge>
-                      )}
-                    </div>
-                    {canVoid && !voided && (
-                      <PaymentVoidButton
-                        requestId={requestId}
-                        paymentId={p.id}
-                      />
-                    )}
-                  </div>
-                  {p.label && (
-                    <p className="text-xs mt-1 font-medium">{p.label}</p>
-                  )}
-                  {p.referenceNumber && (
-                    <p className="text-xs mt-0.5 font-mono text-muted-foreground">
-                      Ref: {p.referenceNumber}
-                    </p>
-                  )}
-                  {p.notes && (
-                    <p className="text-xs mt-1 whitespace-pre-wrap text-foreground/80">
-                      {p.notes}
-                    </p>
-                  )}
-                  <p className="text-[11px] mt-1 text-muted-foreground">
-                    {p.paymentDate}
-                    {p.recordedByName ? ` · ${p.recordedByName}` : ""}
-                  </p>
-                  {voided && p.voidedReason && (
-                    <p className="text-[11px] mt-1 text-destructive">
-                      <Icon
-                        name="cancel"
-                        size="xs"
-                        className="inline align-text-bottom mr-1"
-                      />
-                      Voided: {p.voidedReason}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </div>
+      {/* ---------- Payments block ----------
+          HVA-150 / HVA-200: rendering moved to client wrapper so
+          Add Payment can hold optimistic state. Summary block below
+          stays server-rendered (SSOT math survives the carve-out;
+          summary catches up on the next router.refresh ~200ms later). */}
+      <PaymentsBlock
+        requestId={requestId}
+        rows={paymentRows.map((p) => ({
+          id: p.id,
+          direction: p.direction,
+          amountPaise: Number(p.amountPaise),
+          paymentDate: p.paymentDate,
+          mode: p.mode,
+          label: p.label,
+          referenceNumber: p.referenceNumber,
+          notes: p.notes,
+          voidedAt: p.voidedAt,
+          voidedReason: p.voidedReason,
+          recordedByName: p.recordedByName,
+        }))}
+        canRecordPayment={canRecordPayment}
+        canRefund={canRefund}
+        canVoid={canVoid}
+      />
 
       {/* ---------- Summary block ---------- */}
       <div className="space-y-2 border-t pt-4">

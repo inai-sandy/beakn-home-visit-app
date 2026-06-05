@@ -5,26 +5,35 @@ import { redirect } from 'next/navigation';
 import { db } from '@/db/client';
 import { leads, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
-import {
-  loadExecAllPendingTasks,
-  loadExecAllPostponedTasks,
-  loadExecCompletedTasksPaginated,
-} from '@/lib/exec/tasks-page-queries';
 import { loadExecVisibleContactIds } from '@/lib/exec/visible-contacts';
-import { parsePage } from '@/lib/pagination';
+import {
+  DEFAULT_PAGE_SIZE,
+  loadTasksTable,
+  type TasksTableStatus,
+} from '@/lib/tasks/tasks-table';
 
-import { TasksPageView } from './_components/TasksPageView';
+import { ExecTasksTableShell } from './_components/ExecTasksTableShell';
 
 // =============================================================================
-// HVA-170: /tasks — all open work + history
+// HVA-201 follow-up (2026-06-05): /tasks — unified table view
 // =============================================================================
 //
-// Three-section accordion (Pending / Postponed / Completed). Pending opens
-// by default. Each row carries a "+" button that opens AddTaskSheet
-// pre-filled via the new cloneFromTask prop (HVA-170 D5).
+// Sandeep: *"plan the same tasks page for sales executives as well"* →
+// Option B (replace accordion with table). The /tasks page now mirrors
+// /captain/tasks and /admin/tasks — same shared TasksTableFilters +
+// TasksTableView. Exec sees only their own tasks (self-scoped, captain
+// + exec dropdowns hidden). Per-row "+" action is preserved:
 //
-// Auth: sales_executive only (per D11). super_admin escape-hatched at
-// the proxy.ts layer.
+//   - Pending / Postponed → "Move" / "Reschedule" button opens MoveTaskSheet
+//   - Completed → "Re-add" button opens AddTaskSheet in clone mode
+//
+// Filters mirror the captain/admin surface: search (description +
+// customer + task type), status (all/pending/postponed/completed),
+// from/to date, sort direction, pagination.
+//
+// Auth: sales_executive + captain + super_admin can view (the role
+// gate now matches the canonical strings — the legacy `sales_exec`
+// typo bit other surfaces earlier today).
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -33,8 +42,22 @@ export const metadata: Metadata = {
   title: 'Tasks — Beakn',
 };
 
+const VALID_STATUSES: TasksTableStatus[] = [
+  'all',
+  'pending',
+  'postponed',
+  'completed',
+];
+
 interface PageProps {
-  searchParams: Promise<{ page?: string; from?: string; to?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+function readString(
+  v: string | string[] | undefined,
+): string | undefined {
+  if (Array.isArray(v)) return v[0];
+  return v;
 }
 
 export default async function ExecTasksPage({ searchParams }: PageProps) {
@@ -42,31 +65,40 @@ export default async function ExecTasksPage({ searchParams }: PageProps) {
   if (!session) redirect('/login?next=/tasks');
 
   const user = session.user as { id: string; role?: string };
-  if (user.role !== 'sales_executive' && user.role !== 'super_admin') {
+  if (
+    user.role !== 'sales_executive' &&
+    user.role !== 'captain' &&
+    user.role !== 'super_admin'
+  ) {
     redirect('/login');
   }
 
-  const raw = await searchParams;
-  const page = parsePage(raw.page);
-  const dateFrom = raw.from ?? null;
-  const dateTo = raw.to ?? null;
+  const sp = await searchParams;
+  const statusRaw = readString(sp.status) ?? 'all';
+  const status = (VALID_STATUSES as readonly string[]).includes(statusRaw)
+    ? (statusRaw as TasksTableStatus)
+    : 'all';
+  const sortDir = readString(sp.dir) === 'asc' ? 'asc' : 'desc';
+  const q = readString(sp.q) ?? '';
+  const from = readString(sp.from) ?? '';
+  const to = readString(sp.to) ?? '';
+  const pageNum = Number(readString(sp.page) ?? '1');
+  const page =
+    Number.isFinite(pageNum) && pageNum >= 1 ? Math.floor(pageNum) : 1;
 
   // Linkable pools mirror /today's loader so the cloned-task sheet has
   // the same suggestions surface (HVA-73 PR 3 visibility set).
   const visibleContactIds = await loadExecVisibleContactIds(user.id);
-  const [
-    pendingTasks,
-    postponedTasks,
-    completed,
-    linkableRequests,
-    linkableLeads,
-  ] = await Promise.all([
-    loadExecAllPendingTasks(user.id),
-    loadExecAllPostponedTasks(user.id),
-    loadExecCompletedTasksPaginated(user.id, {
+  const [result, linkableRequests, linkableLeads] = await Promise.all([
+    loadTasksTable({
+      scope: { kind: 'exec', execUserId: user.id },
+      status,
+      sortDir,
       page,
-      dateFrom,
-      dateTo,
+      pageSize: DEFAULT_PAGE_SIZE,
+      from: from || undefined,
+      to: to || undefined,
+      search: q.length > 0 ? q : undefined,
     }),
     db
       .select({
@@ -95,15 +127,37 @@ export default async function ExecTasksPage({ searchParams }: PageProps) {
           .limit(50),
   ]);
 
+  // Preserve filter state in sort/paginator links.
+  const stateParams = new URLSearchParams();
+  if (q) stateParams.set('q', q);
+  if (status !== 'all') stateParams.set('status', status);
+  if (sortDir !== 'desc') stateParams.set('dir', sortDir);
+  if (from) stateParams.set('from', from);
+  if (to) stateParams.set('to', to);
+
   return (
-    <TasksPageView
-      pendingTasks={pendingTasks}
-      postponedTasks={postponedTasks}
-      completedGroupedByDate={completed.groupedByDate}
-      completedPagination={completed.pagination}
-      currentFilter={{ from: dateFrom, to: dateTo }}
-      linkableRequests={linkableRequests}
-      linkableLeads={linkableLeads}
-    />
+    <main className="mx-auto max-w-[1200px] px-4 sm:px-6 py-6 space-y-4">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Everything open across days, plus history. Move a pending or
+          postponed task to a new date with the row action; re-add a completed
+          one to clone it forward.
+        </p>
+      </header>
+
+      <ExecTasksTableShell
+        result={result}
+        basePath="/tasks"
+        searchString={stateParams.toString()}
+        status={status}
+        sortDir={sortDir}
+        q={q}
+        from={from}
+        to={to}
+        linkableRequests={linkableRequests}
+        linkableLeads={linkableLeads}
+      />
+    </main>
   );
 }

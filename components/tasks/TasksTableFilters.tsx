@@ -27,6 +27,9 @@ interface Props {
   /** Show the captain dropdown — false for /captain/tasks where the
    *  captain only sees their own team. */
   showCaptainFacet: boolean;
+  /** Show the exec dropdown — false for /tasks (exec) where the user
+   *  only ever sees their own tasks. */
+  showExecFacet?: boolean;
   basePath: string;
 }
 
@@ -41,6 +44,7 @@ export function TasksTableFilters({
   captainFacets,
   execFacets,
   showCaptainFacet,
+  showExecFacet = true,
   basePath,
 }: Props) {
   const router = useRouter();
@@ -197,19 +201,21 @@ export function TasksTableFilters({
           </Select>
         )}
 
-        <Select value={execId} onValueChange={(v) => pushParam('exec', v)}>
-          <SelectTrigger className="h-9 w-[170px] text-sm">
-            <SelectValue placeholder="Executive" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All execs</SelectItem>
-            {execFacets.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {showExecFacet && (
+          <Select value={execId} onValueChange={(v) => pushParam('exec', v)}>
+            <SelectTrigger className="h-9 w-[170px] text-sm">
+              <SelectValue placeholder="Executive" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All execs</SelectItem>
+              {execFacets.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         {anyActive && (
           <button

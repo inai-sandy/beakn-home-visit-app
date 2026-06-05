@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 
 import { Icon } from '@/components/ui/icon';
 
@@ -22,6 +23,12 @@ interface Props {
   /** When true, render the Captain column. False on /captain/tasks (it's
    *  always the same captain). */
   showCaptainColumn: boolean;
+  /** Optional per-row action cell. When provided, renders an extra
+   *  rightmost column with the returned ReactNode. Used by the exec
+   *  /tasks page to drop in the "+" action (MoveTaskSheet for
+   *  pending/postponed, AddTaskSheet clone for completed). Captain +
+   *  admin omit this — they're observational views. */
+  renderRowActions?: (row: TasksTableRow) => ReactNode;
 }
 
 function formatDate(iso: string): string {
@@ -61,6 +68,7 @@ export function TasksTableView({
   basePath,
   searchString,
   showCaptainColumn,
+  renderRowActions,
 }: Props) {
   const { rows, total, totalPages, page, pageSize, aggregate } = result;
   const fromIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -98,6 +106,9 @@ export function TasksTableView({
                 {showCaptainColumn && (
                   <th className="text-left py-2.5 px-3">Captain</th>
                 )}
+                {renderRowActions && (
+                  <th className="text-right py-2.5 px-3">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -106,6 +117,7 @@ export function TasksTableView({
                   key={r.id}
                   row={r}
                   showCaptainColumn={showCaptainColumn}
+                  actions={renderRowActions ? renderRowActions(r) : null}
                 />
               ))}
             </tbody>
@@ -129,9 +141,11 @@ export function TasksTableView({
 function TaskRow({
   row,
   showCaptainColumn,
+  actions,
 }: {
   row: TasksTableRow;
   showCaptainColumn: boolean;
+  actions: ReactNode;
 }) {
   const completedSecondary =
     row.status === 'completed' && row.completedAt
@@ -206,6 +220,11 @@ function TaskRow({
           <span className="text-[12px] text-muted-foreground">
             {row.captainName ?? '—'}
           </span>
+        </td>
+      )}
+      {actions && (
+        <td className="py-3 px-3 align-top">
+          <div className="flex items-center justify-end">{actions}</div>
         </td>
       )}
     </tr>

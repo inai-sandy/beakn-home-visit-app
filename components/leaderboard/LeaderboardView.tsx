@@ -11,6 +11,7 @@ import type {
 import { cn } from '@/lib/utils';
 
 import { LeaderboardMetricTabs, METRIC_TABS } from './LeaderboardTabs';
+import { StreakBadge } from './StreakBadge';
 
 // =============================================================================
 // HVA-201 arena redesign: dark + neon esports-style leaderboard
@@ -308,9 +309,14 @@ function ArenaRow({ row, metric, isViewer }: RowProps) {
                 <span className="uppercase tracking-wide">{row.fullName}</span>
               )}
             </p>
-            <p className="text-[11px] text-slate-400 truncate leading-tight mt-0.5">
-              {row.cityName ?? '—'}
-              {row.captainName && ` · ${row.captainName}`}
+            <p className="text-[11px] text-slate-400 truncate leading-tight mt-0.5 inline-flex items-center gap-1.5">
+              <span className="truncate">
+                {row.cityName ?? '—'}
+                {row.captainName && ` · ${row.captainName}`}
+              </span>
+              {row.streakDays > 0 && (
+                <StreakBadge days={row.streakDays} />
+              )}
             </p>
           </div>
         </div>

@@ -1,45 +1,31 @@
 import { defineConfig, devices } from '@playwright/test';
-import dotenv from 'dotenv';
 
-// Load .env.local so the webServer below can connect to the DB. Next.js
-// loads this automatically when invoked through its own CLI, but the
-// Playwright config runs in a plain Node context where we must do it
-// explicitly. Otherwise webServer crashes with "EAI_AGAIN beakn-postgres"
-// because DATABASE_URL is empty / unset.
-dotenv.config({ path: '.env.local' });
-
-// CLAUDE.md DATABASE_URL dual-form rule: `.env.local` stores the
-// container-internal hostname (`beakn-postgres`) so the Docker app
-// container can reach Postgres on its private network. When the e2e suite
-// runs `pnpm next start` from the host, that hostname doesn't resolve —
-// rewrite to `127.0.0.1:5432` (which is bound and exposed for host-side
-// migrations + scripts). Pass-through if the URL is already host-form.
-const liveDbUrl = process.env.DATABASE_URL ?? '';
-const hostDbUrl = liveDbUrl.replace('@beakn-postgres:5432', '@127.0.0.1:5432');
-
-// HVA-151: Playwright config — foundation phase.
+// =============================================================================
+// HVA-151 + HVA-198: Playwright config
+// =============================================================================
 //
-// One project (desktop Chrome at 1280×800) for now. Additional viewports
-// (mobile 375px, tablet 768px) get added once the desktop baseline is
-// stable across a few PRs. Three viewports out of the gate triples the
-// flake surface and inflates baseline storage 3x before we've proven the
-// flow shape is right.
+// HVA-151 shipped one project (desktop Chromium at 1280×800) + 3 read-
+// only smoke specs against the prod DB. HVA-198 extends to authenticated
+// flows by switching to a testcontainer Postgres + a custom runner
+// (`scripts/run-e2e.ts`) that owns the lifecycle.
 //
-// The webServer runs `pnpm next start` on port 3100 (NOT 3000/3001 — those
-// belong to the MCP stack + the prod beakn-app respectively). Production
-// build mode is deterministic for screenshots; dev mode would let HMR +
-// React DevTools overlays poison baseline diffs. First run does the build.
+// Why a runner instead of Playwright's built-in webServer:
+// Playwright's webServer starts BEFORE globalSetup, which means a
+// globalSetup that boots a testcontainer can't pass its connection
+// string to the server. The runner script handles container + server
+// + cleanup in order, then `exec playwright test` inherits the env.
 //
-// reuseExistingServer in non-CI so developers can run tests against a
-// prebuilt server in a separate terminal.
+// Three viewports per the HVA-198 acceptance criteria. Visual baselines
+// per (project, spec) are stored under `tests/e2e/*.spec.ts-snapshots/`.
+// =============================================================================
 
 const PORT = 3100;
 const BASE_URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  // Determinism > parallelism for visual baselines. A 4-worker run can
-  // race-condition the webServer or capture mid-paint screenshots.
+  // Determinism > parallelism for visual baselines. A multi-worker run
+  // can race-condition the webServer or capture mid-paint screenshots.
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -67,19 +53,31 @@ export default defineConfig({
         viewport: { width: 1280, height: 800 },
       },
     },
+    {
+      name: 'tablet',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 768, height: 1024 },
+      },
+    },
+    {
+      name: 'mobile',
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 375, height: 667 },
+        // Mobile chrome should be the closest match; using Desktop
+        // Chrome viewport-resized to phone width gives consistent
+        // screenshot fonts across runners and avoids Mobile Safari's
+        // separate baseline tax.
+        deviceScaleFactor: 2,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
   ],
-  webServer: {
-    command: `pnpm next start -p ${PORT}`,
-    url: BASE_URL,
-    timeout: 120_000,
-    reuseExistingServer: !process.env.CI,
-    stdout: 'ignore',
-    stderr: 'pipe',
-    env: {
-      ...process.env,
-      DATABASE_URL: hostDbUrl,
-      // Distinct port + custom NODE_ENV stays at production (default for
-      // `next start`) so we're testing the same code path users hit.
-    } as Record<string, string>,
-  },
+  // NOTE: no `webServer` block. The runner script in scripts/run-e2e.ts
+  // owns the container + server lifecycle and only invokes playwright
+  // once the server is healthy. Running `playwright test` directly
+  // (without the runner) requires DATABASE_URL pointing at a live DB
+  // with seeded users.
 });

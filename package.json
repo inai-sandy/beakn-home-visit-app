@@ -20,8 +20,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test",
-    "test:e2e:update": "playwright test --update-snapshots"
+    "test:e2e": "tsx scripts/run-e2e.ts",
+    "test:e2e:update": "tsx scripts/run-e2e.ts --update-snapshots",
+    "test:e2e:direct": "playwright test"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

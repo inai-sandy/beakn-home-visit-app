@@ -50,3 +50,6 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# HVA-198 e2e — testcontainer credentials regenerated per run
+tests/e2e/.e2e-users.json

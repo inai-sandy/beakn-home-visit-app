@@ -135,6 +135,32 @@ interface Props {
   linkableLeads?: LinkableLead[];
   /** When true, FAB renders disabled (read-only state — day closed). */
   disabled?: boolean;
+  /** HVA-150: opt-in optimistic UI hooks passed through to AddTaskSheet.
+   *  When provided + add mode, sheet inserts a pending row in the parent
+   *  list immediately on submit, closes, then reconciles or rolls back
+   *  based on the server action's result. */
+  onOptimisticAdd?: AddTaskOptimisticHandlers['onAdd'];
+  onOptimisticReconcile?: AddTaskOptimisticHandlers['onReconcile'];
+  onOptimisticRemove?: AddTaskOptimisticHandlers['onRemove'];
+}
+
+/** HVA-150 opt-in optimistic Add Task contract. Add mode only — edit /
+ *  clone always go through the existing useTransition path. */
+export interface AddTaskOptimisticHandlers {
+  /** Insert a pending row in the parent list. Parent owns the id. */
+  onAdd: (insert: {
+    id: string;
+    taskType: string;
+    description: string;
+    estimatedTime: string;
+    taskDate: string;
+    linkRequestId: string | null;
+    linkLeadId: string | null;
+  }) => void;
+  /** Server returned success — swap temp id for real id. */
+  onReconcile: (tempId: string, serverTaskId: string) => void;
+  /** Server returned failure — drop the pending row. */
+  onRemove: (tempId: string) => void;
 }
 
 // HVA-60 design polish (Change A): AddTaskFab no longer owns its own
@@ -145,8 +171,19 @@ export function AddTaskFab({
   linkableRequests,
   linkableLeads = [],
   disabled = false,
+  onOptimisticAdd,
+  onOptimisticReconcile,
+  onOptimisticRemove,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const optimistic =
+    onOptimisticAdd && onOptimisticReconcile && onOptimisticRemove
+      ? {
+          onAdd: onOptimisticAdd,
+          onReconcile: onOptimisticReconcile,
+          onRemove: onOptimisticRemove,
+        }
+      : undefined;
   return (
     <>
       <Button
@@ -164,6 +201,7 @@ export function AddTaskFab({
           linkableRequests={linkableRequests}
           linkableLeads={linkableLeads}
           onClose={() => setOpen(false)}
+          optimistic={optimistic}
         />
       )}
     </>
@@ -183,6 +221,7 @@ export function AddTaskSheet({
   cloneFromTask,
   initialTaskDate,
   onClose,
+  optimistic,
 }: {
   linkableRequests: LinkableRequest[];
   linkableLeads?: LinkableLead[];
@@ -197,6 +236,10 @@ export function AddTaskSheet({
    *  editable; this just saves a tap. */
   initialTaskDate?: string;
   onClose: () => void;
+  /** HVA-150 opt-in: when provided and in add mode (not edit, not clone),
+   *  the sheet inserts a pending row in the parent list, closes, and
+   *  reconciles or rolls back based on the server action's result. */
+  optimistic?: AddTaskOptimisticHandlers;
 }) {
   const router = useRouter();
   const editMode = Boolean(taskToEdit);
@@ -315,6 +358,60 @@ export function AddTaskSheet({
 
   async function onSubmit() {
     if (!canSubmit || taskType === null) return;
+    // HVA-150 opt-in: add mode + optimistic handlers → close immediately,
+    // surface a pending row in the parent list, then reconcile on result.
+    // Edit + clone modes always use the legacy path (no double-submit
+    // risk + the form's own busy state already covers the perception gap).
+    const isAddMode = !editMode && !cloneMode;
+    if (isAddMode && optimistic) {
+      const tempId = `task-temp-${
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2)
+      }`;
+      optimistic.onAdd({
+        id: tempId,
+        taskType,
+        description: description.trim(),
+        estimatedTime,
+        taskDate,
+        linkRequestId: linkRequestId ?? null,
+        linkLeadId: linkLeadId ?? null,
+      });
+      onClose();
+      try {
+        const result = await addTaskAction({
+          taskType,
+          description: description.trim(),
+          estimatedTime,
+          taskDate,
+          linkRequestId: linkRequestId ?? null,
+          linkLeadId: linkLeadId ?? null,
+        });
+        if (!result.ok) {
+          optimistic.onRemove(tempId);
+          toast.error(result.error);
+          return;
+        }
+        if (result.data) {
+          optimistic.onReconcile(tempId, result.data.taskId);
+        } else {
+          // Defensive fallback — server returned ok but no data. Drop the
+          // optimistic row so router.refresh seeds it from the canonical
+          // server list instead.
+          optimistic.onRemove(tempId);
+        }
+        toast.success('Task added');
+        startTransition(() => {
+          router.refresh();
+        });
+      } catch (err) {
+        optimistic.onRemove(tempId);
+        toast.error(err instanceof Error ? err.message : 'Network error');
+      }
+      return;
+    }
+
     setSubmitting(true);
     try {
       const result = editMode && taskToEdit

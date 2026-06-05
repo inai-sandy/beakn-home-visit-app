@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 
-import { AddLeadSheet } from './AddLeadSheet';
+import { AddLeadSheet, type AddLeadOptimisticHandlers } from './AddLeadSheet';
 import type { BusinessTypeOption, CityOption } from './types';
 
 // =============================================================================
@@ -16,14 +16,19 @@ import type { BusinessTypeOption, CityOption } from './types';
 // exec bottom-nav (h-16). Desktop: `lg:bottom-6`. Same positioning
 // shape as the today-loop AddTaskFab (HVA-58/60) — kept consistent so
 // users see the same primary action affordance on every exec page.
+//
+// HVA-150 / HVA-200: when the parent passes optimistic handlers, the
+// sheet inserts a pending lead in the parent list, closes immediately,
+// and reconciles on the server result.
 // =============================================================================
 
 interface Props {
   cities: CityOption[];
   businessTypes: BusinessTypeOption[];
+  optimistic?: AddLeadOptimisticHandlers;
 }
 
-export function AddLeadFab({ cities, businessTypes }: Props) {
+export function AddLeadFab({ cities, businessTypes, optimistic }: Props) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -41,6 +46,7 @@ export function AddLeadFab({ cities, businessTypes }: Props) {
           cities={cities}
           businessTypes={businessTypes}
           onClose={() => setOpen(false)}
+          optimistic={optimistic}
         />
       )}
     </>

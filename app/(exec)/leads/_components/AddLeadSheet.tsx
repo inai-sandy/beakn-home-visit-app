@@ -44,13 +44,31 @@ import type { BusinessTypeOption, CityOption } from './types';
 // Phone: collected as 10 digits (Indian mobile). Server prepends '+91'.
 // =============================================================================
 
+/** HVA-150 opt-in optimistic Add Lead contract. Parent owns the list +
+ *  the optimistic state; this sheet only fires events. */
+export interface AddLeadOptimisticHandlers {
+  onAdd: (insert: {
+    id: string;
+    type: 'Customer' | 'Business';
+    name: string;
+    phone: string;
+    cityId: string;
+    cityName: string | null;
+  }) => void;
+  onReconcile: (tempId: string, serverLeadId: string) => void;
+  onRemove: (tempId: string) => void;
+}
+
 interface Props {
   cities: CityOption[];
   businessTypes: BusinessTypeOption[];
   onClose: () => void;
+  /** HVA-150 opt-in: when provided, sheet inserts a pending row in the
+   *  parent leads list, closes immediately, and reconciles on result. */
+  optimistic?: AddLeadOptimisticHandlers;
 }
 
-export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
+export function AddLeadSheet({ cities, businessTypes, onClose, optimistic }: Props) {
   const [type, setType] = useState<'Customer' | 'Business'>('Customer');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -65,13 +83,21 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // HVA-150: in optimistic mode the parent owns row state, so closing
+  // happens immediately on submit. We still let useServerMutation handle
+  // the refresh + toast, but skip its onSuccess close (we close earlier).
   const { mutate, isPending: busy } = useServerMutation(addLeadAction, {
     successMessage: 'Lead added',
-    onSuccess: () => onClose(),
+    onSuccess: () => {
+      if (!optimistic) onClose();
+    },
     onError: (err, errs) => {
       setGeneralError(err);
       if (errs) setFieldErrors(errs);
     },
+    // In optimistic mode we surface the toast manually so we can also
+    // remove the pending row from the parent list at the same moment.
+    suppressErrorToast: Boolean(optimistic),
   });
 
   function toggleInterest(tag: string) {
@@ -80,15 +106,16 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
     );
   }
 
-  function onSubmit() {
+  async function onSubmit() {
     if (busy) return;
     setGeneralError(null);
     setFieldErrors({});
+    const trimmedName = name.trim();
     const payload =
       type === 'Customer'
         ? {
             type: 'Customer' as const,
-            name: name.trim(),
+            name: trimmedName,
             phone,
             email: email.trim() || undefined,
             cityId,
@@ -98,7 +125,7 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
           }
         : {
             type: 'Business' as const,
-            name: name.trim(),
+            name: trimmedName,
             phone,
             email: email.trim() || undefined,
             cityId,
@@ -107,6 +134,32 @@ export function AddLeadSheet({ cities, businessTypes, onClose }: Props) {
             businessTypeId,
             notes: notes.trim() || undefined,
           };
+
+    if (optimistic) {
+      const tempId = `lead-temp-${
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2)
+      }`;
+      const cityName = cities.find((c) => c.id === cityId)?.name ?? null;
+      optimistic.onAdd({
+        id: tempId,
+        type,
+        name: trimmedName,
+        phone: `+91${phone}`,
+        cityId,
+        cityName,
+      });
+      onClose();
+      const result = await mutate(payload);
+      if (result === null) {
+        optimistic.onRemove(tempId);
+        toast.error('Could not add lead. Please retry.');
+        return;
+      }
+      optimistic.onReconcile(tempId, result.leadId);
+      return;
+    }
     void mutate(payload);
   }
 

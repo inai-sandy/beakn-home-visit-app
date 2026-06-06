@@ -77,6 +77,15 @@ const SAFE_TRUNCATE_TABLES = [
   'audit_log',
   'business_types',
   'captains',
+  // HVA-238 (HVA-231 Phase 2 PR-A): dispatch tables reference users
+  // (dispatched_by_user_id, changed_by_user_id) with ON DELETE RESTRICT.
+  // Must be truncated before the DELETE FROM users step. The 3 tables
+  // CASCADE among themselves (dispatch_items + history → dispatches),
+  // but listing all three explicitly is robust if a future migration
+  // adds a different FK that changes the cascade graph.
+  'dispatch_status_history',
+  'dispatch_items',
+  'dispatches',
   'day_plans',
   'holidays',
   'in_app_notifications',

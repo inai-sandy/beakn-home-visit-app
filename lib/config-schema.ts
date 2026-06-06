@@ -247,6 +247,10 @@ export const CONFIG_SCHEMA = {
       'support_user_deactivated',
       'support_user_activated',
       'support_user_password_reset',
+      // HVA-238 (HVA-231 Phase 2 PR-A): dispatch events
+      'dispatch_created',
+      'dispatch_advanced',
+      'dispatch_item_added',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

@@ -13,7 +13,15 @@ import {
 
 import { timestamps } from './_helpers';
 
-export const userRoleEnum = pgEnum('user_role', ['sales_executive', 'captain', 'super_admin']);
+// HVA-235: 'support' added for the new Support Team Portal v1 (HVA-231).
+// Order matters for migration safety: existing values stay first; new
+// values append at the end via `ALTER TYPE ... ADD VALUE` in migration 0064.
+export const userRoleEnum = pgEnum('user_role', [
+  'sales_executive',
+  'captain',
+  'super_admin',
+  'support',
+]);
 
 // HVA-24 additions to the original HVA-14 users table:
 // - emailVerified / image: Better-Auth core fields. BA's user shape requires

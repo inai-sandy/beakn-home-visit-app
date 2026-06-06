@@ -107,7 +107,11 @@ export const lineItemCreateSchema = z.object({
   targetDispatchDate: dateStringOrNull,
 });
 
-export type LineItemCreateInput = z.infer<typeof lineItemCreateSchema>;
+// Use z.input so callers can OMIT `.default()` fields (priority).
+// z.infer = post-parse (required); z.input = pre-parse (defaults are
+// optional in the input). The action receives raw input and parses
+// internally, so input shape is the right contract.
+export type LineItemCreateInput = z.input<typeof lineItemCreateSchema>;
 
 // Update is the same payload minus quotationId (the row already belongs
 // to a quotation; can't move it). All fields optional — server merges

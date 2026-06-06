@@ -31,6 +31,7 @@ import {
 import { CopyTrackingLink } from "@/app/submitted/[token]/copy-tracking-link";
 import { AdminHelpSection } from "@/components/admin-help/AdminHelpSection";
 import { NotesSection } from "@/components/notes/NotesSection";
+import { OrderCommentsBlock } from "@/components/order-comments/OrderCommentsBlock";
 import { RescheduleButton } from "@/components/reschedule/RescheduleButton";
 import { loadAdminHelpForRequest } from "@/lib/admin-help/actions";
 import { REJECTION_REASONS, type RejectionReason } from "@/lib/rejection-reasons";
@@ -633,6 +634,31 @@ export default async function RequestDetailPage({ params }: PageProps) {
           canWrite={canWriteNote}
           viewer={viewerForNotes}
         />
+
+        {/* HVA-241: order comment thread. Mount only once the order is
+            confirmed — earlier stages still use the notes timeline. */}
+        {(reqRow.currentStageCode === 'ORDER_CONFIRMED' ||
+          reqRow.currentStageCode === 'INSTALLATION_SCHEDULED' ||
+          reqRow.currentStageCode === 'INSTALLATION_DONE' ||
+          reqRow.currentStageCode === 'ORDER_EXECUTED_SUCCESSFULLY') && (
+          <section
+            aria-label="Order comments"
+            className="rounded-3xl border bg-card p-6 shadow-sm space-y-4"
+          >
+            <header>
+              <h2 className="text-lg font-semibold tracking-tight">
+                Order comments
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Internal thread with the support team handling dispatch.
+              </p>
+            </header>
+            <OrderCommentsBlock
+              requestId={reqRow.id}
+              currentUserId={(session.user as { id: string }).id}
+            />
+          </section>
+        )}
 
         <section
           aria-label="Status timeline"

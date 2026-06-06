@@ -251,6 +251,8 @@ export const CONFIG_SCHEMA = {
       'dispatch_created',
       'dispatch_advanced',
       'dispatch_item_added',
+      // HVA-241 (HVA-231 Phase 3): order comment thread
+      'order_comment_added',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

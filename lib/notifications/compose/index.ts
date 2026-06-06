@@ -87,6 +87,10 @@ import {
   type DispatchRecordedContext,
   type OrderReadyForDispatchContext,
 } from './dispatch-events';
+import {
+  composeOrderCommentAddedInApp,
+  type OrderCommentAddedContext,
+} from './order-comment-events';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -278,6 +282,11 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     composeDispatchRecordedInApp(ctx as unknown as DispatchRecordedContext),
   'support.dispatch_advanced': (ctx) =>
     composeDispatchAdvancedInApp(ctx as unknown as DispatchAdvancedContext),
+  // HVA-241 (HVA-231 Phase 3): order comment thread.
+  'support.order_comment_added': (ctx) =>
+    composeOrderCommentAddedInApp(
+      ctx as unknown as OrderCommentAddedContext,
+    ),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

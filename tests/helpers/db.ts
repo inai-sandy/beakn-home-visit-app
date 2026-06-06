@@ -95,6 +95,9 @@ const SAFE_TRUNCATE_TABLES = [
   // at the end of truncateAll blows up with an FK violation, and every
   // subsequent test's seedCaptain collides on the unique phone.
   'notes',
+  // HVA-241 (HVA-231 Phase 3): order_comments.author_user_id is
+  // ON DELETE RESTRICT — same reason notes had to be added above.
+  'order_comments',
   'notification_rules',
   'notifications_queue',
   'payments',

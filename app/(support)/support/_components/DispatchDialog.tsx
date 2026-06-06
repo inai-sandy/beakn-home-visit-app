@@ -19,10 +19,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 
 import { addDispatchAction } from '../_actions/addDispatch';
-import type { SupportQueueRow } from './SupportQueueTable';
 
 // =============================================================================
 // HVA-238 (HVA-231 Phase 2 PR-A): DispatchDialog — multi-item dispatch form
+// HVA-242 — generalised so both /support queue and /support/orders/[id]
+// can hand it rows. Accepts the minimal `DispatchableItem` shape; callers
+// build their own rows.
 // =============================================================================
 //
 // Pre-populated with one or more selected items. Each item gets a qty
@@ -32,8 +34,18 @@ import type { SupportQueueRow } from './SupportQueueTable';
 //   - On failure: inline error + keep dialog open so the user can fix
 // =============================================================================
 
+export interface DispatchableItem {
+  lineItemId: string;
+  productName: string;
+  /** Short context line shown under the product name; e.g.
+   *  "Ravi Kumar · Hyderabad · 3 of 5 left" on the queue, just
+   *  "3 of 5 left" on the per-order detail page. */
+  contextLine: string;
+  quantityRemaining: number;
+}
+
 interface Props {
-  items: SupportQueueRow[];
+  items: DispatchableItem[];
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -107,8 +119,7 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
                       {it.productName}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate">
-                      {it.customerName} · {it.cityName} ·{' '}
-                      {it.quantityRemaining} of {it.quantityTotal} left
+                      {it.contextLine}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

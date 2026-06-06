@@ -1,11 +1,16 @@
 import { and, asc, desc, eq, gt, lt } from "drizzle-orm";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
-import { BackButton } from "@/components/ui/back-button";
+import { DispatchHistoryBlock } from "@/app/(support)/support/orders/[id]/_components/DispatchHistoryBlock";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -41,6 +46,7 @@ import {
   terminalBadgeMeta,
   type TerminalActor,
 } from "@/lib/request-detail";
+import { loadOrderDetail } from "@/lib/support/order-detail";
 import { cn } from "@/lib/utils";
 
 import { AdvanceStatusButton } from "./advance-status-button";
@@ -54,6 +60,8 @@ import { ReassignRequestButton } from "./reassign-request-button";
 import { RejectRequestButton } from "./reject-request-button";
 import { RollbackStatusButton } from "./rollback-status-button";
 import { EditRequestButton } from "./_components/EditRequestButton";
+import { RequestDetailShell } from "./_components/RequestDetailShell";
+import { StickyRequestHeader } from "./_components/StickyRequestHeader";
 
 // =============================================================================
 // HVA-66 (subsumes HVA-104): /requests/[id] — full request detail screen
@@ -460,90 +468,182 @@ export default async function RequestDetailPage({ params }: PageProps) {
     role: isRole(role) ? role : ("sales_executive" as const),
   };
 
-  return (
-    <main className="min-h-svh bg-background">
-      {/* HVA-66 sticky header: 44×44 back button + customer name so context
-          survives long scrolls. Doesn't reflow the card stack below. */}
-      <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b">
-        <div className="mx-auto max-w-2xl px-4 sm:px-6 h-14 flex items-center gap-3">
-          <BackButton
-            fallback={backFallback}
-            size="icon"
-            className="h-11 w-11 shrink-0"
-          />
-          <p className="text-base font-semibold tracking-tight truncate flex-1">
-            {reqRow.customerName}
-          </p>
-          {editable && editRequestPayload && (
-            <EditRequestButton
-              request={editRequestPayload}
-              cities={editCityRows}
-            />
-          )}
-        </div>
-      </header>
+  // HVA-243: read-only dispatch state for the Order tab (ORDER_CONFIRMED+).
+  const orderConfirmedStages = new Set([
+    "ORDER_CONFIRMED",
+    "INSTALLATION_SCHEDULED",
+    "INSTALLATION_DONE",
+    "ORDER_EXECUTED_SUCCESSFULLY",
+  ]);
+  const showOrderActivity = orderConfirmedStages.has(reqRow.currentStageCode);
+  const dispatchesForRequest = showOrderActivity
+    ? (await loadOrderDetail(reqRow.id))?.dispatches ?? []
+    : [];
 
-      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
-        <section
-          aria-label="Customer details"
-          className="rounded-3xl border bg-card p-6 shadow-sm space-y-5"
+  // HVA-243: resolve the single primary action surfaced in the sticky
+  // header. Priority approve > markComplete > advance > assignExec.
+  // Every other verb (rollback / reassign / reject / mark rejected /
+  // reschedule) lives in the Admin tab where it belongs.
+  let primaryAction: React.ReactNode = null;
+  if (actionVis.showApprove) {
+    primaryAction = (
+      <ApproveRequestButton
+        requestId={reqRow.id}
+        customerName={reqRow.customerName}
+      />
+    );
+  } else if (actionVis.showMarkComplete) {
+    primaryAction = <MarkInstallationCompleteButton requestId={reqRow.id} />;
+  } else if (actionVis.showAdvance && nextStage) {
+    primaryAction = (
+      <AdvanceStatusButton
+        requestId={reqRow.id}
+        nextStatus={{
+          id: nextStage.id,
+          code: nextStage.code,
+          name: nextStage.name,
+        }}
+        requiresDatetime={nextRequiresDatetime}
+      />
+    );
+  } else if (actionVis.showAssignExec) {
+    primaryAction = (
+      <AssignRequestButton
+        requestId={reqRow.id}
+        execs={execsForAssignment}
+      />
+    );
+  }
+
+  const statusBadge =
+    reqRow.cancelledAt !== null ? (
+      <>
+        <Badge variant="destructive" className="text-[10px]">
+          Cancelled
+        </Badge>
+        <Badge
+          variant="outline"
+          className="text-[10px] text-muted-foreground"
         >
-          <header className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {reqRow.customerName}
-              </h1>
-              {/* HVA-142: when cancelled, the destructive badge is the
-                  primary signal; the underlying stage name moves to an
-                  outline secondary badge so the historical context isn't
-                  lost. Cancellation doesn't move status_stage_id by
-                  design (HVA-69), so without this branch the captain
-                  saw "Assigned" with no visible cancellation cue. */}
-              {reqRow.cancelledAt !== null ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="destructive" className="text-[10px]">
-                    Cancelled
-                  </Badge>
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] text-muted-foreground"
-                  >
-                    was {reqRow.currentStageName}
-                  </Badge>
-                </div>
-              ) : (
-                <Badge variant="secondary" className="text-[10px]">
-                  {reqRow.currentStageName}
-                </Badge>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline" className="text-[10px]">
-                {reqRow.cityName}
-              </Badge>
-              <Badge variant="outline" className="text-[10px]">
-                {reqRow.bhk}
-              </Badge>
-              {interest.map((it) => (
-                <Badge key={it} variant="outline" className="text-[10px]">
-                  {it}
-                </Badge>
-              ))}
-            </div>
-          </header>
+          was {reqRow.currentStageName}
+        </Badge>
+      </>
+    ) : (
+      <Badge variant="secondary" className="text-[10px]">
+        {reqRow.currentStageName}
+      </Badge>
+    );
 
-          {/*
-            HVA-66 tap targets: phone/email become block-level h-11 affordances
-            so they meet the 44×44 iOS HIG minimum on mobile. Inline text
-            links don't and were the main accessibility gap of the HVA-104 MVP.
-          */}
+  const editButton =
+    editable && editRequestPayload ? (
+      <EditRequestButton
+        request={editRequestPayload}
+        cities={editCityRows}
+      />
+    ) : null;
+
+  const banner = (
+    <>
+      {reqRow.cancelledAt && terminalMeta && (
+        <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Icon name="cancel" size="sm" className="text-destructive" />
+            <h2 className="text-sm font-semibold tracking-tight text-destructive">
+              {terminalMeta.title}
+            </h2>
+          </div>
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Reason</dt>
+            <dd>
+              {reqRow.cancellationReasonCode
+                ? REJECTION_REASONS[
+                    reqRow.cancellationReasonCode as RejectionReason
+                  ] ?? reqRow.cancellationReasonCode
+                : "—"}
+            </dd>
+            {reqRow.cancellationReason && (
+              <>
+                <dt className="text-muted-foreground">Note</dt>
+                <dd className="whitespace-pre-wrap">
+                  {reqRow.cancellationReason}
+                </dd>
+              </>
+            )}
+            <dt className="text-muted-foreground">Marked by</dt>
+            <dd>{terminalMeta.markedByLabel}</dd>
+            <dt className="text-muted-foreground">When</dt>
+            <dd>{cancelledIst ?? "—"}</dd>
+          </dl>
+        </section>
+      )}
+      {reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
+        role === "sales_executive" &&
+        reqRow.assignedExecUserId === user.id && (
+          <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Icon
+                name="hourglass_top"
+                size="sm"
+                className="text-amber-700"
+              />
+              <h2 className="text-sm font-semibold tracking-tight text-amber-900">
+                Waiting for {cityCaptainName ?? "your captain"} to approve
+              </h2>
+            </div>
+            {pendingApprovalNote ? (
+              <div className="rounded-xl bg-background/70 border px-3 py-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                  Your note
+                </p>
+                <p className="text-sm whitespace-pre-wrap">
+                  {pendingApprovalNote}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No note was attached when you marked installation complete.
+              </p>
+            )}
+          </section>
+        )}
+    </>
+  );
+
+  const overviewTab = (
+    <Accordion
+      type="multiple"
+      defaultValue={["customer-info"]}
+      className="rounded-2xl border bg-card divide-y px-4"
+    >
+      <AccordionItem value="customer-info" className="border-b">
+        <AccordionTrigger>
+          <span>Customer info</span>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-4">
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="outline" className="text-[10px]">
+              {reqRow.bhk}
+            </Badge>
+            {interest.map((it) => (
+              <Badge key={it} variant="outline" className="text-[10px]">
+                {it}
+              </Badge>
+            ))}
+          </div>
           <div className="grid sm:grid-cols-2 gap-3 text-sm">
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 Phone
               </p>
-              <Button asChild variant="outline" className="h-11 w-full justify-start font-mono text-primary">
-                <a href={`tel:${reqRow.customerPhone}`} aria-label="Call customer">
+              <Button
+                asChild
+                variant="outline"
+                className="h-11 w-full justify-start font-mono text-primary"
+              >
+                <a
+                  href={`tel:${reqRow.customerPhone}`}
+                  aria-label="Call customer"
+                >
                   <Icon name="phone" size="sm" />
                   <span>{reqRow.customerPhone}</span>
                 </a>
@@ -554,7 +654,11 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Email
                 </p>
-                <Button asChild variant="outline" className="h-11 w-full justify-start text-primary">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-11 w-full justify-start text-primary"
+                >
                   <a
                     href={`mailto:${reqRow.customerEmail}`}
                     aria-label="Email customer"
@@ -566,124 +670,128 @@ export default async function RequestDetailPage({ params }: PageProps) {
               </div>
             )}
           </div>
-
           {submittedIst && (
             <p className="text-xs text-muted-foreground">
-              <Icon name="schedule" size="xs" className="inline align-text-bottom mr-1" />
+              <Icon
+                name="schedule"
+                size="xs"
+                className="inline align-text-bottom mr-1"
+              />
               Submitted {submittedIst}
             </p>
           )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                Address
-              </p>
-              <CopyAddressButton address={reqRow.address} />
-            </div>
-            <p className="text-sm whitespace-pre-line">{reqRow.address}</p>
-            {(reqRow.customerState || reqRow.cityState) && (
-              <p className="text-xs text-muted-foreground">
-                {[reqRow.cityName, reqRow.customerState ?? reqRow.cityState]
-                  .filter(Boolean)
-                  .join(", ")}
-              </p>
-            )}
-            {mapsUrl && (
-              <Button asChild variant="outline" size="sm" className="mt-2">
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Open ${reqRow.customerName}'s address in Google Maps`}
-                >
-                  <Icon name="map" size="xs" />
-                  <span>Open in Maps</span>
-                </a>
-              </Button>
-            )}
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="address">
+        <AccordionTrigger>
+          <span>Address</span>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              Address
+            </span>
+            <CopyAddressButton address={reqRow.address} />
           </div>
-        </section>
-
-        {/* HVA-145: tracking link for captain/exec to re-share with the
-            customer if they lose the original. */}
-        <section
-          aria-label="Customer tracking link"
-          className="rounded-3xl border bg-card p-6 shadow-sm space-y-3"
-        >
-          <header className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Customer tracking link
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Share this with the customer to view their request status.
+          <p className="text-sm whitespace-pre-line">{reqRow.address}</p>
+          {(reqRow.customerState || reqRow.cityState) && (
+            <p className="text-xs text-muted-foreground">
+              {[reqRow.cityName, reqRow.customerState ?? reqRow.cityState]
+                .filter(Boolean)
+                .join(", ")}
             </p>
-          </header>
+          )}
+          {mapsUrl && (
+            <Button asChild variant="outline" size="sm">
+              <a
+                href={mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${reqRow.customerName}'s address in Google Maps`}
+              >
+                <Icon name="map" size="xs" />
+                <span>Open in Maps</span>
+              </a>
+            </Button>
+          )}
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="tracking">
+        <AccordionTrigger>
+          <span>Customer tracking link</span>
+        </AccordionTrigger>
+        <AccordionContent className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Share this with the customer to view their request status.
+          </p>
           <CopyTrackingLink
             url={`${trackingBaseUrl}/track/${reqRow.trackingToken}`}
             shareTitle={`Track your Beakn visit — ${reqRow.customerName}`}
             shareText={`Hi ${reqRow.customerName}, here's the link to track your Beakn visit request.`}
           />
-        </section>
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
+  );
 
-        {/* HVA-73 PR 2: append-only notes timeline for the request. */}
-        <NotesSection
-          targetType="request"
-          targetId={reqRow.id}
-          notes={notesForRequest}
-          canWrite={canWriteNote}
-          viewer={viewerForNotes}
-        />
-
-        {/* HVA-241: order comment thread. Mount only once the order is
-            confirmed — earlier stages still use the notes timeline. */}
-        {(reqRow.currentStageCode === 'ORDER_CONFIRMED' ||
-          reqRow.currentStageCode === 'INSTALLATION_SCHEDULED' ||
-          reqRow.currentStageCode === 'INSTALLATION_DONE' ||
-          reqRow.currentStageCode === 'ORDER_EXECUTED_SUCCESSFULLY') && (
-          <section
-            aria-label="Order comments"
-            className="rounded-3xl border bg-card p-6 shadow-sm space-y-4"
-          >
-            <header>
-              <h2 className="text-lg font-semibold tracking-tight">
-                Order comments
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Internal thread with the support team handling dispatch.
-              </p>
-            </header>
-            <OrderCommentsBlock
-              requestId={reqRow.id}
-              currentUserId={(session.user as { id: string }).id}
+  const orderTab = (
+    <Accordion
+      type="multiple"
+      defaultValue={["quotation"]}
+      className="rounded-2xl border bg-card divide-y px-4"
+    >
+      <AccordionItem value="quotation" className="border-b">
+        <AccordionTrigger>
+          <span>Quotation, items &amp; payments</span>
+        </AccordionTrigger>
+        <AccordionContent>
+          <CollectionSection
+            requestId={reqRow.id}
+            role={isRole(role) ? role : undefined}
+            userId={user.id}
+            assignedExecUserId={reqRow.assignedExecUserId}
+            cityCaptainUserId={reqRow.cityCaptainUserId}
+            cancelledAt={reqRow.cancelledAt}
+          />
+        </AccordionContent>
+      </AccordionItem>
+      {showOrderActivity && (
+        <AccordionItem value="dispatch">
+          <AccordionTrigger>
+            <span>Dispatch history ({dispatchesForRequest.length})</span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <DispatchHistoryBlock
+              canAdvance={false}
+              dispatches={dispatchesForRequest.map((d) => ({
+                dispatchId: d.dispatchId,
+                createdAtIso: d.createdAt.toISOString(),
+                dispatchedByName: d.dispatchedByName,
+                notes: d.notes,
+                currentStage: d.currentStage,
+                items: d.items,
+              }))}
             />
-          </section>
-        )}
+          </AccordionContent>
+        </AccordionItem>
+      )}
+    </Accordion>
+  );
 
-        <section
-          aria-label="Status timeline"
-          className="rounded-3xl border bg-card p-6 shadow-sm space-y-4"
-        >
-          <header className="flex items-baseline justify-between gap-2">
-            <h2 className="text-lg font-semibold tracking-tight">
-              Status timeline
-            </h2>
-            {isTerminal && (
-              <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-                <Icon name="check_circle" size="sm" fill />
-                <span>Completed</span>
-              </span>
-            )}
-          </header>
-
+  const activityTab = (
+    <Accordion
+      type="multiple"
+      defaultValue={["timeline"]}
+      className="rounded-2xl border bg-card divide-y px-4"
+    >
+      <AccordionItem value="timeline" className="border-b">
+        <AccordionTrigger>
+          <span>
+            Status timeline {isTerminal && "· Completed"}
+          </span>
+        </AccordionTrigger>
+        <AccordionContent>
           <ol className="space-y-3">
-            {/* HVA-144: the synthetic Submitted row is "current" only
-                when there are NO history rows (i.e., the request is
-                still at SUBMITTED). Without this guard, a request that
-                has moved past Submitted but came back via some future
-                rollback path landing at seq 1 would briefly double-tag.
-                Today's pipeline forbids rolling back to SUBMITTED, so
-                this is defence-in-depth. */}
             <TimelineRow
               stageName="Submitted"
               when={reqRow.createdAt}
@@ -691,11 +799,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
               reason={null}
               variant={historyRows.length === 0 ? "current" : "past"}
             />
-
             {historyRows.map((h) => {
-              // HVA-144: only the last transition (max transition_order)
-              // gets the "Current" badge — fixes the double-Current bug
-              // after a rollback re-traverses a previously-visited stage.
               const isCurrent = h.transitionOrder === maxTransitionOrder;
               return (
                 <TimelineRow
@@ -708,7 +812,6 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 />
               );
             })}
-
             {futureStages.map((s) => (
               <TimelineRow
                 key={s.id}
@@ -720,98 +823,71 @@ export default async function RequestDetailPage({ params }: PageProps) {
               />
             ))}
           </ol>
-        </section>
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="notes">
+        <AccordionTrigger>
+          <span>Notes ({notesForRequest.length})</span>
+        </AccordionTrigger>
+        <AccordionContent>
+          <NotesSection
+            targetType="request"
+            targetId={reqRow.id}
+            notes={notesForRequest}
+            canWrite={canWriteNote}
+            viewer={viewerForNotes}
+            embedded
+          />
+        </AccordionContent>
+      </AccordionItem>
+      {showOrderActivity && (
+        <AccordionItem value="comments">
+          <AccordionTrigger>
+            <span>Order comments</span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Internal thread with the support team handling dispatch.
+            </p>
+            <OrderCommentsBlock
+              requestId={reqRow.id}
+              currentUserId={user.id}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      )}
+    </Accordion>
+  );
 
-        <CollectionSection
-          requestId={reqRow.id}
-          role={isRole(role) ? role : undefined}
-          userId={user.id}
-          assignedExecUserId={reqRow.assignedExecUserId}
-          cityCaptainUserId={reqRow.cityCaptainUserId}
-          cancelledAt={reqRow.cancelledAt}
-        />
+  // Secondary actions (everything that's NOT the primary CTA) live in
+  // the Admin tab. Rendered only when at least one is visible.
+  const hasSecondaryActions =
+    actionVis.showRollback ||
+    actionVis.showReassign ||
+    actionVis.showReject ||
+    actionVis.showMarkRejected;
+  const canReschedule =
+    (role === "sales_executive" || role === "super_admin") &&
+    (role === "super_admin" || reqRow.assignedExecUserId === user.id) &&
+    !!reqRow.visitScheduledAt &&
+    reqRow.cancelledAt === null &&
+    reqRow.currentStageCode !== "ORDER_EXECUTED_SUCCESSFULLY";
+  const showAdminHelp =
+    role === "sales_executive" && reqRow.assignedExecUserId === user.id;
 
-        {reqRow.cancelledAt && terminalMeta && (
-          <section className="rounded-3xl border border-destructive/30 bg-destructive/5 p-5 shadow-sm space-y-2">
-            <div className="flex items-center gap-2">
-              <Icon name="cancel" size="sm" className="text-destructive" />
-              <h2 className="text-base font-semibold tracking-tight text-destructive">
-                {terminalMeta.title}
-              </h2>
-            </div>
-            <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm">
-              <dt className="text-muted-foreground">Reason</dt>
-              <dd>
-                {reqRow.cancellationReasonCode
-                  ? REJECTION_REASONS[
-                      reqRow.cancellationReasonCode as RejectionReason
-                    ] ?? reqRow.cancellationReasonCode
-                  : "—"}
-              </dd>
-              {reqRow.cancellationReason && (
-                <>
-                  <dt className="text-muted-foreground">Note</dt>
-                  <dd className="whitespace-pre-wrap">{reqRow.cancellationReason}</dd>
-                </>
-              )}
-              <dt className="text-muted-foreground">Marked by</dt>
-              <dd>{terminalMeta.markedByLabel}</dd>
-              <dt className="text-muted-foreground">When</dt>
-              <dd>{cancelledIst ?? "—"}</dd>
-            </dl>
-          </section>
-        )}
-
-        {/* HVA-66: action button visibility derived by lib/request-detail.ts
-            computeActionVisibility. The pure helper makes the role × stage
-            matrix unit-testable; render here only when any button is shown
-            (otherwise the section + its margin would leave a stray gap). */}
-        {/* HVA-137: exec-facing waiting section at PENDING_CAPTAIN_APPROVAL.
-            Shows only to the assigned exec. The note here is what the
-            exec submitted via Mark Installation Complete (HVA-68);
-            captain name comes from the request's city. */}
-        {reqRow.currentStageCode === "PENDING_CAPTAIN_APPROVAL" &&
-          role === "sales_executive" &&
-          reqRow.assignedExecUserId === user.id && (
-            <section className="rounded-3xl border border-amber-500/30 bg-amber-500/5 p-5 shadow-sm space-y-2">
-              <div className="flex items-center gap-2">
-                <Icon name="hourglass_top" size="sm" className="text-amber-700" />
-                <h2 className="text-base font-semibold tracking-tight text-amber-900">
-                  Waiting for {cityCaptainName ?? "your captain"} to approve
-                </h2>
-              </div>
-              {pendingApprovalNote ? (
-                <div className="rounded-2xl bg-background/70 border px-4 py-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                    Your note
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">
-                    {pendingApprovalNote}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No note was attached when you marked installation
-                  complete.
-                </p>
-              )}
-            </section>
-          )}
-
-        {nextStage &&
-          (actionVis.showMarkRejected ||
-            actionVis.showMarkComplete ||
-            actionVis.showAdvance ||
-            actionVis.showAssignExec ||
-            actionVis.showRollback ||
-            actionVis.showReassign ||
-            actionVis.showApprove ||
-            actionVis.showReject) && (
-            <section className="flex justify-end gap-3 flex-wrap">
-              {/* Outline / subordinate buttons first (rollback +
-                  reassign + reject), then destructive Mark Rejected,
-                  then the primary forward action (incl. Approve) on the
-                  right. */}
+  const adminTab = (
+    <Accordion
+      type="multiple"
+      defaultValue={[]}
+      className="rounded-2xl border bg-card divide-y px-4"
+    >
+      {hasSecondaryActions && (
+        <AccordionItem value="manage" className="border-b">
+          <AccordionTrigger>
+            <span>Manage request</span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-2">
+            <div className="flex flex-wrap gap-2">
               {actionVis.showRollback && previousStage && (
                 <RollbackStatusButton
                   requestId={reqRow.id}
@@ -839,59 +915,70 @@ export default async function RequestDetailPage({ params }: PageProps) {
               {actionVis.showMarkRejected && (
                 <MarkCustomerRejectedButton requestId={reqRow.id} />
               )}
-              {actionVis.showMarkComplete && (
-                <MarkInstallationCompleteButton requestId={reqRow.id} />
-              )}
-              {actionVis.showAssignExec && (
-                <AssignRequestButton
-                  requestId={reqRow.id}
-                  execs={execsForAssignment}
-                />
-              )}
-              {actionVis.showApprove && (
-                <ApproveRequestButton
-                  requestId={reqRow.id}
-                  customerName={reqRow.customerName}
-                />
-              )}
-              {actionVis.showAdvance && (
-                <AdvanceStatusButton
-                  requestId={reqRow.id}
-                  nextStatus={{
-                    id: nextStage.id,
-                    code: nextStage.code,
-                    name: nextStage.name,
-                  }}
-                  requiresDatetime={nextRequiresDatetime}
-                />
-              )}
-            </section>
-          )}
-
-        {/* HVA-72: Reschedule visit — exec (assigned) or super_admin.
-            Hidden if the request hasn't been scheduled yet or is in a
-            terminal state. */}
-        {(role === 'sales_executive' || role === 'super_admin') &&
-          (role === 'super_admin' || reqRow.assignedExecUserId === user.id) &&
-          reqRow.visitScheduledAt &&
-          reqRow.cancelledAt === null &&
-          reqRow.currentStageCode !== 'ORDER_EXECUTED_SUCCESSFULLY' && (
-            <section className="flex justify-end">
-              <RescheduleButton
-                requestId={reqRow.id}
-                currentVisitScheduledAt={reqRow.visitScheduledAt}
-              />
-            </section>
-          )}
-
-        {/* HVA-77: Admin Help — exec sends a per-appointment message to admin. */}
-        {role === 'sales_executive' &&
-          reqRow.assignedExecUserId === user.id && (
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      )}
+      {canReschedule && (
+        <AccordionItem value="reschedule">
+          <AccordionTrigger>
+            <span>Reschedule visit</span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <RescheduleButton
+              requestId={reqRow.id}
+              currentVisitScheduledAt={reqRow.visitScheduledAt}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      )}
+      {showAdminHelp && (
+        <AccordionItem value="admin-help">
+          <AccordionTrigger>
+            <span>Admin help</span>
+          </AccordionTrigger>
+          <AccordionContent>
             <AdminHelpSection
               requestId={reqRow.id}
               messages={await loadAdminHelpForRequest(reqRow.id)}
+              embedded
             />
-          )}
+          </AccordionContent>
+        </AccordionItem>
+      )}
+      {!hasSecondaryActions && !canReschedule && !showAdminHelp && (
+        <div className="py-6 text-center text-sm text-muted-foreground">
+          No admin actions available at this stage.
+        </div>
+      )}
+    </Accordion>
+  );
+
+  // Initial tab: ORDER_CONFIRMED+ requests open on Order tab so the
+  // dispatch state is one click away; everything else opens on Overview.
+  const initialTab: "overview" | "order" | "activity" | "admin" =
+    showOrderActivity ? "order" : "overview";
+
+  return (
+    <main className="min-h-svh bg-background">
+      <StickyRequestHeader
+        customerName={reqRow.customerName}
+        customerPhone={reqRow.customerPhone}
+        cityName={reqRow.cityName}
+        statusBadge={statusBadge}
+        backFallback={backFallback}
+        primaryAction={primaryAction}
+        editButton={editButton}
+      />
+      <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5">
+        <RequestDetailShell
+          initialTab={initialTab}
+          banner={banner}
+          overview={overviewTab}
+          order={orderTab}
+          activity={activityTab}
+          admin={adminTab}
+        />
       </div>
     </main>
   );

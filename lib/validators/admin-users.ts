@@ -94,3 +94,25 @@ export const executiveEditSchema = z.object({
   cityId: z.string().uuid('Select a city for this executive'),
 });
 export type ExecutiveEditInput = z.infer<typeof executiveEditSchema>;
+
+// =============================================================================
+// HVA-236 (HVA-235-FIX1): Support team admin onboarding
+// =============================================================================
+//
+// Support is a global-pool role — no captain, no city assignment. The
+// schema is just the user's identity. Same field types as captains /
+// executives so the shared form widgets work the same.
+
+export const supportUserCreateSchema = z.object({
+  fullName: fullNameField,
+  phone: phoneField,
+  email: emailField,
+});
+export type SupportUserCreateInput = z.infer<typeof supportUserCreateSchema>;
+
+export const supportUserEditSchema = z.object({
+  fullName: fullNameField,
+  phone: phoneField,
+  email: emailField,
+});
+export type SupportUserEditInput = z.infer<typeof supportUserEditSchema>;

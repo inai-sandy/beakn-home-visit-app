@@ -28,6 +28,9 @@ interface DispatchEntry {
 
 interface Props {
   dispatches: DispatchEntry[];
+  /** False on /requests/[id] (read-only mirror for exec/captain). Hides
+   *  the Mark packed / Mark handed off button. Default true (support page). */
+  canAdvance?: boolean;
 }
 
 const STAGE_LABEL: Record<DispatchStage, string> = {
@@ -47,7 +50,7 @@ const ADVANCE_LABEL: Partial<Record<DispatchStage, string>> = {
   packed: 'Mark handed off',
 };
 
-export function DispatchHistoryBlock({ dispatches }: Props) {
+export function DispatchHistoryBlock({ dispatches, canAdvance = true }: Props) {
   if (dispatches.length === 0) {
     return (
       <div className="rounded-2xl border bg-muted/30 p-6 text-center space-y-1">
@@ -63,13 +66,26 @@ export function DispatchHistoryBlock({ dispatches }: Props) {
   return (
     <ol className="space-y-3">
       {dispatches.map((d, idx) => (
-        <DispatchCard key={d.dispatchId} entry={d} index={idx + 1} />
+        <DispatchCard
+          key={d.dispatchId}
+          entry={d}
+          index={idx + 1}
+          canAdvance={canAdvance}
+        />
       ))}
     </ol>
   );
 }
 
-function DispatchCard({ entry, index }: { entry: DispatchEntry; index: number }) {
+function DispatchCard({
+  entry,
+  index,
+  canAdvance,
+}: {
+  entry: DispatchEntry;
+  index: number;
+  canAdvance: boolean;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const mutation = useServerMutation(advanceDispatchStageAction, {
@@ -124,7 +140,7 @@ function DispatchCard({ entry, index }: { entry: DispatchEntry; index: number })
             </span>
           )}
         </div>
-        {next && nextLabel && (
+        {canAdvance && next && nextLabel && (
           <Button
             size="sm"
             variant="outline"

@@ -47,6 +47,10 @@ interface NotesSectionProps {
     fullName: string | null;
     role: NoteRow['authorRole'];
   };
+  /** HVA-243: when nested inside an accordion / shell that already
+   *  provides a card wrapper + heading. Skips this component's own
+   *  outer `rounded-2xl border bg-card` + the "Notes (N)" header. */
+  embedded?: boolean;
 }
 
 interface LocalNote extends NoteRow {
@@ -60,6 +64,7 @@ export function NotesSection({
   notes: serverNotes,
   canWrite,
   viewer,
+  embedded = false,
 }: NotesSectionProps) {
   const router = useRouter();
   const [body, setBody] = useState('');
@@ -145,16 +150,20 @@ export function NotesSection({
   return (
     <section
       aria-label="Notes"
-      className="rounded-2xl border bg-card p-4 space-y-4"
+      className={cn(
+        embedded ? 'space-y-4' : 'rounded-2xl border bg-card p-4 space-y-4',
+      )}
     >
-      <header className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold tracking-tight flex items-center gap-2">
-          Notes
-          <span className="text-sm font-normal text-muted-foreground">
-            ({serverNotes.length})
-          </span>
-        </h2>
-      </header>
+      {!embedded && (
+        <header className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold tracking-tight flex items-center gap-2">
+            Notes
+            <span className="text-sm font-normal text-muted-foreground">
+              ({serverNotes.length})
+            </span>
+          </h2>
+        </header>
+      )}
 
       {canWrite && (
         <div className="space-y-2">

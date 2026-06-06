@@ -35,9 +35,15 @@ interface AdminHelpMessageRow {
 interface Props {
   requestId: string;
   messages: AdminHelpMessageRow[];
+  /** HVA-243: when nested inside an accordion — skip outer wrapper + heading. */
+  embedded?: boolean;
 }
 
-export function AdminHelpSection({ requestId, messages }: Props) {
+export function AdminHelpSection({
+  requestId,
+  messages,
+  embedded = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   // 2026-05-26 universal-closed rule: every accordion / fold-unfold UI
@@ -71,11 +77,19 @@ export function AdminHelpSection({ requestId, messages }: Props) {
   return (
     <section
       aria-label="Admin Help"
-      className="rounded-3xl border bg-card p-5 shadow-sm space-y-3"
+      className={cn(
+        embedded
+          ? 'space-y-3'
+          : 'rounded-3xl border bg-card p-5 shadow-sm space-y-3',
+      )}
     >
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Admin Help</h2>
+          {!embedded && (
+            <h2 className="text-base font-semibold tracking-tight">
+              Admin Help
+            </h2>
+          )}
           <p className="text-xs text-muted-foreground mt-0.5">
             Send admin a question about this customer. They reply by email +
             on this page.

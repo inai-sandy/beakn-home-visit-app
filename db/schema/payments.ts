@@ -3,6 +3,9 @@ import {
   bigint,
   date,
   index,
+  integer,
+  jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -33,6 +36,23 @@ export const paymentDirectionEnum = pgEnum('payment_direction', [
   'outbound',
 ]);
 
+// HVA-234 (HVA-231 Phase 1.0): distinguishes manually-entered quotations
+// (current path) from ones auto-created from the ECOM webhook (HVA-230).
+// Both flows write to the same `quotations` table; this column lets us
+// branch behavior + report on the split.
+export const quotationSourceEnum = pgEnum('quotation_source', [
+  'manual',
+  'portal',
+]);
+
+// HVA-234: per-item priority set by the sales exec to drive support's
+// dispatch queue sort order.
+export const lineItemPriorityEnum = pgEnum('line_item_priority', [
+  'low',
+  'med',
+  'high',
+]);
+
 export const quotations = pgTable(
   'quotations',
   {
@@ -55,11 +75,70 @@ export const quotations = pgTable(
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
+    // HVA-234: source discriminator. 'manual' = exec entered via UI;
+    // 'portal' = ECOM webhook auto-create. Affects audit copy + future
+    // UI behavior (e.g., portal quotations are read-mostly).
+    source: quotationSourceEnum('source').notNull().default('manual'),
+    // HVA-234 (HVA-230): external portal's stable order ID. Used for
+    // webhook idempotency — revisions of the same portal order land on
+    // the same quotations row. NULL for manual quotations.
+    // Partial UNIQUE index in migration 0063 enforces uniqueness when set.
+    portalQuotationId: varchar('portal_quotation_id', { length: 64 }),
+    // HVA-234 (HVA-230): last full webhook payload for audit + future
+    // fields we haven't normalized yet. Only populated for source='portal'.
+    rawPayload: jsonb('raw_payload'),
+    // HVA-234 (HVA-230): timestamp of the most recent webhook delivery
+    // that updated this row. Helps detect stale data / partner outages.
+    lastWebhookAt: timestamp('last_webhook_at', { withTimezone: true }),
     ...timestamps(),
   },
   (table) => [
     uniqueIndex('quotations_visit_request_unique').on(table.visitRequestId),
     index('quotations_submitted_by_idx').on(table.submittedByUserId),
+  ],
+);
+
+// HVA-234: per-item rows under a quotation. 1:N with quotations,
+// CASCADE delete since items have no identity outside their parent.
+// Drives both:
+//   - manual entry by execs (this ticket)
+//   - portal auto-population by webhook handler (HVA-230)
+//   - dispatch tracking by support team (HVA-231 Phase 1.1+)
+export const quotationLineItems = pgTable(
+  'quotation_line_items',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    quotationId: uuid('quotation_id')
+      .notNull()
+      .references(() => quotations.id, { onDelete: 'cascade' }),
+    // Display order within the quotation. Preserves row sequence even
+    // after edits / inserts. Server assigns the next available position
+    // on add; UI lets the user reorder later (TBD).
+    position: integer('position').notNull(),
+    productName: varchar('product_name', { length: 255 }).notNull(),
+    productSku: varchar('product_sku', { length: 128 }),
+    quantity: integer('quantity').notNull(),
+    // HVA-convention: all money as paise integer.
+    unitPricePaise: bigint('unit_price_paise', { mode: 'number' }).notNull(),
+    lineTotalPaise: bigint('line_total_paise', { mode: 'number' }).notNull(),
+    // GST percent stored when known (e.g., 18.00 for 18%). Optional —
+    // partner may or may not emit per-line GST; manual flow rarely
+    // captures it either.
+    gstPercent: numeric('gst_percent', { precision: 5, scale: 2 }),
+    notes: text('notes'),
+    // HVA-234: exec-controlled. Drives sort in the support queue.
+    priority: lineItemPriorityEnum('priority').notNull().default('med'),
+    // HVA-234: "by when does this item need to ship?" — exec sets, support reads.
+    targetDispatchDate: date('target_dispatch_date'),
+    ...timestamps(),
+  },
+  (table) => [
+    index('quotation_line_items_quotation_idx').on(table.quotationId),
+    index('quotation_line_items_priority_target_idx').on(
+      table.priority,
+      table.targetDispatchDate,
+    ),
+    index('quotation_line_items_sku_idx').on(table.productSku),
   ],
 );
 

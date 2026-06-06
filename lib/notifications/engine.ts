@@ -236,6 +236,38 @@ async function resolveRecipients(
       }
       return rows.map((r) => ({ userId: r.id, directAddress: null }));
     }
+    // HVA-241 (HVA-231 Phase 3): @mention fan-out for order comments.
+    // Expands `context.mentionedUserIds` (string[]) into one resolved
+    // recipient per id. Empty array → single skipped delivery so the
+    // audit log captures "no mentions on this comment".
+    case 'mentioned_users': {
+      const ids = context.mentionedUserIds;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return [
+          {
+            userId: null,
+            directAddress: null,
+            reason: 'no mentioned users',
+          },
+        ];
+      }
+      const filtered: ResolvedRecipient[] = [];
+      for (const id of ids) {
+        if (typeof id === 'string' && id.length > 0) {
+          filtered.push({ userId: id, directAddress: null });
+        }
+      }
+      if (filtered.length === 0) {
+        return [
+          {
+            userId: null,
+            directAddress: null,
+            reason: 'no valid mentioned user ids',
+          },
+        ];
+      }
+      return filtered;
+    }
     // HVA-199: assist domain resolvers. Assist is exec-bound (not city-
     // bound) — exec belongs to ONE captain regardless of which city the
     // related request is in.
@@ -445,6 +477,26 @@ export async function dispatchNotification(
           resolvedTarget: null,
           status: 'skipped',
           error: recipient.reason ?? 'recipient_not_resolved',
+        });
+        continue;
+      }
+
+      // HVA-241: never self-notify. When the action emitting this event
+      // passes `context.authorUserId`, skip any resolved recipient whose
+      // id matches. Used by `support.order_comment_added` so the author
+      // doesn't get their own ping just because they're in support_team_all
+      // or are the assigned exec/captain on the order.
+      if (
+        recipient.userId !== null &&
+        typeof context.authorUserId === 'string' &&
+        recipient.userId === context.authorUserId
+      ) {
+        deliveries.push({
+          channel: rule.channel,
+          recipientRole: rule.recipientRole,
+          resolvedTarget: null,
+          status: 'skipped',
+          error: 'self_notify_suppressed',
         });
         continue;
       }

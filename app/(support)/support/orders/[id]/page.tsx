@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { OrderCommentsBlock } from '@/components/order-comments/OrderCommentsBlock';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { getServerSession } from '@/lib/auth-server';
 import { formatInrFromPaise } from '@/lib/money';
 import { loadOrderDetail } from '@/lib/support/order-detail';
 import { cn } from '@/lib/utils';
@@ -38,6 +40,8 @@ const PRIORITY_TONE: Record<'low' | 'med' | 'high', string> = {
 
 export default async function SupportOrderDetailPage({ params }: PageProps) {
   const { id } = await params;
+  const session = await getServerSession();
+  if (!session) notFound();
   const detail = await loadOrderDetail(id);
   if (!detail) notFound();
 
@@ -155,6 +159,16 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
             currentStage: d.currentStage,
             items: d.items,
           }))}
+        />
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold tracking-tight uppercase text-muted-foreground">
+          Order comments
+        </h3>
+        <OrderCommentsBlock
+          requestId={req.id}
+          currentUserId={(session.user as { id: string }).id}
         />
       </section>
     </section>

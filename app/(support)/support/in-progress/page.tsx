@@ -1,33 +1,34 @@
 import { loadDispatchQueue } from '@/lib/support/dispatch-queries';
 
-import { SupportQueueTable, type SupportQueueRow } from './_components/SupportQueueTable';
+import { SupportQueueTable, type SupportQueueRow } from '../_components/SupportQueueTable';
 
 // =============================================================================
-// HVA-238 (HVA-231 Phase 2 PR-A): /support — dispatch queue
-// HVA-245: renamed Queue → Pending; mode='pending' filter
+// HVA-245: /support/in-progress — partially dispatched / mid-flight items
 // =============================================================================
 //
-// Pending = line items where qty_dispatched = 0 (nobody has touched this
-// item yet). Items with partial dispatch move to /support/in-progress.
+// In-progress = line items with at least one dispatch row AND either
+//   qty_remaining > 0 (partial) OR any dispatch not yet handed_off
+//   (still mid-flight). Reuses the SupportQueueTable so support can
+//   dispatch the rest from here too.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Pending — Support — Beakn',
+  title: 'In-progress — Support — Beakn',
 };
 
 interface PageProps {
   searchParams: Promise<{ q?: string }>;
 }
 
-export default async function SupportPendingPage({ searchParams }: PageProps) {
+export default async function SupportInProgressPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const search = (params.q ?? '').trim();
 
   const rows = await loadDispatchQueue({
     search: search || undefined,
-    mode: 'pending',
+    mode: 'in_progress',
   });
 
   const now = Date.now();
@@ -53,11 +54,11 @@ export default async function SupportPendingPage({ searchParams }: PageProps) {
   return (
     <section className="space-y-4">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Pending</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">In-progress</h2>
         <p className="text-sm text-muted-foreground mt-1">
           {rowsWithAge.length === 0
-            ? 'Nothing waiting for first dispatch right now.'
-            : `${rowsWithAge.length} ${rowsWithAge.length === 1 ? 'item' : 'items'} waiting for first dispatch.`}
+            ? 'Nothing in flight right now.'
+            : `${rowsWithAge.length} ${rowsWithAge.length === 1 ? 'item' : 'items'} mid-flight — partial dispatch or waiting to be handed off.`}
         </p>
       </header>
 

@@ -1,29 +1,67 @@
-import { Icon } from '@/components/ui/icon';
+import { loadAllOrders } from '@/lib/support/orders-queries';
+
+import { OrdersListTable } from './_components/OrdersListTable';
+
+// =============================================================================
+// HVA-245: /support/orders — all-orders archive
+// =============================================================================
+
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Orders — Support — Beakn',
 };
 
-export default function SupportOrdersPage() {
+interface PageProps {
+  searchParams: Promise<{ q?: string; page?: string }>;
+}
+
+export default async function SupportOrdersIndexPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const search = (params.q ?? '').trim();
+  const pageNum = Math.max(1, Number.parseInt(params.page ?? '1', 10) || 1);
+
+  const { rows, totalCount, page, pageSize } = await loadAllOrders({
+    search: search || undefined,
+    page: pageNum,
+  });
+
+  const now = Date.now();
+  const tableRows = rows.map((r) => ({
+    requestId: r.requestId,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    cityName: r.cityName,
+    statusStageName: r.statusStageName,
+    itemsCount: r.itemsCount,
+    qtyTotal: r.qtyTotal,
+    qtyDispatched: r.qtyDispatched,
+    qtyRemaining: r.qtyRemaining,
+    lastActivityIso: r.lastActivityAt.toISOString(),
+    dispatchState: r.dispatchState,
+    ageDays: Math.max(
+      0,
+      Math.floor((now - r.lastActivityAt.getTime()) / (1000 * 60 * 60 * 24)),
+    ),
+  }));
+
   return (
     <section className="space-y-4">
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Orders</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Full order detail + dispatch history per request.
+          Every order at ORDER_CONFIRMED or beyond. Searchable, sorted by last
+          activity.
         </p>
       </header>
 
-      <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
-        <Icon
-          name="receipt_long"
-          size="lg"
-          className="text-muted-foreground/70 mx-auto"
-        />
-        <p className="text-sm text-muted-foreground">
-          Coming in HVA-231 Phase 2.
-        </p>
-      </div>
+      <OrdersListTable
+        rows={tableRows}
+        initialSearch={search}
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+      />
     </section>
   );
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
-import { requestStatusHistory, visitRequests } from '@/db/schema';
+import { requestStatusHistory, tasks, visitRequests } from '@/db/schema';
 import {
   loadStreakForExec,
   loadStreaksForExecs,
@@ -45,6 +45,52 @@ function istDateMinus(days: number): string {
  *  06:30 UTC same day. */
 function utcMidIstDay(istDateIso: string): Date {
   return new Date(`${istDateIso}T06:30:00.000Z`);
+}
+
+/** HVA-229: insert a completed task row that exercises the task-side
+ *  branch of the streak calc. Default type is one of the 4 qualifying
+ *  face-to-face types; default link is to a fresh request. Pass
+ *  overrides to drive the non-qualifying / unlinked variants. */
+async function recordTaskCompletion(
+  execId: string,
+  captainId: string,
+  cityId: string,
+  istDateIso: string,
+  options: {
+    taskType?:
+      | 'Customer home visit'
+      | 'Outlet visit'
+      | 'Sales pitch'
+      | 'Stall Activity'
+      | 'Follow-up'
+      | 'Installation & Activation'
+      | 'Other';
+    linkToRequest?: boolean;
+    linkToLead?: boolean;
+  } = {},
+) {
+  const taskType = options.taskType ?? 'Customer home visit';
+  const linkToRequest = options.linkToRequest ?? true;
+  let linkRequestId: string | null = null;
+  if (linkToRequest) {
+    const req = await seedVisitRequest({
+      cityId,
+      assignedExecUserId: execId,
+      assignedCaptainUserId: captainId,
+    });
+    linkRequestId = req.id;
+  }
+  await db.insert(tasks).values({
+    execUserId: execId,
+    taskType,
+    description: `e2e seed: ${taskType}`,
+    estimatedTime: '60min',
+    taskDate: istDateIso,
+    linkRequestId,
+    linkLeadId: null,
+    status: 'completed',
+    completedAt: utcMidIstDay(istDateIso),
+  });
 }
 
 async function recordCompletion(
@@ -193,6 +239,74 @@ describe('loadStreakForExec', () => {
     const summary = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
     expect(summary.days).toBe(0);
     expect(summary.lastActiveDay).toBe(targetDay);
+  });
+
+  // ===========================================================================
+  // HVA-229: streak now also counts face-to-face task completions linked to
+  // a request or lead. These four cases cover the new branch.
+  // ===========================================================================
+
+  it('counts a qualifying task completion linked to a request (no status_history needed)', async () => {
+    const captain = await seedCaptain({ phone: '+919920000090' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000091',
+      fullName: 'Exec TaskOnly',
+    });
+    // Yesterday: one completed "Customer home visit" task linked to a
+    // request. NO status_history row. Streak must be 1 (HVA-229).
+    await recordTaskCompletion(exec.id, captain.id, city.id, istDateMinus(-1), {
+      taskType: 'Customer home visit',
+      linkToRequest: true,
+    });
+    const summary = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(summary.days).toBe(1);
+    expect(summary.lastActiveDay).toBe(istDateMinus(-1));
+  });
+
+  it('does NOT count tasks of non-qualifying type (e.g. Follow-up)', async () => {
+    const captain = await seedCaptain({ phone: '+919920000100' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000101',
+      fullName: 'Exec FollowUpOnly',
+    });
+    await recordTaskCompletion(exec.id, captain.id, city.id, istDateMinus(-1), {
+      taskType: 'Follow-up',
+      linkToRequest: true,
+    });
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(streak).toBe(0);
+  });
+
+  it('does NOT count qualifying tasks without a request or lead link', async () => {
+    const captain = await seedCaptain({ phone: '+919920000110' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000111',
+      fullName: 'Exec UnlinkedTask',
+    });
+    await recordTaskCompletion(exec.id, captain.id, city.id, istDateMinus(-1), {
+      taskType: 'Customer home visit',
+      linkToRequest: false,
+    });
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(streak).toBe(0);
+  });
+
+  it('unions status_history days + task completion days (same day from both → 1 day)', async () => {
+    const captain = await seedCaptain({ phone: '+919920000120' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919920000121',
+      fullName: 'Exec BothSources',
+    });
+    // Yesterday: both a VISIT_COMPLETED transition AND a qualifying task
+    // completion. Streak must still be 1 (Set dedup), not 2.
+    await recordCompletion(exec.id, captain.id, city.id, istDateMinus(-1));
+    await recordTaskCompletion(exec.id, captain.id, city.id, istDateMinus(-1));
+    const { days: streak } = await loadStreakForExec(exec.id, ANCHOR_IST_TODAY);
+    expect(streak).toBe(1);
   });
 });
 

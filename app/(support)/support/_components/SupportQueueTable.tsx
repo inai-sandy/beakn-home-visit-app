@@ -306,7 +306,12 @@ export function SupportQueueTable({ rows, initialSearch }: Props) {
 
       {dialogItems && (
         <DispatchDialog
-          items={dialogItems}
+          items={dialogItems.map((r) => ({
+            lineItemId: r.lineItemId,
+            productName: r.productName,
+            contextLine: `${r.customerName} · ${r.cityName} · ${r.quantityRemaining} of ${r.quantityTotal} left`,
+            quantityRemaining: r.quantityRemaining,
+          }))}
           onClose={() => setDialogItems(null)}
           onSuccess={onDispatchDone}
         />

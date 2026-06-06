@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { activeSupportNav, SUPPORT_NAV } from '@/lib/support/nav';
 
 describe('SUPPORT_NAV', () => {
-  it('has exactly 3 entries: Queue, Orders, Activity', () => {
+  it('HVA-245: has 4 entries — Pending, In-progress, Orders, Activity', () => {
     expect(SUPPORT_NAV.map((i) => i.label)).toEqual([
-      'Queue',
+      'Pending',
+      'In-progress',
       'Orders',
       'Activity',
     ]);
@@ -17,20 +18,24 @@ describe('SUPPORT_NAV', () => {
     }
   });
 
-  it('Queue href is exactly /support (root of the portal)', () => {
+  it('Pending href is exactly /support (root of the portal)', () => {
     expect(SUPPORT_NAV[0]?.href).toBe('/support');
   });
 });
 
 describe('activeSupportNav', () => {
-  it('matches exact /support to Queue', () => {
-    expect(activeSupportNav('/support')?.label).toBe('Queue');
+  it('matches exact /support to Pending', () => {
+    expect(activeSupportNav('/support')?.label).toBe('Pending');
   });
 
-  it('does NOT match a sub-route of /support to Queue', () => {
-    // Without this rule, /support/orders would also match Queue
+  it('does NOT match a sub-route of /support to Pending', () => {
+    // Without this rule, /support/orders would also match Pending
     // because /support is a prefix of /support/orders.
     expect(activeSupportNav('/support/orders')?.label).toBe('Orders');
+  });
+
+  it('matches /support/in-progress', () => {
+    expect(activeSupportNav('/support/in-progress')?.label).toBe('In-progress');
   });
 
   it('matches /support/orders prefix to Orders', () => {

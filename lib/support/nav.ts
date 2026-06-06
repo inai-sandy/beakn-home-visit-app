@@ -1,10 +1,14 @@
 // =============================================================================
 // HVA-235 (HVA-231 Phase 1.1): support portal navigation
+// HVA-245: 4-tab nav v2 — Pending / In-progress / Orders / Activity
 // =============================================================================
 //
-// Three placeholder entries for v1. Each route currently renders a
-// "Coming in Phase 2" empty state — the routes exist so we can land
-// auth + role + shell as one PR. Phase 2 fills in the actual screens.
+// Tabs in order:
+//   Pending      = line items awaiting first dispatch (qty_dispatched = 0)
+//   In-progress  = items with at least 1 dispatch, not yet fully done
+//   Orders       = every ORDER_CONFIRMED+ visit_request with a state pill
+//   Activity     = chronological feed of dispatch lifecycle events
+// =============================================================================
 
 export interface SupportNavItem {
   href: string;
@@ -13,7 +17,8 @@ export interface SupportNavItem {
 }
 
 export const SUPPORT_NAV: ReadonlyArray<SupportNavItem> = [
-  { href: '/support', label: 'Queue', iconName: 'inventory_2' },
+  { href: '/support', label: 'Pending', iconName: 'inventory_2' },
+  { href: '/support/in-progress', label: 'In-progress', iconName: 'sync' },
   { href: '/support/orders', label: 'Orders', iconName: 'receipt_long' },
   { href: '/support/activity', label: 'Activity', iconName: 'history' },
 ];
@@ -23,7 +28,7 @@ export const SUPPORT_NAV: ReadonlyArray<SupportNavItem> = [
  * entries. Used by the sidebar's active-state highlight + the mobile
  * topbar's "current page" label.
  *
- * Match rule: exact match on `/support` (the Queue), prefix match on the
+ * Match rule: exact match on `/support` (Pending), prefix match on the
  * sub-routes. Returns null on unknown paths so the caller can fall back
  * to a default ("Support portal").
  */

@@ -13,7 +13,23 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    sort?: string;
+    dir?: string;
+  }>;
+}
+
+function parseSort(
+  raw: string | undefined,
+): 'customer' | 'state' | 'activity' | undefined {
+  if (raw === 'customer' || raw === 'state' || raw === 'activity') return raw;
+  return undefined;
+}
+
+function parseDir(raw: string | undefined): 'asc' | 'desc' | undefined {
+  return raw === 'asc' || raw === 'desc' ? raw : undefined;
 }
 
 export default async function SupportOrdersIndexPage({ searchParams }: PageProps) {
@@ -24,6 +40,9 @@ export default async function SupportOrdersIndexPage({ searchParams }: PageProps
   const { rows, totalCount, page, pageSize } = await loadAllOrders({
     search: search || undefined,
     page: pageNum,
+    pageSize: 25,
+    sort: parseSort(params.sort),
+    dir: parseDir(params.dir),
   });
 
   const now = Date.now();

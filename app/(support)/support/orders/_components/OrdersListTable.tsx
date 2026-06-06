@@ -5,12 +5,14 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 import type { OrderDispatchState } from '@/lib/support/orders-queries';
+
+import { Pagination } from '../../../_components/Pagination';
+import { SortableColumnHeader } from '../../../_components/SortableColumnHeader';
 
 // =============================================================================
 // HVA-245: Orders list table on /support/orders
@@ -95,18 +97,6 @@ export function OrdersListTable({
     return () => clearTimeout(id);
   }, [search, initialSearch, pathname, router, searchParams]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-
-  function gotoPage(p: number) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (p > 1) params.set('page', String(p));
-    else params.delete('page');
-    const next = params.toString();
-    startTransition(() => {
-      router.push(next ? `${pathname}?${next}` : pathname);
-    });
-  }
-
   if (rows.length === 0 && initialSearch.trim().length === 0) {
     return (
       <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">
@@ -136,10 +126,6 @@ export function OrdersListTable({
           className="h-10 max-w-sm"
           aria-label="Search orders"
         />
-        <p className="text-xs text-muted-foreground ml-auto">
-          {totalCount} {totalCount === 1 ? 'order' : 'orders'}
-          {totalPages > 1 && ` · page ${page} of ${totalPages}`}
-        </p>
       </div>
 
       {rows.length === 0 ? (
@@ -154,12 +140,18 @@ export function OrdersListTable({
             <table className="w-full text-sm">
               <thead className="text-xs uppercase tracking-wide text-muted-foreground bg-muted/30">
                 <tr>
-                  <th className="text-left px-3 py-2 font-medium">Customer</th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="customer" label="Customer" />
+                  </th>
                   <th className="text-right px-3 py-2 font-medium">Items</th>
                   <th className="text-right px-3 py-2 font-medium">Qty done / total</th>
-                  <th className="text-left px-3 py-2 font-medium">State</th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="state" label="State" />
+                  </th>
                   <th className="text-left px-3 py-2 font-medium">Stage</th>
-                  <th className="text-left px-3 py-2 font-medium">Last activity</th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="activity" label="Last activity" defaultDir="desc" />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -205,35 +197,11 @@ export function OrdersListTable({
         </div>
       )}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => gotoPage(page - 1)}
-            disabled={page <= 1 || isPending}
-          >
-            <Icon name="chevron_left" size="xs" />
-            <span>Previous</span>
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => gotoPage(page + 1)}
-            disabled={page >= totalPages || isPending}
-          >
-            <span>Next</span>
-            <Icon name="chevron_right" size="xs" />
-          </Button>
-        </div>
-      )}
-
       {isPending && (
         <p className="text-xs text-muted-foreground">Refreshing…</p>
       )}
+
+      <Pagination page={page} pageSize={pageSize} totalCount={totalCount} />
     </div>
   );
 }

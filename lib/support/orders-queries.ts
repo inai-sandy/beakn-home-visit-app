@@ -54,6 +54,9 @@ export interface OrdersListOptions {
   search?: string;
   page?: number;
   pageSize?: number;
+  /** HVA-246: column to sort by — customer / state / activity. */
+  sort?: 'customer' | 'state' | 'activity';
+  dir?: 'asc' | 'desc';
 }
 
 export interface OrdersListResult {
@@ -69,6 +72,8 @@ export async function loadAllOrders(
   const page = Math.max(1, options.page ?? 1);
   const pageSize = options.pageSize ?? ORDERS_PAGE_SIZE;
   const search = options.search?.trim() ?? '';
+  const sortKey = options.sort;
+  const dir = options.dir ?? (sortKey === 'state' ? 'asc' : 'desc');
 
   // Aggregate item state per request — total qty + dispatched qty +
   // open-dispatch presence. Computed in a CTE so we can use it for the
@@ -179,10 +184,29 @@ export async function loadAllOrders(
     .leftJoin(itemAggregate, eq(itemAggregate.requestId, visitRequests.id))
     .where(and(...conditions))
     .orderBy(
-      // Last activity desc, NULLs treated as the order's createdAt
-      desc(
-        sql`COALESCE(${itemAggregate.lastDispatchAt}, ${visitRequests.createdAt})`,
-      ),
+      ...(() => {
+        // HVA-246: sort key dispatch
+        if (sortKey === 'customer') {
+          return [
+            dir === 'desc'
+              ? desc(visitRequests.customerName)
+              : asc(visitRequests.customerName),
+          ];
+        }
+        if (sortKey === 'state') {
+          // dispatchState ranking in SQL — pending < in_progress < done when asc.
+          // Approximate via the raw flags: no_dispatch=0, has_open=1, done=2.
+          const stateRankSql = sql`CASE
+            WHEN NOT ${itemAggregate.hasAnyDispatch} THEN 0
+            WHEN ${itemAggregate.hasOpenDispatch} THEN 1
+            ELSE 2
+          END`;
+          return [dir === 'desc' ? desc(stateRankSql) : asc(stateRankSql)];
+        }
+        // default + 'activity' → last activity (coalesced to order createdAt)
+        const activityExpr = sql`COALESCE(${itemAggregate.lastDispatchAt}, ${visitRequests.createdAt})`;
+        return [dir === 'asc' ? asc(activityExpr) : desc(activityExpr)];
+      })(),
     )
     .limit(pageSize)
     .offset((page - 1) * pageSize);
@@ -244,12 +268,41 @@ export interface ActivityFeedRow {
 
 export interface ActivityFeedOptions {
   limit?: number;
+  /** HVA-246: pagination + sort. */
+  page?: number;
+  pageSize?: number;
+  sort?: 'date' | 'customer';
+  dir?: 'asc' | 'desc';
+}
+
+export interface ActivityFeedResult {
+  rows: ActivityFeedRow[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
 }
 
 export async function loadActivityFeed(
   options: ActivityFeedOptions = {},
-): Promise<ActivityFeedRow[]> {
+): Promise<ActivityFeedResult> {
   const limit = options.limit ?? ACTIVITY_LIMIT;
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 25);
+  const sortKey = options.sort ?? 'date';
+  const dir = options.dir ?? 'desc';
+
+  // Count first — gives us totalCount for pagination footer.
+  const [countRow] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(dispatchStatusHistory);
+  const totalCount = countRow?.count ?? 0;
+
+  // Sort order: date is on dispatchStatusHistory.changedAt; customer
+  // requires joining visit_requests via dispatch_items — done in the
+  // second-phase loader below. For 'customer', we fetch a larger window
+  // ordered by date desc, sort client-side, then slice.
+  const fetchLimit =
+    sortKey === 'customer' ? Math.min(limit, 500) : pageSize * page;
 
   // One row per (dispatch_id, stage) — chronological event stream.
   const historyRows = await db
@@ -266,10 +319,16 @@ export async function loadActivityFeed(
       users,
       eq(users.id, dispatchStatusHistory.changedByUserId),
     )
-    .orderBy(desc(dispatchStatusHistory.changedAt))
-    .limit(limit);
+    .orderBy(
+      sortKey === 'date' && dir === 'asc'
+        ? asc(dispatchStatusHistory.changedAt)
+        : desc(dispatchStatusHistory.changedAt),
+    )
+    .limit(fetchLimit);
 
-  if (historyRows.length === 0) return [];
+  if (historyRows.length === 0) {
+    return { rows: [], totalCount, page, pageSize };
+  }
 
   // Bulk-load items + request context for the dispatches in this batch.
   const dispatchIds = Array.from(new Set(historyRows.map((r) => r.dispatchId)));
@@ -325,7 +384,7 @@ export async function loadActivityFeed(
     }
   }
 
-  return historyRows
+  const mapped = historyRows
     .map((r) => {
       const ctx = itemsByDispatch.get(r.dispatchId);
       if (!ctx) return null;
@@ -349,4 +408,22 @@ export async function loadActivityFeed(
       };
     })
     .filter((r): r is ActivityFeedRow => r !== null);
+
+  // Optional customer sort happens client-side because the SQL would
+  // need to join visit_requests for ORDER BY — cheaper to sort the
+  // capped window in JS since the page is short.
+  if (sortKey === 'customer') {
+    mapped.sort((a, b) => {
+      const cmp = a.customerName.localeCompare(b.customerName);
+      return dir === 'desc' ? -cmp : cmp;
+    });
+  }
+
+  const startIdx = (page - 1) * pageSize;
+  return {
+    rows: mapped.slice(startIdx, startIdx + pageSize),
+    totalCount,
+    page,
+    pageSize,
+  };
 }

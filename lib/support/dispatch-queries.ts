@@ -74,6 +74,18 @@ export interface QueueOptions {
    *                      (qty_remaining > 0 OR any dispatch not handed_off)
    */
   mode?: 'all' | 'pending' | 'in_progress';
+  /** HVA-246: pagination + sort. */
+  page?: number;
+  pageSize?: number;
+  sort?: 'customer' | 'product' | 'age';
+  dir?: 'asc' | 'desc';
+}
+
+export interface QueueResult {
+  rows: QueueRow[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
 }
 
 const DISPATCHED_QTY_SUM_SQL = sql<number>`COALESCE((
@@ -103,10 +115,14 @@ const HAS_OPEN_DISPATCH_SQL = sql<boolean>`EXISTS (
 
 export async function loadDispatchQueue(
   options: QueueOptions = {},
-): Promise<QueueRow[]> {
+): Promise<QueueResult> {
   const limit = options.limit ?? 200;
   const trimmedSearch = options.search?.trim().toLowerCase() ?? '';
   const mode = options.mode ?? 'all';
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 25);
+  const sortKey = options.sort;
+  const dir = options.dir ?? (sortKey ? 'asc' : 'asc');
 
   const conditions = [
     gte(statusStages.sequenceNumber, ORDER_CONFIRMED_SEQ),
@@ -138,7 +154,41 @@ export async function loadDispatchQueue(
     );
   }
 
-  const rows = await db
+  // HVA-246: sort selection. Defaults match HVA-238 behaviour (priority
+  // desc → target asc → created asc). User-driven sort keys override the
+  // primary column; secondary tiebreakers stay so equal-customer rows
+  // still come out deterministic.
+  let orderByClauses;
+  if (sortKey === 'customer') {
+    orderByClauses = [
+      dir === 'desc'
+        ? desc(visitRequests.customerName)
+        : asc(visitRequests.customerName),
+      asc(quotationLineItems.createdAt),
+    ];
+  } else if (sortKey === 'product') {
+    orderByClauses = [
+      dir === 'desc'
+        ? desc(quotationLineItems.productName)
+        : asc(quotationLineItems.productName),
+      asc(quotationLineItems.createdAt),
+    ];
+  } else if (sortKey === 'age') {
+    orderByClauses = [
+      // Older order = higher age. asc dir = oldest first.
+      dir === 'desc'
+        ? desc(visitRequests.createdAt)
+        : asc(visitRequests.createdAt),
+    ];
+  } else {
+    orderByClauses = [
+      desc(PRIORITY_RANK_SQL),
+      asc(quotationLineItems.targetDispatchDate),
+      asc(quotationLineItems.createdAt),
+    ];
+  }
+
+  const baseQuery = db
     .select({
       lineItemId: quotationLineItems.id,
       requestId: visitRequests.id,
@@ -161,22 +211,54 @@ export async function loadDispatchQueue(
     .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
-    .where(and(...conditions))
-    .orderBy(
-      desc(PRIORITY_RANK_SQL),
-      // NULLs last for target_dispatch_date — Postgres default ASC puts
-      // NULLs at the end, which is what we want (items without a target
-      // are less urgent than ones with one).
-      asc(quotationLineItems.targetDispatchDate),
-      asc(quotationLineItems.createdAt),
-    )
-    .limit(limit);
+    .where(and(...conditions));
 
-  return rows.map((r) => ({
-    ...r,
-    unitPricePaise: Number(r.unitPricePaise),
-    quantityRemaining: Number(r.quantityRemaining),
-  }));
+  // Count for pagination footer. Done as a separate query to keep the
+  // main query LIMIT/OFFSET-cleanable; could be merged with a window
+  // function but the page is small enough that two roundtrips are fine.
+  const [countRow] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(quotationLineItems)
+    .innerJoin(quotations, eq(quotations.id, quotationLineItems.quotationId))
+    .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
+    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .where(and(...conditions));
+
+  const totalCount = countRow?.count ?? 0;
+
+  const rows = await baseQuery
+    .orderBy(...orderByClauses)
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+
+  // Honour the legacy `limit` cap when caller didn't paginate. Used by
+  // /admin tools etc. that still call without page/sort options.
+  if (!options.page && !options.sort && !options.dir && limit < pageSize) {
+    return {
+      rows: rows
+        .slice(0, limit)
+        .map((r) => ({
+          ...r,
+          unitPricePaise: Number(r.unitPricePaise),
+          quantityRemaining: Number(r.quantityRemaining),
+        })),
+      totalCount,
+      page: 1,
+      pageSize,
+    };
+  }
+
+  return {
+    rows: rows.map((r) => ({
+      ...r,
+      unitPricePaise: Number(r.unitPricePaise),
+      quantityRemaining: Number(r.quantityRemaining),
+    })),
+    totalCount,
+    page,
+    pageSize,
+  };
 }
 
 // Lookup of remaining qty for a SET of line items — used by addDispatchAction

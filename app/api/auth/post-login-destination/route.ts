@@ -39,6 +39,12 @@ export async function GET() {
       return Response.json({ destination: '/captain/dashboard' });
     case 'super_admin':
       return Response.json({ destination: '/admin/dashboard' });
+    // HVA-237: support team — landing on /support (the dispatch queue).
+    // Previously fell through to `default` and got bounced to the public
+    // /request form. HVA-235 added the role but missed this hardcoded
+    // switch (the role's ROLE_HOME is correctly /support).
+    case 'support':
+      return Response.json({ destination: '/support' });
     case 'sales_executive': {
       const istToday = getIstDateString();
       const [row] = await db

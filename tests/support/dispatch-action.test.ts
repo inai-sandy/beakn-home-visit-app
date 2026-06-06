@@ -461,7 +461,7 @@ describe('loadDispatchQueue', () => {
       items: [{ lineItemId: orderB.lineItemId, qty: 2 }],
     });
 
-    const queue = await loadDispatchQueue();
+    const { rows: queue } = await loadDispatchQueue();
     const lineItemIds = queue.map((r) => r.lineItemId);
     expect(lineItemIds).not.toContain(orderA.lineItemId);
     expect(lineItemIds).toContain(orderB.lineItemId);
@@ -510,7 +510,7 @@ describe('loadDispatchQueue', () => {
       targetDate: '2026-07-01',
     });
 
-    const queue = await loadDispatchQueue();
+    const { rows: queue } = await loadDispatchQueue();
     // Restrict to just our seeded items (in case the harness leaked
     // other rows between tests).
     const ourQueue = queue.filter((r) =>
@@ -546,7 +546,7 @@ describe('loadDispatchQueue', () => {
       productName: 'CurtainMotor',
     });
 
-    const kitchen = await loadDispatchQueue({ search: 'kitchen' });
+    const { rows: kitchen } = await loadDispatchQueue({ search: 'kitchen' });
     expect(kitchen.every((r) => r.productName.toLowerCase().includes('kitchen'))).toBe(true);
     expect(kitchen.length).toBeGreaterThan(0);
   });

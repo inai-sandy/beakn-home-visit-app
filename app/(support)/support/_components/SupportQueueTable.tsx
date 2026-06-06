@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input';
 import { formatInrFromPaise } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
+import { Pagination } from '../../_components/Pagination';
+import { SortableColumnHeader } from '../../_components/SortableColumnHeader';
 import { DispatchDialog } from './DispatchDialog';
 
 // =============================================================================
@@ -58,6 +60,10 @@ export interface SupportQueueRow {
 interface Props {
   rows: SupportQueueRow[];
   initialSearch: string;
+  /** HVA-246: pagination context — table renders Pagination at the bottom. */
+  page: number;
+  pageSize: number;
+  totalCount: number;
 }
 
 function daysAgoLabel(days: number): string {
@@ -66,7 +72,13 @@ function daysAgoLabel(days: number): string {
   return `${days} days ago`;
 }
 
-export function SupportQueueTable({ rows, initialSearch }: Props) {
+export function SupportQueueTable({
+  rows,
+  initialSearch,
+  page,
+  pageSize,
+  totalCount,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -208,12 +220,18 @@ export function SupportQueueTable({ rows, initialSearch }: Props) {
                       aria-label={allSelected ? 'Unselect all' : 'Select all'}
                     />
                   </th>
-                  <th className="text-left px-3 py-2 font-medium">Customer</th>
-                  <th className="text-left px-3 py-2 font-medium">Product</th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="customer" label="Customer" />
+                  </th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="product" label="Product" />
+                  </th>
                   <th className="text-right px-3 py-2 font-medium">Qty left</th>
                   <th className="text-left px-3 py-2 font-medium">Priority</th>
                   <th className="text-left px-3 py-2 font-medium">Target</th>
-                  <th className="text-left px-3 py-2 font-medium">Order age</th>
+                  <th className="text-left px-3 py-2 font-medium">
+                    <SortableColumnHeader sortKey="age" label="Order age" />
+                  </th>
                   <th className="px-3 py-2" aria-label="Actions" />
                 </tr>
               </thead>
@@ -303,6 +321,8 @@ export function SupportQueueTable({ rows, initialSearch }: Props) {
       {isPending && (
         <p className="text-xs text-muted-foreground">Refreshing…</p>
       )}
+
+      <Pagination page={page} pageSize={pageSize} totalCount={totalCount} />
 
       {dialogItems && (
         <DispatchDialog

@@ -5,6 +5,7 @@ import { SupportQueueTable, type SupportQueueRow } from './_components/SupportQu
 // =============================================================================
 // HVA-238 (HVA-231 Phase 2 PR-A): /support — dispatch queue
 // HVA-245: renamed Queue → Pending; mode='pending' filter
+// HVA-246: pagination + sortable columns (customer / product / age)
 // =============================================================================
 //
 // Pending = line items where qty_dispatched = 0 (nobody has touched this
@@ -18,17 +19,41 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    sort?: string;
+    dir?: string;
+  }>;
+}
+
+function parseSort(
+  raw: string | undefined,
+): 'customer' | 'product' | 'age' | undefined {
+  if (raw === 'customer' || raw === 'product' || raw === 'age') return raw;
+  return undefined;
+}
+
+function parseDir(raw: string | undefined): 'asc' | 'desc' | undefined {
+  return raw === 'asc' || raw === 'desc' ? raw : undefined;
 }
 
 export default async function SupportPendingPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const search = (params.q ?? '').trim();
+  const page = Math.max(1, Number.parseInt(params.page ?? '1', 10) || 1);
+  const sort = parseSort(params.sort);
+  const dir = parseDir(params.dir);
 
-  const rows = await loadDispatchQueue({
-    search: search || undefined,
-    mode: 'pending',
-  });
+  const { rows, totalCount, page: currentPage, pageSize } =
+    await loadDispatchQueue({
+      search: search || undefined,
+      mode: 'pending',
+      page,
+      pageSize: 25,
+      sort,
+      dir,
+    });
 
   const now = Date.now();
   const rowsWithAge: SupportQueueRow[] = rows.map((r) => {
@@ -55,13 +80,19 @@ export default async function SupportPendingPage({ searchParams }: PageProps) {
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">Pending</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {rowsWithAge.length === 0
+          {totalCount === 0
             ? 'Nothing waiting for first dispatch right now.'
-            : `${rowsWithAge.length} ${rowsWithAge.length === 1 ? 'item' : 'items'} waiting for first dispatch.`}
+            : `${totalCount} ${totalCount === 1 ? 'item' : 'items'} waiting for first dispatch.`}
         </p>
       </header>
 
-      <SupportQueueTable rows={rowsWithAge} initialSearch={search} />
+      <SupportQueueTable
+        rows={rowsWithAge}
+        initialSearch={search}
+        page={currentPage}
+        pageSize={pageSize}
+        totalCount={totalCount}
+      />
     </section>
   );
 }

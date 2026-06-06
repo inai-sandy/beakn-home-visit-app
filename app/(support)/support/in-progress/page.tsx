@@ -4,12 +4,7 @@ import { SupportQueueTable, type SupportQueueRow } from '../_components/SupportQ
 
 // =============================================================================
 // HVA-245: /support/in-progress — partially dispatched / mid-flight items
-// =============================================================================
-//
-// In-progress = line items with at least one dispatch row AND either
-//   qty_remaining > 0 (partial) OR any dispatch not yet handed_off
-//   (still mid-flight). Reuses the SupportQueueTable so support can
-//   dispatch the rest from here too.
+// HVA-246: pagination + sortable columns
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -19,17 +14,41 @@ export const metadata = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    sort?: string;
+    dir?: string;
+  }>;
+}
+
+function parseSort(
+  raw: string | undefined,
+): 'customer' | 'product' | 'age' | undefined {
+  if (raw === 'customer' || raw === 'product' || raw === 'age') return raw;
+  return undefined;
+}
+
+function parseDir(raw: string | undefined): 'asc' | 'desc' | undefined {
+  return raw === 'asc' || raw === 'desc' ? raw : undefined;
 }
 
 export default async function SupportInProgressPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const search = (params.q ?? '').trim();
+  const page = Math.max(1, Number.parseInt(params.page ?? '1', 10) || 1);
+  const sort = parseSort(params.sort);
+  const dir = parseDir(params.dir);
 
-  const rows = await loadDispatchQueue({
-    search: search || undefined,
-    mode: 'in_progress',
-  });
+  const { rows, totalCount, page: currentPage, pageSize } =
+    await loadDispatchQueue({
+      search: search || undefined,
+      mode: 'in_progress',
+      page,
+      pageSize: 25,
+      sort,
+      dir,
+    });
 
   const now = Date.now();
   const rowsWithAge: SupportQueueRow[] = rows.map((r) => {
@@ -56,13 +75,19 @@ export default async function SupportInProgressPage({ searchParams }: PageProps)
       <header>
         <h2 className="text-2xl font-semibold tracking-tight">In-progress</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          {rowsWithAge.length === 0
+          {totalCount === 0
             ? 'Nothing in flight right now.'
-            : `${rowsWithAge.length} ${rowsWithAge.length === 1 ? 'item' : 'items'} mid-flight — partial dispatch or waiting to be handed off.`}
+            : `${totalCount} ${totalCount === 1 ? 'item' : 'items'} mid-flight — partial dispatch or waiting to be handed off.`}
         </p>
       </header>
 
-      <SupportQueueTable rows={rowsWithAge} initialSearch={search} />
+      <SupportQueueTable
+        rows={rowsWithAge}
+        initialSearch={search}
+        page={currentPage}
+        pageSize={pageSize}
+        totalCount={totalCount}
+      />
     </section>
   );
 }

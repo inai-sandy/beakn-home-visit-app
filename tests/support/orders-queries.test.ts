@@ -125,7 +125,7 @@ describe('loadDispatchQueue(mode)', () => {
     });
     await dispatchSome({ lineItemId: b.lineItemId, qty: 2, byUserId: exec.id });
 
-    const pending = await loadDispatchQueue({ mode: 'pending' });
+    const { rows: pending } = await loadDispatchQueue({ mode: 'pending' });
     const names = pending.map((r) => r.productName);
     expect(names).toContain('Untouched');
     expect(names).not.toContain('Partial');
@@ -189,7 +189,7 @@ describe('loadDispatchQueue(mode)', () => {
       advanceTo: 'packed',
     });
 
-    const inProgress = await loadDispatchQueue({ mode: 'in_progress' });
+    const { rows: inProgress } = await loadDispatchQueue({ mode: 'in_progress' });
     const names = inProgress.map((r) => r.productName);
     expect(names).toContain('Partial-IP');
     expect(names).toContain('MidFlight-IP');
@@ -340,7 +340,7 @@ describe('loadActivityFeed', () => {
       advanceTo: 'packed',
     });
 
-    const feed = await loadActivityFeed();
+    const { rows: feed } = await loadActivityFeed();
     expect(feed.length).toBeGreaterThanOrEqual(2);
     const forDispatch = feed.filter((r) => r.dispatchId === dispatchId);
     expect(forDispatch.length).toBe(2);
@@ -353,8 +353,118 @@ describe('loadActivityFeed', () => {
 
   it('returns empty array when no dispatch history exists', async () => {
     // truncateAll runs before each test, so DB is empty here
-    const feed = await loadActivityFeed();
+    const { rows: feed, totalCount } = await loadActivityFeed();
     expect(feed).toEqual([]);
+    expect(totalCount).toBe(0);
+  });
+});
+
+// HVA-246: sort + pagination
+describe('loadDispatchQueue sort + pagination', () => {
+  it('sort=customer asc orders rows by customer name ascending', async () => {
+    const captain = await seedCaptain({ phone: '+919996100001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919996100002',
+      fullName: 'Exec SortCustomer',
+    });
+
+    // Seed three orders with deterministic customer names
+    const reqs: { id: string; customerName: string }[] = [];
+    for (const name of ['Charlie Order', 'Alpha Order', 'Bravo Order']) {
+      const r = await seedVisitRequest({
+        cityId: city.id,
+        assignedExecUserId: exec.id,
+        assignedCaptainUserId: captain.id,
+        statusStageCode: 'ORDER_CONFIRMED',
+      });
+      await db
+        .update(visitRequests)
+        .set({ customerName: name })
+        .where(eq(visitRequests.id, r.id));
+      const [q] = await db
+        .insert(quotations)
+        .values({
+          visitRequestId: r.id,
+          totalOrderValuePaise: 1,
+          submittedByUserId: exec.id,
+        })
+        .returning({ id: quotations.id });
+      await db.insert(quotationLineItems).values({
+        quotationId: q.id,
+        position: 1,
+        productName: `P-${name}`,
+        quantity: 1,
+        unitPricePaise: 1,
+        lineTotalPaise: 1,
+      });
+      reqs.push({ id: r.id, customerName: name });
+    }
+
+    const { rows } = await loadDispatchQueue({
+      mode: 'pending',
+      sort: 'customer',
+      dir: 'asc',
+    });
+    const ourRows = rows.filter((r) =>
+      reqs.some((req) => req.customerName === r.customerName),
+    );
+    expect(ourRows.map((r) => r.customerName)).toEqual([
+      'Alpha Order',
+      'Bravo Order',
+      'Charlie Order',
+    ]);
+  });
+
+  it('page + pageSize slice the result correctly', async () => {
+    const captain = await seedCaptain({ phone: '+919996200001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919996200002',
+      fullName: 'Exec Pagination',
+    });
+    for (let i = 0; i < 5; i++) {
+      const r = await seedVisitRequest({
+        cityId: city.id,
+        assignedExecUserId: exec.id,
+        assignedCaptainUserId: captain.id,
+        statusStageCode: 'ORDER_CONFIRMED',
+      });
+      const [q] = await db
+        .insert(quotations)
+        .values({
+          visitRequestId: r.id,
+          totalOrderValuePaise: 1,
+          submittedByUserId: exec.id,
+        })
+        .returning({ id: quotations.id });
+      await db.insert(quotationLineItems).values({
+        quotationId: q.id,
+        position: 1,
+        productName: `PaginItem ${i}`,
+        quantity: 1,
+        unitPricePaise: 1,
+        lineTotalPaise: 1,
+      });
+    }
+
+    const { rows: page1, totalCount } = await loadDispatchQueue({
+      mode: 'pending',
+      page: 1,
+      pageSize: 2,
+    });
+    expect(page1.length).toBe(2);
+    expect(totalCount).toBeGreaterThanOrEqual(5);
+
+    const { rows: page2 } = await loadDispatchQueue({
+      mode: 'pending',
+      page: 2,
+      pageSize: 2,
+    });
+    expect(page2.length).toBe(2);
+    // Page 1 and page 2 should not overlap on lineItemId
+    const ids1 = new Set(page1.map((r) => r.lineItemId));
+    expect(page2.every((r) => !ids1.has(r.lineItemId))).toBe(true);
   });
 });
 

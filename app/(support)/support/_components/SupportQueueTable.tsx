@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -236,21 +237,31 @@ export function SupportQueueTable({ rows, initialSearch }: Props) {
                         />
                       </td>
                       <td className="px-3 py-2">
-                        <div className="font-medium">{row.customerName}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {row.cityName}
-                        </div>
+                        <Link
+                          href={`/support/orders/${row.requestId}`}
+                          className="block hover:underline focus:underline"
+                        >
+                          <div className="font-medium">{row.customerName}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {row.cityName}
+                          </div>
+                        </Link>
                       </td>
                       <td className="px-3 py-2">
-                        <div className="font-medium">{row.productName}</div>
-                        {row.productSku && (
-                          <div className="text-[11px] font-mono text-muted-foreground">
-                            {row.productSku}
+                        <Link
+                          href={`/support/orders/${row.requestId}`}
+                          className="block hover:underline focus:underline"
+                        >
+                          <div className="font-medium">{row.productName}</div>
+                          {row.productSku && (
+                            <div className="text-[11px] font-mono text-muted-foreground">
+                              {row.productSku}
+                            </div>
+                          )}
+                          <div className="text-[11px] text-muted-foreground">
+                            Unit {formatInrFromPaise(row.unitPricePaise)}
                           </div>
-                        )}
-                        <div className="text-[11px] text-muted-foreground">
-                          Unit {formatInrFromPaise(row.unitPricePaise)}
-                        </div>
+                        </Link>
                       </td>
                       <td className="px-3 py-2 text-right font-mono">
                         {row.quantityRemaining}

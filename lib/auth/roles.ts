@@ -29,6 +29,8 @@ export const USER_ROLES = {
   SUPER_ADMIN: 'super_admin',
   CAPTAIN: 'captain',
   SALES_EXECUTIVE: 'sales_executive',
+  // HVA-235: dispatch / fulfillment team for the new Support Portal v1.
+  SUPPORT: 'support',
 } as const satisfies Record<string, (typeof userRoleEnum.enumValues)[number]>;
 
 /**
@@ -50,6 +52,8 @@ export const ROLE_HOME: Record<Role, string> = {
   super_admin: '/admin/dashboard',
   captain: '/captain/dashboard',
   sales_executive: '/today',
+  // HVA-235: support team's landing page is the dispatch queue.
+  support: '/support',
 };
 
 /** Narrow an unknown string to `Role`. Mostly useful at HTTP/session boundaries. */

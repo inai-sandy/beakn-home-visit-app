@@ -182,3 +182,91 @@ export const payments = pgTable(
     index('payments_direction_idx').on(table.direction),
   ],
 );
+
+// =============================================================================
+// HVA-235 (HVA-231 Phase 1.1): dispatch schema
+// =============================================================================
+//
+// Three tables track the support team's dispatch lifecycle:
+//   - dispatches: one row per dispatch event (a package leaving for the customer)
+//   - dispatchItems: junction with quantity per line item in that dispatch
+//   - dispatchStatusHistory: lifecycle audit per dispatch (created → packed → handed_off)
+//
+// Multi-order: one dispatch CAN include items from multiple visit_requests
+// via the items junction. There is no direct FK from dispatches to a single
+// request; the relationship is derived through dispatch_items →
+// quotation_line_items → quotations → visit_requests.
+
+export const dispatchStageEnum = pgEnum('dispatch_stage', [
+  'created',
+  'packed',
+  'handed_off',
+]);
+
+export const dispatches = pgTable(
+  'dispatches',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    dispatchedByUserId: uuid('dispatched_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    notes: text('notes'),
+    ...timestamps(),
+  },
+  (table) => [
+    index('dispatches_dispatched_by_idx').on(table.dispatchedByUserId),
+    index('dispatches_created_at_idx').on(table.createdAt),
+  ],
+);
+
+export const dispatchItems = pgTable(
+  'dispatch_items',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    dispatchId: uuid('dispatch_id')
+      .notNull()
+      .references(() => dispatches.id, { onDelete: 'cascade' }),
+    quotationLineItemId: uuid('quotation_line_item_id')
+      .notNull()
+      .references(() => quotationLineItems.id, { onDelete: 'restrict' }),
+    qtyInThisDispatch: integer('qty_in_this_dispatch').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('dispatch_items_dispatch_lineitem_unique').on(
+      table.dispatchId,
+      table.quotationLineItemId,
+    ),
+    index('dispatch_items_dispatch_idx').on(table.dispatchId),
+    index('dispatch_items_lineitem_idx').on(table.quotationLineItemId),
+  ],
+);
+
+export const dispatchStatusHistory = pgTable(
+  'dispatch_status_history',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    dispatchId: uuid('dispatch_id')
+      .notNull()
+      .references(() => dispatches.id, { onDelete: 'cascade' }),
+    stage: dispatchStageEnum('stage').notNull(),
+    changedByUserId: uuid('changed_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    changedAt: timestamp('changed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('dispatch_status_history_dispatch_stage_unique').on(
+      table.dispatchId,
+      table.stage,
+    ),
+    index('dispatch_status_history_dispatch_idx').on(
+      table.dispatchId,
+      table.changedAt,
+    ),
+  ],
+);

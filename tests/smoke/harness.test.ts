@@ -31,12 +31,12 @@ describe('test harness', () => {
     expect(stageRows.length).toBeGreaterThanOrEqual(10);
   });
 
-  it('user_role enum exposes exactly [sales_executive, captain, super_admin]', () => {
+  it('user_role enum exposes exactly [sales_executive, captain, super_admin, support]', () => {
     // Locks the schema source-of-truth so the next ship can't sneak in a
     // wrong-string role gate without a tsc + test failure. Matches the
-    // HVA-106 audit finding.
+    // HVA-106 audit finding. HVA-235 adds `support` for the Support Portal v1.
     expect([...userRoleEnum.enumValues].sort()).toEqual(
-      ['captain', 'sales_executive', 'super_admin'].sort(),
+      ['captain', 'sales_executive', 'super_admin', 'support'].sort(),
     );
   });
 });

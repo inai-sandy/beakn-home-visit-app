@@ -154,6 +154,11 @@ function canAccess(pathname: string, role: string): boolean {
   }
   if (pathname.startsWith('/captain/')) return role === USER_ROLES.CAPTAIN;
   if (pathname.startsWith('/admin/')) return role === USER_ROLES.SUPER_ADMIN;
+  // HVA-235: support portal — dispatch / fulfillment team. super_admin
+  // escape-hatched above; support is the only other role allowed here.
+  if (pathname === '/support' || pathname.startsWith('/support/')) {
+    return role === USER_ROLES.SUPPORT;
+  }
   // /set-password is accessible to any authenticated user (gated by
   // mustChangePassword check above this in the flow).
   if (pathname === '/set-password') return true;

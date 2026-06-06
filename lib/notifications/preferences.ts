@@ -22,6 +22,12 @@ const ROLE_TO_RECIPIENT_ROLES: Record<Role, readonly string[]> = {
   sales_executive: ['exec_assigned', 'exec_removed'],
   captain: ['captain_owning_city', 'captain_assigning', 'captain_acting'],
   super_admin: ['super_admin'],
+  // HVA-235: support team has no recipient_role tags yet — they'll be
+  // added when HVA-231 Phase 2 wires up dispatch notifications.
+  // Empty array = no notification rules currently target support users
+  // (they see in-app data via direct queries, not the engine's
+  // role-based fan-out).
+  support: [],
 };
 
 export type PreferenceChannel = 'in_app' | 'push' | 'email';

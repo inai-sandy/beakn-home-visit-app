@@ -30,6 +30,10 @@ export function roleLabel(role: Role): string {
       return 'Captain';
     case 'super_admin':
       return 'Admin';
+    // HVA-237: support team — kept short like "Sales Exec" since it'll
+    // appear inline in note rows and comment threads (HVA-231 Phase 3).
+    case 'support':
+      return 'Support';
     default:
       return role;
   }

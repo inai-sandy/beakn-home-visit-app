@@ -79,6 +79,14 @@ import {
   type ExecWarningContext,
   type ExecWarningRevokedContext,
 } from './exec-warnings';
+import {
+  composeDispatchAdvancedInApp,
+  composeDispatchRecordedInApp,
+  composeOrderReadyForDispatchInApp,
+  type DispatchAdvancedContext,
+  type DispatchRecordedContext,
+  type OrderReadyForDispatchContext,
+} from './dispatch-events';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -261,6 +269,15 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     composeFifthHardWarningForAdmin(
       ctx as unknown as ExecFifthHardWarningContext,
     ),
+  // HVA-240 (HVA-231 Phase 2 PR-C): dispatch lifecycle events.
+  'support.order_ready_for_dispatch': (ctx) =>
+    composeOrderReadyForDispatchInApp(
+      ctx as unknown as OrderReadyForDispatchContext,
+    ),
+  'support.dispatch_recorded': (ctx) =>
+    composeDispatchRecordedInApp(ctx as unknown as DispatchRecordedContext),
+  'support.dispatch_advanced': (ctx) =>
+    composeDispatchAdvancedInApp(ctx as unknown as DispatchAdvancedContext),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

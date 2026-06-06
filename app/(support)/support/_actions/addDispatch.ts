@@ -1,16 +1,24 @@
 'use server';
 
+import { eq, inArray } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db/client';
 import {
+  cities,
   dispatchItems,
   dispatchStatusHistory,
   dispatches,
+  quotationLineItems,
+  quotations,
+  users,
+  visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { log } from '@/lib/logger';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import { loadRemainingQuantities } from '@/lib/support/dispatch-queries';
 import {
   dispatchCreateSchema,
@@ -167,6 +175,108 @@ export async function addDispatchAction(
       userAgent: null,
     });
   }
+
+  // HVA-240: fan out per-request notifications. Multi-order dispatches
+  // touch multiple visit_requests; each gets its own
+  // `support.dispatch_recorded` event so exec_assigned + captain
+  // recipients get a per-order ping.
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const lineItemIds = data.items.map((it) => it.lineItemId);
+        // Resolve which requests are involved + their identities.
+        const reqRows = await db
+          .select({
+            requestId: visitRequests.id,
+            customerName: visitRequests.customerName,
+            cityId: visitRequests.cityId,
+            cityName: cities.name,
+            cityCaptainUserId: cities.captainUserId,
+            assignedExecUserId: visitRequests.assignedExecUserId,
+            assignedCaptainUserId: visitRequests.assignedCaptainUserId,
+            lineItemId: quotationLineItems.id,
+            productName: quotationLineItems.productName,
+          })
+          .from(quotationLineItems)
+          .innerJoin(
+            quotations,
+            eq(quotations.id, quotationLineItems.quotationId),
+          )
+          .innerJoin(
+            visitRequests,
+            eq(visitRequests.id, quotations.visitRequestId),
+          )
+          .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+          .where(inArray(quotationLineItems.id, lineItemIds));
+
+        const [actorRow] = await db
+          .select({ fullName: users.fullName })
+          .from(users)
+          .where(eq(users.id, user.id))
+          .limit(1);
+        const actorName = actorRow?.fullName ?? 'Support';
+
+        // Group items per request so each notification's body reflects
+        // only what was dispatched FOR that customer.
+        const perRequest = new Map<
+          string,
+          {
+            customerName: string;
+            cityName: string;
+            cityId: string;
+            cityCaptainUserId: string | null;
+            execUserId: string | null;
+            captainUserId: string | null;
+            items: Array<{ productName: string; qty: number }>;
+            totalQty: number;
+          }
+        >();
+        const qtyByItemId = new Map(
+          data.items.map((it) => [it.lineItemId, it.qty]),
+        );
+        for (const row of reqRows) {
+          const qty = qtyByItemId.get(row.lineItemId) ?? 0;
+          const existing = perRequest.get(row.requestId) ?? {
+            customerName: row.customerName,
+            cityName: row.cityName,
+            cityId: row.cityId,
+            cityCaptainUserId: row.cityCaptainUserId,
+            execUserId: row.assignedExecUserId,
+            captainUserId: row.assignedCaptainUserId,
+            items: [] as Array<{ productName: string; qty: number }>,
+            totalQty: 0,
+          };
+          existing.items.push({ productName: row.productName, qty });
+          existing.totalQty += qty;
+          perRequest.set(row.requestId, existing);
+        }
+
+        for (const [requestId, info] of perRequest) {
+          const itemSummary = info.items
+            .map((i) => `${i.qty}× ${i.productName}`)
+            .join(', ');
+          await dispatchNotification('support.dispatch_recorded', {
+            requestId,
+            dispatchId,
+            customerName: info.customerName,
+            cityId: info.cityId,
+            cityName: info.cityName,
+            cityCaptainUserId: info.cityCaptainUserId,
+            execUserId: info.execUserId,
+            captainUserId: info.captainUserId,
+            dispatchedByName: actorName,
+            itemSummary,
+            totalItemsInDispatch: info.totalQty,
+          });
+        }
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err), dispatchId },
+          'dispatch_recorded_notification_failed',
+        );
+      }
+    })();
+  });
 
   revalidatePath('/', 'layout');
   return { ok: true, data: { dispatchId } };

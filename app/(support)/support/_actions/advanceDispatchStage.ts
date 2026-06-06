@@ -1,13 +1,24 @@
 'use server';
 
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db/client';
-import { dispatchStatusHistory, dispatches } from '@/db/schema';
+import {
+  cities,
+  dispatchItems,
+  dispatchStatusHistory,
+  dispatches,
+  quotationLineItems,
+  quotations,
+  users,
+  visitRequests,
+} from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { log } from '@/lib/logger';
+import { dispatchNotification } from '@/lib/notifications/engine';
 import {
   advanceDispatchStageSchema,
   NEXT_STAGE,
@@ -115,6 +126,80 @@ export async function advanceDispatchStageAction(
     afterState: { stage: toStage },
     ipAddress: null,
     userAgent: null,
+  });
+
+  // HVA-240: notify each affected request's exec + captain when a
+  // dispatch's stage advances (packed or handed_off). Fan-out mirrors
+  // addDispatchAction's pattern.
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const reqRows = await db
+          .select({
+            requestId: visitRequests.id,
+            customerName: visitRequests.customerName,
+            cityId: visitRequests.cityId,
+            cityName: cities.name,
+            cityCaptainUserId: cities.captainUserId,
+            assignedExecUserId: visitRequests.assignedExecUserId,
+            assignedCaptainUserId: visitRequests.assignedCaptainUserId,
+          })
+          .from(dispatchItems)
+          .innerJoin(
+            quotationLineItems,
+            eq(quotationLineItems.id, dispatchItems.quotationLineItemId),
+          )
+          .innerJoin(
+            quotations,
+            eq(quotations.id, quotationLineItems.quotationId),
+          )
+          .innerJoin(
+            visitRequests,
+            eq(visitRequests.id, quotations.visitRequestId),
+          )
+          .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+          .where(eq(dispatchItems.dispatchId, dispatchId))
+          .groupBy(
+            visitRequests.id,
+            visitRequests.customerName,
+            visitRequests.cityId,
+            cities.name,
+            cities.captainUserId,
+            visitRequests.assignedExecUserId,
+            visitRequests.assignedCaptainUserId,
+          );
+
+        const [actorRow] = await db
+          .select({ fullName: users.fullName })
+          .from(users)
+          .where(eq(users.id, user.id))
+          .limit(1);
+        const actorName = actorRow?.fullName ?? 'Support';
+
+        for (const row of reqRows) {
+          await dispatchNotification('support.dispatch_advanced', {
+            requestId: row.requestId,
+            dispatchId,
+            customerName: row.customerName,
+            cityId: row.cityId,
+            cityName: row.cityName,
+            cityCaptainUserId: row.cityCaptainUserId,
+            execUserId: row.assignedExecUserId,
+            captainUserId: row.assignedCaptainUserId,
+            newStage: toStage,
+            changedByName: actorName,
+          });
+        }
+        // Mark inArray as used to avoid the unused-import warning when
+        // future maintenance refactors this query shape.
+        void inArray;
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err), dispatchId },
+          'dispatch_advanced_notification_failed',
+        );
+      }
+    })();
   });
 
   revalidatePath('/', 'layout');

@@ -4,6 +4,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db/client';
 import {
   cities,
+  quotationLineItems,
   quotations,
   requestStatusHistory,
   statusStages,
@@ -194,8 +195,14 @@ export async function transitionRequestStatus(
       // 2026-05-30: customer + city + captain for the
       // request.pending_approval dispatch below.
       customerName: visitRequests.customerName,
+      cityId: visitRequests.cityId,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
+      // HVA-240: assigned_captain (separate from city's captain) for the
+      // support.order_ready_for_dispatch + support.dispatch_recorded
+      // fan-out — captain_owning_city + the directly-assigned captain
+      // can differ (reassignment scenarios).
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       // HVA-46/47: customer phone + tracking token for WhatsApp template
       // dispatches on QUOTATION_SUBMITTED / ORDER_CONFIRMED /
       // INSTALLATION_COMPLETE transitions.
@@ -509,6 +516,52 @@ export async function transitionRequestStatus(
       },
       'status_transition_no_dispatch_for_this_target',
     );
+  }
+
+  // HVA-240 (HVA-231 Phase 2 PR-C): notify the support team broadcast
+  // when a request transitions INTO ORDER_CONFIRMED. Orthogonal to the
+  // per-transition `emits_event` map above — that one fires on the
+  // status_transitions row's configured event; this one is always tied
+  // to landing in ORDER_CONFIRMED regardless of which transition led
+  // there.
+  if (nextRow.code === 'ORDER_CONFIRMED') {
+    setImmediate(() => {
+      void (async () => {
+        try {
+          let itemCount = 0;
+          const [quoteRow] = await db
+            .select({ id: quotations.id })
+            .from(quotations)
+            .where(eq(quotations.visitRequestId, requestId))
+            .limit(1);
+          if (quoteRow) {
+            const itemsCountRow = await db
+              .select({ count: sql<number>`COUNT(*)::int` })
+              .from(quotationLineItems)
+              .where(eq(quotationLineItems.quotationId, quoteRow.id));
+            itemCount = itemsCountRow[0]?.count ?? 0;
+          }
+          await dispatchNotification('support.order_ready_for_dispatch', {
+            requestId,
+            customerName: currentRow.customerName,
+            cityName: currentRow.cityName,
+            cityId: currentRow.cityId,
+            cityCaptainUserId: currentRow.cityCaptainUserId,
+            execUserId: currentRow.assignedExecUserId,
+            captainUserId: currentRow.assignedCaptainUserId,
+            itemCount,
+          });
+        } catch (err) {
+          transitionLog.warn(
+            {
+              err: err instanceof Error ? err.message : String(err),
+              requestId,
+            },
+            'order_confirmed_support_notification_failed',
+          );
+        }
+      })();
+    });
   }
 
   return {

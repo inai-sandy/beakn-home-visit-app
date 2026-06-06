@@ -222,6 +222,20 @@ async function resolveRecipients(
       }
       return rows.map((r) => ({ userId: r.id, directAddress: null }));
     }
+    // HVA-240 (HVA-231 Phase 2 PR-C): support team broadcast. Used for
+    // "new order ready for dispatch" — every active support user gets
+    // pinged so any of them can claim. Mirrors the super_admin shape
+    // (no context needed; pool-resolved at fan-out time).
+    case 'support_team_all': {
+      const rows = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.role, 'support'), eq(users.isActive, true)));
+      if (rows.length === 0) {
+        return [{ userId: null, directAddress: null, reason: 'no active support users' }];
+      }
+      return rows.map((r) => ({ userId: r.id, directAddress: null }));
+    }
     // HVA-199: assist domain resolvers. Assist is exec-bound (not city-
     // bound) — exec belongs to ONE captain regardless of which city the
     // related request is in.

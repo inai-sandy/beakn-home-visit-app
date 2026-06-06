@@ -122,17 +122,44 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
                       {it.contextLine}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor={`qty-${it.lineItemId}`} className="text-xs">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Label
+                      htmlFor={`qty-${it.lineItemId}`}
+                      className="text-xs text-muted-foreground"
+                    >
                       Qty
                     </Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0"
+                      onClick={() =>
+                        setQtyById((prev) => {
+                          const next = Math.max(1, (qty || 1) - 1);
+                          return {
+                            ...prev,
+                            [it.lineItemId]: String(next),
+                          };
+                        })
+                      }
+                      disabled={busy || !Number.isFinite(qty) || qty <= 1}
+                      aria-label={`Decrease qty for ${it.productName}`}
+                    >
+                      <Icon name="remove" size="sm" />
+                    </Button>
                     <Input
                       id={`qty-${it.lineItemId}`}
-                      type="number"
+                      // HVA-244 — type=text + inputMode=numeric is the
+                      // reliable iOS combo. type=number was rendering
+                      // inconsistently and the cursor landed at the end
+                      // which made replacing the default value feel like
+                      // the field was read-only.
+                      type="text"
                       inputMode="numeric"
-                      min={1}
-                      max={it.quantityRemaining}
+                      pattern="[0-9]*"
                       value={raw}
+                      onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) =>
                         setQtyById((prev) => ({
                           ...prev,
@@ -140,10 +167,40 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
                         }))
                       }
                       disabled={busy}
-                      className="h-9 w-20 font-mono"
+                      className="h-10 w-16 font-mono text-center"
+                      aria-label={`Quantity to dispatch for ${it.productName}`}
                     />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0"
+                      onClick={() =>
+                        setQtyById((prev) => {
+                          const current = Number.isFinite(qty) ? qty : 0;
+                          const next = Math.min(
+                            it.quantityRemaining,
+                            current + 1,
+                          );
+                          return {
+                            ...prev,
+                            [it.lineItemId]: String(next),
+                          };
+                        })
+                      }
+                      disabled={
+                        busy ||
+                        (Number.isFinite(qty) && qty >= it.quantityRemaining)
+                      }
+                      aria-label={`Increase qty for ${it.productName}`}
+                    >
+                      <Icon name="add" size="sm" />
+                    </Button>
                   </div>
                 </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Tap the number to edit · max {it.quantityRemaining}
+                </p>
                 {!valid && raw.length > 0 && (
                   <p className="text-[11px] text-destructive">
                     Quantity must be between 1 and {it.quantityRemaining}.

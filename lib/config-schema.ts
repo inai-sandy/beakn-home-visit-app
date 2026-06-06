@@ -240,6 +240,13 @@ export const CONFIG_SCHEMA = {
       'executive_password_reset',
       'executive_deactivated',
       'executive_activated',
+      // HVA-236: support team admin onboarding events. Same shape as
+      // executive_* events — actor=super_admin, target=user with role='support'.
+      'support_user_created',
+      'support_user_updated',
+      'support_user_deactivated',
+      'support_user_activated',
+      'support_user_password_reset',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

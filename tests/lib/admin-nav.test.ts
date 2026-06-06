@@ -170,6 +170,8 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
       'Cities',
       'Captains',
       'Executives',
+      // HVA-236: support team admin onboarding
+      'Support Team',
     ]);
     expect(
       getSubgroup('Audit & Content').items.map((i) => i.label),

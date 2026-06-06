@@ -127,6 +127,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
             icon: 'badge',
             href: '/admin/settings/organization/executives',
           },
+          {
+            // HVA-236: support team admin onboarding
+            label: 'Support Team',
+            icon: 'support_agent',
+            href: '/admin/settings/organization/support',
+          },
         ],
       },
       {

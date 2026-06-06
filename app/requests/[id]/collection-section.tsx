@@ -9,6 +9,8 @@ import { formatInrFromPaise } from "@/lib/money";
 import { formatIstDateTime } from "@/lib/request-detail";
 import { cn } from "@/lib/utils";
 
+import { loadLineItems } from "./_actions/lineItems";
+import { LineItemsSection } from "./line-items-section";
 import { PaymentsBlock } from "./payments-block";
 import { QuotationEditButton } from "./quotation-edit-button";
 
@@ -90,6 +92,12 @@ export async function CollectionSection({
       .limit(1);
     updatedByName = u?.fullName ?? null;
   }
+
+  // HVA-234: load line items for this quotation. Only when a quotation
+  // exists — line items can't exist without a parent quotation row.
+  const lineItems = quotationRow
+    ? await loadLineItems(quotationRow.id)
+    : [];
 
   const paymentRows = await db
     .select({
@@ -191,6 +199,19 @@ export async function CollectionSection({
           </p>
         )}
       </div>
+
+      {/* ---------- Line items block (HVA-234) ----------
+          Renders below the quotation headline. Visible when a quotation
+          exists; the section internally hides itself if items list is
+          empty AND user can't edit. Edit gate matches the quotation
+          edit gate (same authz applies). */}
+      {quotationRow && (
+        <LineItemsSection
+          quotationId={quotationRow.id}
+          items={lineItems}
+          canEdit={canEditQuotation}
+        />
+      )}
 
       {/* ---------- Payments block ----------
           HVA-150 / HVA-200: rendering moved to client wrapper so

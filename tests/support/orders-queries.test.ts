@@ -254,6 +254,14 @@ describe('loadAllOrders', () => {
       'in_progress',
     );
     expect(byRequest.get(done.requestId)?.dispatchState).toBe('done');
+
+    // HVA-245 regression: lastActivityAt must be a real Date, not a string.
+    // The raw SQL MAX(changed_at) returns a string from postgres-js; the
+    // page calls .toISOString() on it which previously crashed at runtime.
+    for (const row of rows) {
+      expect(row.lastActivityAt).toBeInstanceOf(Date);
+      expect(typeof row.lastActivityAt.toISOString).toBe('function');
+    }
   });
 
   it('search filters by customer name', async () => {

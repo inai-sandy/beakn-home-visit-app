@@ -111,7 +111,11 @@ export async function loadAllOrders(
         )
           AND latest.stage <> 'handed_off'
       )`.as('has_open_dispatch'),
-      lastDispatchAt: sql<Date | null>`(
+      // HVA-245 fix: postgres-js returns raw timestamp values as strings
+      // when the SQL is wrapped in a raw `sql\`\`` template. The Date
+      // conversion is done in the mapper below. Type annotation matches
+      // the runtime (string | null) so the toISOString crash can't recur.
+      lastDispatchAt: sql<string | null>`(
         SELECT MAX(dsh.changed_at)
         FROM dispatch_status_history dsh
         JOIN dispatches d ON d.id = dsh.dispatch_id
@@ -193,7 +197,9 @@ export async function loadAllOrders(
       if (!r.hasAnyDispatch) dispatchState = 'pending';
       else if (qtyRemaining === 0 && !r.hasOpenDispatch) dispatchState = 'done';
       else dispatchState = 'in_progress';
-      const lastActivityAt = r.lastDispatchAt ?? r.orderCreatedAt;
+      const lastActivityAt: Date = r.lastDispatchAt
+        ? new Date(r.lastDispatchAt)
+        : r.orderCreatedAt;
       return {
         requestId: r.requestId,
         customerName: r.customerName,

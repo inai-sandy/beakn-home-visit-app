@@ -57,6 +57,11 @@ export interface OrdersListOptions {
   /** HVA-246: column to sort by — customer / state / activity. */
   sort?: 'customer' | 'state' | 'activity';
   dir?: 'asc' | 'desc';
+  /** HVA-247: filter dropdowns. */
+  cityId?: string;
+  dispatchState?: OrderDispatchState;
+  productName?: string;
+  customerPhone?: string;
 }
 
 export interface OrdersListResult {
@@ -150,6 +155,42 @@ export async function loadAllOrders(
       ilike(cities.name, pattern),
     );
     if (orClause) conditions.push(orClause);
+  }
+
+  // HVA-247: filter dropdowns.
+  if (options.cityId) {
+    conditions.push(eq(visitRequests.cityId, options.cityId));
+  }
+  if (options.customerPhone) {
+    conditions.push(eq(visitRequests.customerPhone, options.customerPhone));
+  }
+  if (options.productName) {
+    conditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${quotationLineItems} qli_f
+      INNER JOIN ${quotations} q_f ON q_f.id = qli_f.quotation_id
+      WHERE q_f.visit_request_id = ${visitRequests.id}
+        AND qli_f.product_name = ${options.productName}
+    )`);
+  }
+  if (options.dispatchState) {
+    // Same logic as the pill resolution below — expressed in SQL so the
+    // count + row queries return the same set.
+    if (options.dispatchState === 'pending') {
+      conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = FALSE`);
+    } else if (options.dispatchState === 'done') {
+      conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = TRUE`);
+      conditions.push(
+        sql`(${itemAggregate.qtyTotal} - ${itemAggregate.qtyDispatched}) <= 0`,
+      );
+      conditions.push(sql`COALESCE(${itemAggregate.hasOpenDispatch}, FALSE) = FALSE`);
+    } else {
+      // in_progress
+      conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = TRUE`);
+      conditions.push(
+        sql`((${itemAggregate.qtyTotal} - ${itemAggregate.qtyDispatched}) > 0 OR COALESCE(${itemAggregate.hasOpenDispatch}, FALSE) = TRUE)`,
+      );
+    }
   }
 
   const [countRow] = await db
@@ -273,6 +314,10 @@ export interface ActivityFeedOptions {
   pageSize?: number;
   sort?: 'date' | 'customer';
   dir?: 'asc' | 'desc';
+  /** HVA-247: filter dropdowns. */
+  cityId?: string;
+  productName?: string;
+  customerPhone?: string;
 }
 
 export interface ActivityFeedResult {
@@ -291,10 +336,48 @@ export async function loadActivityFeed(
   const sortKey = options.sort ?? 'date';
   const dir = options.dir ?? 'desc';
 
+  // HVA-247: filter dropdowns. Activity is a dispatch-level event; filters
+  // narrow via EXISTS subqueries on dispatch_items → quotation_line_items →
+  // quotations → visit_requests so we don't need extra outer joins.
+  const filterConditions = [];
+  if (options.cityId) {
+    filterConditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${dispatchItems} di_f
+      INNER JOIN ${quotationLineItems} qli_f ON qli_f.id = di_f.quotation_line_item_id
+      INNER JOIN ${quotations} q_f ON q_f.id = qli_f.quotation_id
+      INNER JOIN ${visitRequests} vr_f ON vr_f.id = q_f.visit_request_id
+      WHERE di_f.dispatch_id = ${dispatches.id}
+        AND vr_f.city_id = ${options.cityId}
+    )`);
+  }
+  if (options.productName) {
+    filterConditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${dispatchItems} di_f
+      INNER JOIN ${quotationLineItems} qli_f ON qli_f.id = di_f.quotation_line_item_id
+      WHERE di_f.dispatch_id = ${dispatches.id}
+        AND qli_f.product_name = ${options.productName}
+    )`);
+  }
+  if (options.customerPhone) {
+    filterConditions.push(sql`EXISTS (
+      SELECT 1
+      FROM ${dispatchItems} di_f
+      INNER JOIN ${quotationLineItems} qli_f ON qli_f.id = di_f.quotation_line_item_id
+      INNER JOIN ${quotations} q_f ON q_f.id = qli_f.quotation_id
+      INNER JOIN ${visitRequests} vr_f ON vr_f.id = q_f.visit_request_id
+      WHERE di_f.dispatch_id = ${dispatches.id}
+        AND vr_f.customer_phone = ${options.customerPhone}
+    )`);
+  }
+
   // Count first — gives us totalCount for pagination footer.
   const [countRow] = await db
     .select({ count: sql<number>`COUNT(*)::int` })
-    .from(dispatchStatusHistory);
+    .from(dispatchStatusHistory)
+    .innerJoin(dispatches, eq(dispatches.id, dispatchStatusHistory.dispatchId))
+    .where(filterConditions.length > 0 ? and(...filterConditions) : undefined);
   const totalCount = countRow?.count ?? 0;
 
   // Sort order: date is on dispatchStatusHistory.changedAt; customer
@@ -319,6 +402,7 @@ export async function loadActivityFeed(
       users,
       eq(users.id, dispatchStatusHistory.changedByUserId),
     )
+    .where(filterConditions.length > 0 ? and(...filterConditions) : undefined)
     .orderBy(
       sortKey === 'date' && dir === 'asc'
         ? asc(dispatchStatusHistory.changedAt)

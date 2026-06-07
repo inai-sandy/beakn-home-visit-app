@@ -8,10 +8,12 @@ import {
   type ActivityEventType,
   type ActivityFeedRow,
 } from '@/lib/support/orders-queries';
+import { loadSupportFilterOptions } from '@/lib/support/filter-options';
 import { cn } from '@/lib/utils';
 
 import { Pagination } from '../../_components/Pagination';
 import { SortableColumnHeader } from '../../_components/SortableColumnHeader';
+import { SupportFilters } from '../../_components/SupportFilters';
 
 // =============================================================================
 // HVA-245: /support/activity — chronological dispatch event feed
@@ -64,6 +66,9 @@ interface PageProps {
     page?: string;
     sort?: string;
     dir?: string;
+    city?: string;
+    product?: string;
+    customer?: string;
   }>;
 }
 
@@ -81,13 +86,22 @@ export default async function SupportActivityPage({ searchParams }: PageProps) {
   const pageNum = Math.max(1, Number.parseInt(params.page ?? '1', 10) || 1);
   const sort = parseSort(params.sort);
   const dir = parseDir(params.dir);
+  const cityId = params.city?.trim() || undefined;
+  const productName = params.product?.trim() || undefined;
+  const customerPhone = params.customer?.trim() || undefined;
 
-  const { rows, totalCount, page, pageSize } = await loadActivityFeed({
-    page: pageNum,
-    pageSize: 25,
-    sort: sort ?? 'date',
-    dir,
-  });
+  const [{ rows, totalCount, page, pageSize }, filterOptions] = await Promise.all([
+    loadActivityFeed({
+      page: pageNum,
+      pageSize: 25,
+      sort: sort ?? 'date',
+      dir,
+      cityId,
+      productName,
+      customerPhone,
+    }),
+    loadSupportFilterOptions(),
+  ]);
   const todayIst = getIstDateString(new Date());
 
   const showAsGroupedFeed = !sort || sort === 'date';
@@ -100,6 +114,17 @@ export default async function SupportActivityPage({ searchParams }: PageProps) {
           Recent dispatch events across all orders.
         </p>
       </header>
+
+      <SupportFilters
+        cities={filterOptions.cities}
+        products={filterOptions.products}
+        customers={filterOptions.customers}
+        current={{
+          city: cityId ?? '',
+          product: productName ?? '',
+          customer: customerPhone ?? '',
+        }}
+      />
 
       {rows.length === 0 ? (
         <div className="rounded-3xl border bg-muted/40 p-10 text-center space-y-3">

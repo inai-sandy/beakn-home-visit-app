@@ -79,6 +79,10 @@ export interface QueueOptions {
   pageSize?: number;
   sort?: 'customer' | 'product' | 'age';
   dir?: 'asc' | 'desc';
+  /** HVA-247: filter dropdowns. */
+  cityId?: string;
+  productName?: string;
+  customerPhone?: string;
 }
 
 export interface QueueResult {
@@ -152,6 +156,17 @@ export async function loadDispatchQueue(
         OR LOWER(${quotationLineItems.productName}) LIKE ${pattern}
       )`,
     );
+  }
+
+  // HVA-247: filter dropdowns.
+  if (options.cityId) {
+    conditions.push(eq(visitRequests.cityId, options.cityId));
+  }
+  if (options.productName) {
+    conditions.push(eq(quotationLineItems.productName, options.productName));
+  }
+  if (options.customerPhone) {
+    conditions.push(eq(visitRequests.customerPhone, options.customerPhone));
   }
 
   // HVA-246: sort selection. Defaults match HVA-238 behaviour (priority

@@ -1,5 +1,7 @@
 import { loadDispatchQueue } from '@/lib/support/dispatch-queries';
+import { loadSupportFilterOptions } from '@/lib/support/filter-options';
 
+import { SupportFilters } from '../_components/SupportFilters';
 import { SupportQueueTable, type SupportQueueRow } from './_components/SupportQueueTable';
 
 // =============================================================================
@@ -24,6 +26,9 @@ interface PageProps {
     page?: string;
     sort?: string;
     dir?: string;
+    city?: string;
+    product?: string;
+    customer?: string;
   }>;
 }
 
@@ -44,16 +49,25 @@ export default async function SupportPendingPage({ searchParams }: PageProps) {
   const page = Math.max(1, Number.parseInt(params.page ?? '1', 10) || 1);
   const sort = parseSort(params.sort);
   const dir = parseDir(params.dir);
+  const cityId = params.city?.trim() || undefined;
+  const productName = params.product?.trim() || undefined;
+  const customerPhone = params.customer?.trim() || undefined;
 
-  const { rows, totalCount, page: currentPage, pageSize } =
-    await loadDispatchQueue({
-      search: search || undefined,
-      mode: 'pending',
-      page,
-      pageSize: 25,
-      sort,
-      dir,
-    });
+  const [{ rows, totalCount, page: currentPage, pageSize }, filterOptions] =
+    await Promise.all([
+      loadDispatchQueue({
+        search: search || undefined,
+        mode: 'pending',
+        page,
+        pageSize: 25,
+        sort,
+        dir,
+        cityId,
+        productName,
+        customerPhone,
+      }),
+      loadSupportFilterOptions(),
+    ]);
 
   const now = Date.now();
   const rowsWithAge: SupportQueueRow[] = rows.map((r) => {
@@ -85,6 +99,17 @@ export default async function SupportPendingPage({ searchParams }: PageProps) {
             : `${totalCount} ${totalCount === 1 ? 'item' : 'items'} waiting for first dispatch.`}
         </p>
       </header>
+
+      <SupportFilters
+        cities={filterOptions.cities}
+        products={filterOptions.products}
+        customers={filterOptions.customers}
+        current={{
+          city: cityId ?? '',
+          product: productName ?? '',
+          customer: customerPhone ?? '',
+        }}
+      />
 
       <SupportQueueTable
         rows={rowsWithAge}

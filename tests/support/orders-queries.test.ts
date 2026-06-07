@@ -11,6 +11,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { loadDispatchQueue } from '@/lib/support/dispatch-queries';
+import { loadSupportFilterOptions } from '@/lib/support/filter-options';
 import { loadActivityFeed, loadAllOrders } from '@/lib/support/orders-queries';
 
 import {
@@ -465,6 +466,214 @@ describe('loadDispatchQueue sort + pagination', () => {
     // Page 1 and page 2 should not overlap on lineItemId
     const ids1 = new Set(page1.map((r) => r.lineItemId));
     expect(page2.every((r) => !ids1.has(r.lineItemId))).toBe(true);
+  });
+});
+
+// =============================================================================
+// HVA-247: filter dropdowns
+// =============================================================================
+
+describe('loadDispatchQueue filters (HVA-247)', () => {
+  it('cityId narrows to that city only', async () => {
+    const captain = await seedCaptain({ phone: '+919995100001' });
+    const cityA = await getOrCreateCity('Bangalore');
+    const cityB = await getOrCreateCity('Chennai');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919995100002',
+      fullName: 'Exec FilterCity',
+    });
+
+    await seedOrderWithItem({
+      cityId: cityA.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'CityA-Item',
+    });
+    await seedOrderWithItem({
+      cityId: cityB.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'CityB-Item',
+    });
+
+    const { rows } = await loadDispatchQueue({
+      mode: 'pending',
+      cityId: cityA.id,
+    });
+    const names = rows.map((r) => r.productName);
+    expect(names).toContain('CityA-Item');
+    expect(names).not.toContain('CityB-Item');
+  });
+
+  it('productName narrows to that product only', async () => {
+    const captain = await seedCaptain({ phone: '+919995200001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919995200002',
+      fullName: 'Exec FilterProduct',
+    });
+    await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'Curtain Type A',
+    });
+    await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'Blinds Type B',
+    });
+
+    const { rows } = await loadDispatchQueue({
+      mode: 'pending',
+      productName: 'Curtain Type A',
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows.every((r) => r.productName === 'Curtain Type A')).toBe(true);
+  });
+
+  it('customerPhone narrows to that customer only', async () => {
+    const captain = await seedCaptain({ phone: '+919995300001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919995300002',
+      fullName: 'Exec FilterCustomer',
+    });
+
+    const a = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'CustFilterA',
+    });
+    const b = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'CustFilterB',
+    });
+    await db
+      .update(visitRequests)
+      .set({ customerPhone: '+919999991111', customerName: 'CustOne' })
+      .where(eq(visitRequests.id, a.requestId));
+    await db
+      .update(visitRequests)
+      .set({ customerPhone: '+919999992222', customerName: 'CustTwo' })
+      .where(eq(visitRequests.id, b.requestId));
+
+    const { rows } = await loadDispatchQueue({
+      mode: 'pending',
+      customerPhone: '+919999991111',
+    });
+    expect(rows.every((r) => r.customerName === 'CustOne')).toBe(true);
+    expect(rows.map((r) => r.productName)).toContain('CustFilterA');
+    expect(rows.map((r) => r.productName)).not.toContain('CustFilterB');
+  });
+});
+
+describe('loadAllOrders filters (HVA-247)', () => {
+  it('dispatchState=pending narrows to pending orders only', async () => {
+    const captain = await seedCaptain({ phone: '+919994100001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919994100002',
+      fullName: 'Exec OrdState',
+    });
+
+    const pendingOrder = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'OS-Pending',
+    });
+    const inProgressOrder = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'OS-InProgress',
+      qty: 4,
+    });
+    await dispatchSome({
+      lineItemId: inProgressOrder.lineItemId,
+      qty: 2,
+      byUserId: exec.id,
+    });
+
+    const { rows } = await loadAllOrders({ dispatchState: 'pending' });
+    const ids = rows.map((r) => r.requestId);
+    expect(ids).toContain(pendingOrder.requestId);
+    expect(ids).not.toContain(inProgressOrder.requestId);
+    expect(rows.every((r) => r.dispatchState === 'pending')).toBe(true);
+  });
+
+  it('productName narrows to orders that contain that product', async () => {
+    const captain = await seedCaptain({ phone: '+919994200001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919994200002',
+      fullName: 'Exec OrdProd',
+    });
+    const withCurtain = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'PremiumCurtainXYZ',
+    });
+    const withoutCurtain = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'OtherProduct',
+    });
+
+    const { rows } = await loadAllOrders({ productName: 'PremiumCurtainXYZ' });
+    const ids = rows.map((r) => r.requestId);
+    expect(ids).toContain(withCurtain.requestId);
+    expect(ids).not.toContain(withoutCurtain.requestId);
+  });
+});
+
+describe('loadSupportFilterOptions (HVA-247)', () => {
+  it('returns sorted cities, distinct products, and distinct customers', async () => {
+    const captain = await seedCaptain({ phone: '+919993100001' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919993100002',
+      fullName: 'Exec FilterOpts',
+    });
+
+    // Two orders for the same customer with the same product (should
+    // dedup down to one product option + one customer option).
+    const a = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'FilterOptsProduct',
+    });
+    const b = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+      productName: 'FilterOptsProduct',
+    });
+    await db
+      .update(visitRequests)
+      .set({ customerPhone: '+919988887777', customerName: 'OptsCustomer' })
+      .where(eq(visitRequests.id, a.requestId));
+    await db
+      .update(visitRequests)
+      .set({ customerPhone: '+919988887777', customerName: 'OptsCustomer' })
+      .where(eq(visitRequests.id, b.requestId));
+
+    const opts = await loadSupportFilterOptions();
+    expect(opts.cities.some((c) => c.name === 'Bangalore')).toBe(true);
+    expect(
+      opts.products.filter((p) => p.name === 'FilterOptsProduct').length,
+    ).toBe(1);
+    expect(
+      opts.customers.filter((c) => c.phone === '+919988887777').length,
+    ).toBe(1);
   });
 });
 

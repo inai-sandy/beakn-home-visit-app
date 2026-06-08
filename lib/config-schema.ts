@@ -253,6 +253,13 @@ export const CONFIG_SCHEMA = {
       'dispatch_item_added',
       // HVA-241 (HVA-231 Phase 3): order comment thread
       'order_comment_added',
+      // HVA-248 (HVA-230 Phase 1.A): CartPlus webhook foundation events.
+      // Generated/revoked = secret rotation; cartplus_*_mapping_updated =
+      // admin edits the cities↔store or users↔portal_exec mapping.
+      'webhook_secret_generated',
+      'webhook_secret_revoked',
+      'cartplus_city_mapping_updated',
+      'cartplus_exec_mapping_updated',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

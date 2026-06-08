@@ -225,6 +225,29 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         ],
       },
       {
+        // HVA-248 (HVA-230): CartPlus webhook foundation — secrets +
+        // cities↔store + users↔portal_exec mapping.
+        label: 'Integrations',
+        icon: 'extension',
+        items: [
+          {
+            label: 'CartPlus secrets',
+            icon: 'key',
+            href: '/admin/integrations/cartplus',
+          },
+          {
+            label: 'CartPlus cities',
+            icon: 'storefront',
+            href: '/admin/integrations/cartplus/cities',
+          },
+          {
+            label: 'CartPlus execs',
+            icon: 'person_pin',
+            href: '/admin/integrations/cartplus/execs',
+          },
+        ],
+      },
+      {
         label: 'AI & Report Cards',
         icon: 'auto_awesome',
         items: [],

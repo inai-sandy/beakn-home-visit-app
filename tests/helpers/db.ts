@@ -119,6 +119,11 @@ const SAFE_TRUNCATE_TABLES = [
   // revoked_by_user_id) with ON DELETE RESTRICT. Must be truncated
   // before the DELETE FROM users step.
   'warnings',
+  // HVA-248 (HVA-230): webhook_secrets.created_by_user_id → users
+  // ON DELETE RESTRICT. Must precede DELETE FROM users. webhook_events
+  // has no FK but lives next to it.
+  'webhook_events',
+  'webhook_secrets',
 ];
 
 export async function truncateAll(): Promise<void> {
@@ -171,7 +176,7 @@ export async function truncateAll(): Promise<void> {
   );
   await db.execute(
     sqlBuilder.raw(
-      'UPDATE cities SET captain_routing_email = NULL, other_routing_email = NULL, discord_webhook_url = NULL;',
+      'UPDATE cities SET captain_routing_email = NULL, other_routing_email = NULL, discord_webhook_url = NULL, cartplus_store_id = NULL;',
     ),
   );
 }

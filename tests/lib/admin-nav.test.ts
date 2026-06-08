@@ -129,7 +129,7 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
     expect(settings.items).toBeUndefined();
   });
 
-  it('Settings has the 6 HVA-89 subgroups in order', () => {
+  it('Settings has the HVA-89 subgroups in order (+ HVA-248 Integrations)', () => {
     const settings = ADMIN_NAV.find((g) => g.label === 'Settings')!;
     expect((settings.subgroups ?? []).map((s) => s.label)).toEqual([
       'Organization',
@@ -137,6 +137,7 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
       'Notifications',
       'Workflow & Status',
       'Targets',
+      'Integrations',
       'AI & Report Cards',
     ]);
   });

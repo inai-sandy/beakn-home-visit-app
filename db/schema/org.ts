@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -24,6 +25,10 @@ export const cities = pgTable(
     captainRoutingEmail: varchar('captain_routing_email', { length: 255 }),
     otherRoutingEmail: varchar('other_routing_email', { length: 255 }),
     isActive: boolean('is_active').notNull().default(true),
+    // HVA-248 (HVA-230): CartPlus webhook store.id mapping. Admin sets per
+    // city via /admin/integrations/cartplus/cities. Webhook resolves the
+    // request's city by matching this against `store.id` in the envelope.
+    cartplusStoreId: bigint('cartplus_store_id', { mode: 'number' }),
     ...timestamps(),
   },
   (table) => [index('cities_captain_user_idx').on(table.captainUserId)],

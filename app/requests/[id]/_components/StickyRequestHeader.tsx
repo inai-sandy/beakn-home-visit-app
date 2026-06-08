@@ -26,6 +26,12 @@ interface Props {
   backFallback: string;
   primaryAction?: ReactNode;
   editButton?: ReactNode;
+  /**
+   * HVA-252: badge identifying the source of the request. Currently set
+   * only for portal-origin (CartPlus) requests; manual entries leave this
+   * undefined and the badge slot is hidden.
+   */
+  sourceBadge?: ReactNode;
 }
 
 export function StickyRequestHeader({
@@ -36,6 +42,7 @@ export function StickyRequestHeader({
   backFallback,
   primaryAction,
   editButton,
+  sourceBadge,
 }: Props) {
   return (
     <header className="sticky top-0 z-20 bg-background/95 backdrop-blur border-b">
@@ -55,6 +62,7 @@ export function StickyRequestHeader({
               <Badge variant="outline" className="text-[10px]">
                 {cityName}
               </Badge>
+              {sourceBadge}
             </div>
           </div>
           {editButton}

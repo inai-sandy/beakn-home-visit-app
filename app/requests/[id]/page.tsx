@@ -17,6 +17,7 @@ import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import {
   cities,
+  quotations,
   requestStatusHistory,
   salesExecutives,
   statusStages,
@@ -188,6 +189,24 @@ export default async function RequestDetailPage({ params }: PageProps) {
     .limit(1);
 
   if (!reqRow) notFound();
+
+  // HVA-252: load quotation source + portal metadata so we can render the
+  // "From CartPlus" badge in the header and (for super_admin) the raw
+  // payload viewer in the Admin tab. Separate query so this PR doesn't
+  // perturb the main reqRow joins.
+  const [quotationMeta] = await db
+    .select({
+      id: quotations.id,
+      source: quotations.source,
+      portalQuotationId: quotations.portalQuotationId,
+      storeId: quotations.storeId,
+      rawPayload: quotations.rawPayload,
+      lastWebhookAt: quotations.lastWebhookAt,
+    })
+    .from(quotations)
+    .where(eq(quotations.visitRequestId, reqRow.id))
+    .limit(1);
+  const isPortalOrigin = quotationMeta?.source === "portal";
 
   // 3. Per-role row-level visibility — the privacy boundary. The HVA-104
   // `canAdvance` flag was redundant with computeActionVisibility (HVA-66);
@@ -946,11 +965,53 @@ export default async function RequestDetailPage({ params }: PageProps) {
           </AccordionContent>
         </AccordionItem>
       )}
-      {!hasSecondaryActions && !canReschedule && !showAdminHelp && (
-        <div className="py-6 text-center text-sm text-muted-foreground">
-          No admin actions available at this stage.
-        </div>
+      {/* HVA-252: portal raw payload viewer — super_admin only on
+          portal-origin requests. Useful for troubleshooting webhook
+          deliveries without DB access. */}
+      {role === "super_admin" && isPortalOrigin && quotationMeta && (
+        <AccordionItem value="portal-payload">
+          <AccordionTrigger>
+            <span>CartPlus raw payload</span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-2">
+            <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+              <div>
+                <span className="font-medium text-foreground/70">
+                  Portal order ID
+                </span>{" "}
+                {quotationMeta.portalQuotationId ?? "—"}
+              </div>
+              <div>
+                <span className="font-medium text-foreground/70">
+                  Store ID
+                </span>{" "}
+                {quotationMeta.storeId ?? "—"}
+              </div>
+              <div className="sm:col-span-2">
+                <span className="font-medium text-foreground/70">
+                  Last webhook
+                </span>{" "}
+                {quotationMeta.lastWebhookAt
+                  ? quotationMeta.lastWebhookAt.toLocaleString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                    })
+                  : "Never"}
+              </div>
+            </div>
+            <pre className="rounded-md border bg-muted px-3 py-2 text-[11px] font-mono overflow-x-auto max-h-96">
+              {JSON.stringify(quotationMeta.rawPayload, null, 2)}
+            </pre>
+          </AccordionContent>
+        </AccordionItem>
       )}
+      {!hasSecondaryActions &&
+        !canReschedule &&
+        !showAdminHelp &&
+        !(role === "super_admin" && isPortalOrigin) && (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            No admin actions available at this stage.
+          </div>
+        )}
     </Accordion>
   );
 
@@ -969,6 +1030,16 @@ export default async function RequestDetailPage({ params }: PageProps) {
         backFallback={backFallback}
         primaryAction={primaryAction}
         editButton={editButton}
+        sourceBadge={
+          isPortalOrigin ? (
+            <Badge
+              variant="outline"
+              className="text-[10px] bg-amber-500/10 text-amber-700 border-amber-500/30"
+            >
+              From CartPlus
+            </Badge>
+          ) : null
+        }
       />
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-5">
         <RequestDetailShell

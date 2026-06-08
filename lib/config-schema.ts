@@ -260,6 +260,8 @@ export const CONFIG_SCHEMA = {
       'webhook_secret_revoked',
       'cartplus_city_mapping_updated',
       'cartplus_exec_mapping_updated',
+      // HVA-250 (HVA-230 Phase 2.A): portal order_received webhook handler
+      'webhook_cartplus_order_received',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getActiveCartplusSecret } from '@/lib/admin/cartplus';
 import { log } from '@/lib/logger';
 import { cartplusEnvelopeSchema } from '@/lib/webhooks/cartplus/envelope';
+import { handleCartplusOrderCancelled } from '@/lib/webhooks/cartplus/handler-order-cancelled';
 import { handleCartplusOrderCreated } from '@/lib/webhooks/cartplus/handler-order-created';
+import { handleCartplusOrderStatusChanged } from '@/lib/webhooks/cartplus/handler-order-status-changed';
 import {
   recordCartplusEvent,
   touchSecretLastUsed,
@@ -158,24 +160,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   // ---------- Dispatch to per-event handler (HVA-250+) ----------
-  if (envelope.type === 'order.created' && outcome.webhookEventId) {
-    const handlerOutcome = await handleCartplusOrderCreated(
-      envelope,
-      outcome.webhookEventId,
-    );
-    return NextResponse.json(
-      {
-        ok: handlerOutcome.status !== 'error',
-        result: handlerOutcome.status,
-        requestId: handlerOutcome.requestId ?? null,
-        webhookEventId: outcome.webhookEventId,
-        ...(handlerOutcome.reason ? { reason: handlerOutcome.reason } : {}),
-      },
-      { status: handlerOutcome.status === 'error' ? 500 : 200 },
-    );
+  if (outcome.webhookEventId) {
+    if (envelope.type === 'order.created') {
+      const handlerOutcome = await handleCartplusOrderCreated(
+        envelope,
+        outcome.webhookEventId,
+      );
+      return NextResponse.json(
+        {
+          ok: handlerOutcome.status !== 'error',
+          result: handlerOutcome.status,
+          requestId: handlerOutcome.requestId ?? null,
+          webhookEventId: outcome.webhookEventId,
+          ...(handlerOutcome.reason ? { reason: handlerOutcome.reason } : {}),
+        },
+        { status: handlerOutcome.status === 'error' ? 500 : 200 },
+      );
+    }
+    if (envelope.type === 'order.status_changed') {
+      const handlerOutcome = await handleCartplusOrderStatusChanged(
+        envelope,
+        outcome.webhookEventId,
+      );
+      return NextResponse.json(
+        {
+          ok: handlerOutcome.status !== 'error',
+          result: handlerOutcome.status,
+          webhookEventId: outcome.webhookEventId,
+          ...(handlerOutcome.reason ? { reason: handlerOutcome.reason } : {}),
+        },
+        { status: handlerOutcome.status === 'error' ? 500 : 200 },
+      );
+    }
+    if (envelope.type === 'order.cancelled') {
+      const handlerOutcome = await handleCartplusOrderCancelled(
+        envelope,
+        outcome.webhookEventId,
+      );
+      return NextResponse.json(
+        {
+          ok: handlerOutcome.status !== 'error',
+          result: handlerOutcome.status,
+          requestId: handlerOutcome.requestId ?? null,
+          webhookEventId: outcome.webhookEventId,
+          ...(handlerOutcome.reason ? { reason: handlerOutcome.reason } : {}),
+        },
+        { status: handlerOutcome.status === 'error' ? 500 : 200 },
+      );
+    }
   }
 
-  // Other event types (status_changed, cancelled) wire up in HVA-251.
+  // Unhandled event types — stored, no business logic
   return NextResponse.json(
     { ok: true, result: 'noop', webhookEventId: outcome.webhookEventId },
     { status: 200 },

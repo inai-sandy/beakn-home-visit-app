@@ -37,7 +37,7 @@ async function seedActiveSecret(): Promise<string> {
 function buildEnvelope(overrides: Record<string, unknown> = {}): unknown {
   return {
     id: 'evt_test_0001',
-    type: 'order.status_changed',
+    type: 'webhook.test.dummy',
     store: { id: 101, slug: 'test-store', name: 'Test Store' },
     data: { order: { id: 501 } },
     created_at: '2026-06-08T10:00:00Z',
@@ -51,7 +51,7 @@ function buildRequest(body: string, signature: string | null): Request {
     headers: {
       'content-type': 'application/json',
       ...(signature ? { 'x-cartplus-signature': signature } : {}),
-      'x-cartplus-event': 'order.status_changed',
+      'x-cartplus-event': 'webhook.test.dummy',
       'x-cartplus-delivery': 'dlv_test_0001',
     },
     body,
@@ -129,7 +129,7 @@ describe('POST /api/webhooks/cartplus', () => {
       .where(eq(webhookEvents.providerEventId, 'evt_happy_0001'));
     expect(rows.length).toBe(1);
     expect(rows[0]!.provider).toBe('cartplus');
-    expect(rows[0]!.eventType).toBe('order.status_changed');
+    expect(rows[0]!.eventType).toBe('webhook.test.dummy');
     expect(rows[0]!.deliveryId).toBe('dlv_test_0001');
     expect(rows[0]!.result).toBe('noop');
   });

@@ -11,7 +11,7 @@ import type { CartplusExecRow } from '@/lib/admin/cartplus';
 import { updateCartplusExecMappingAction } from '../actions';
 
 // =============================================================================
-// HVA-248: per-row inline editor for users ↔ CartPlus created_by.id
+// HVA-248 / HVA-248-FIX2: per-row card editor for users ↔ CartPlus created_by.id
 // =============================================================================
 
 interface Props {
@@ -20,29 +20,15 @@ interface Props {
 
 export function CartplusExecsClient({ rows }: Props) {
   return (
-    <div className="rounded-2xl border overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-4 py-2 text-left">User</th>
-            <th className="px-4 py-2 text-left">Role</th>
-            <th className="px-4 py-2 text-left">Phone</th>
-            <th className="px-4 py-2 text-left">CartPlus exec ID</th>
-            <th className="px-4 py-2 text-left">Last webhook</th>
-            <th className="px-4 py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <ExecRow key={r.userId} row={r} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ul className="space-y-3">
+      {rows.map((r) => (
+        <ExecRowCard key={r.userId} row={r} />
+      ))}
+    </ul>
   );
 }
 
-function ExecRow({ row }: { row: CartplusExecRow }) {
+function ExecRowCard({ row }: { row: CartplusExecRow }) {
   const [input, setInput] = useState<string>(
     row.portalExecId === null ? '' : String(row.portalExecId),
   );
@@ -53,7 +39,8 @@ function ExecRow({ row }: { row: CartplusExecRow }) {
 
   const trimmed = input.trim();
   const parsed = trimmed.length === 0 ? null : Number.parseInt(trimmed, 10);
-  const isInvalid = trimmed.length > 0 && (!Number.isFinite(parsed) || parsed! <= 0);
+  const isInvalid =
+    trimmed.length > 0 && (!Number.isFinite(parsed) || parsed! <= 0);
   const dirty = (parsed ?? null) !== row.portalExecId;
 
   function onSave() {
@@ -65,43 +52,71 @@ function ExecRow({ row }: { row: CartplusExecRow }) {
   }
 
   return (
-    <tr className="border-t">
-      <td className="px-4 py-3 font-medium">{row.fullName}</td>
-      <td className="px-4 py-3">
-        <Badge variant="outline" className="text-xs">
-          {row.role === 'sales_executive' ? 'Exec' : 'Captain'}
-        </Badge>
-      </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">{row.phone}</td>
-      <td className="px-4 py-3">
-        <Input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="—"
-          disabled={isPending}
-          className={`w-32 ${isInvalid ? 'border-destructive' : ''}`}
-        />
-      </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">
-        {row.lastWebhookAt
-          ? row.lastWebhookAt.toLocaleString('en-IN', {
-              timeZone: 'Asia/Kolkata',
-            })
-          : 'Never'}
-      </td>
-      <td className="px-4 py-3 text-right">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isPending || isInvalid || !dirty}
-          onClick={onSave}
-        >
-          {isPending ? 'Saving…' : 'Save'}
-        </Button>
-      </td>
-    </tr>
+    <li className="rounded-3xl border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-semibold tracking-tight">
+              {row.fullName}
+            </h3>
+            <Badge variant="outline" className="text-xs">
+              {row.role === 'sales_executive' ? 'Exec' : 'Captain'}
+            </Badge>
+            {row.portalExecId === null ? (
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                Unmapped
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-xs bg-emerald-500/10 text-emerald-700 border-emerald-500/30"
+              >
+                Mapped
+              </Badge>
+            )}
+          </div>
+          <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+            <div>
+              <span className="font-medium text-foreground/70">Phone</span>{' '}
+              {row.phone}
+            </div>
+            <div>
+              <span className="font-medium text-foreground/70">
+                Last webhook
+              </span>{' '}
+              {row.lastWebhookAt
+                ? row.lastWebhookAt.toLocaleString('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                  })
+                : 'Never'}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">
+            CartPlus ID
+            <Input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="—"
+              disabled={isPending}
+              className={`mt-1 w-32 ${isInvalid ? 'border-destructive' : ''}`}
+            />
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending || isInvalid || !dirty}
+            onClick={onSave}
+            className="self-end"
+          >
+            {isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </li>
   );
 }

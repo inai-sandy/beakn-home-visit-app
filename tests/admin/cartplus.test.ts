@@ -1,5 +1,5 @@
-import { eq, sql } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { eq, inArray, sql } from 'drizzle-orm';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
 import {
@@ -27,6 +27,22 @@ import {
 // =============================================================================
 // HVA-248 (HVA-230 Phase 1.A): CartPlus webhook foundation
 // =============================================================================
+//
+// truncateAll() deliberately preserves the cities seed (migration-seeded
+// rows that other tests depend on). The cities this file creates via
+// getOrCreateCity('SchemaTestCityA') etc. therefore leak across the suite
+// unless we clean them up explicitly. afterAll handles that.
+
+const TEST_CITY_NAMES = [
+  'SchemaTestCityA',
+  'SchemaTestCityB',
+  'LoadCitiesA',
+  'RevLookupCity',
+];
+
+afterAll(async () => {
+  await db.delete(cities).where(inArray(cities.name, TEST_CITY_NAMES));
+});
 //
 // Tests cover:
 //   - schema columns exist + uniqueness enforced

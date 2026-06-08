@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,7 +22,11 @@ import {
 } from './actions';
 
 // =============================================================================
-// HVA-248: secrets list + generate-once modal + revoke
+// HVA-248 / HVA-248-FIX2: secrets list + generate-once modal + revoke
+// =============================================================================
+//
+// FIX2: rebuilt with the same card-list visual idiom as the other admin
+// pages (rounded-3xl border bg-card p-5 shadow-sm).
 // =============================================================================
 
 interface Props {
@@ -55,13 +60,18 @@ export function SecretsClient({ secrets }: Props) {
     });
   }
 
+  function fmt(d: Date | null): string {
+    if (!d) return 'Never';
+    return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+    <>
+      <section className="flex items-baseline justify-between gap-4 flex-wrap">
         <p className="text-sm text-muted-foreground">
           {secrets.length === 0
-            ? 'No secrets yet. Generate one to start receiving webhooks.'
-            : `${secrets.length} ${secrets.length === 1 ? 'secret' : 'secrets'} on record.`}
+            ? 'No secrets yet — generate one to start receiving webhooks.'
+            : `${secrets.length} ${secrets.length === 1 ? 'secret' : 'secrets'} on record`}
         </p>
         <Button
           onClick={() => doGenerate(undefined as unknown as void)}
@@ -70,69 +80,77 @@ export function SecretsClient({ secrets }: Props) {
           <Icon name="key" size="xs" />
           {generating ? 'Generating…' : 'Generate new secret'}
         </Button>
-      </div>
+      </section>
 
       {secrets.length > 0 ? (
-        <div className="rounded-2xl border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left">Preview</th>
-                <th className="px-4 py-2 text-left">Created by</th>
-                <th className="px-4 py-2 text-left">Created</th>
-                <th className="px-4 py-2 text-left">Last used</th>
-                <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {secrets.map((s) => (
-                <tr key={s.id} className="border-t">
-                  <td className="px-4 py-3 font-mono text-xs">{s.preview}</td>
-                  <td className="px-4 py-3">{s.createdByName ?? '—'}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {s.createdAt.toLocaleString('en-IN', {
-                      timeZone: 'Asia/Kolkata',
-                    })}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {s.lastUsedAt
-                      ? s.lastUsedAt.toLocaleString('en-IN', {
-                          timeZone: 'Asia/Kolkata',
-                        })
-                      : 'Never'}
-                  </td>
-                  <td className="px-4 py-3">
+        <ul className="space-y-3">
+          {secrets.map((s) => (
+            <li
+              key={s.id}
+              className="rounded-3xl border bg-card p-5 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start gap-4">
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="text-base font-mono font-semibold tracking-tight">
+                      {s.preview}
+                    </code>
                     {s.isActive ? (
-                      <span className="text-emerald-600 text-xs font-medium">
-                        Active
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">
-                        Revoked{' '}
-                        {s.revokedAt?.toLocaleDateString('en-IN', {
-                          timeZone: 'Asia/Kolkata',
-                        })}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {s.isActive ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={revoking}
-                        onClick={() => doRevoke({ id: s.id })}
+                      <Badge
+                        variant="outline"
+                        className="text-xs bg-emerald-500/10 text-emerald-700 border-emerald-500/30"
                       >
-                        Revoke
-                      </Button>
+                        Active
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">
+                        Revoked
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                    <div>
+                      <span className="font-medium text-foreground/70">
+                        Created by
+                      </span>{' '}
+                      {s.createdByName ?? '—'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground/70">
+                        Created
+                      </span>{' '}
+                      {fmt(s.createdAt)}
+                    </div>
+                    <div>
+                      <span className="font-medium text-foreground/70">
+                        Last used
+                      </span>{' '}
+                      {fmt(s.lastUsedAt)}
+                    </div>
+                    {!s.isActive && s.revokedAt ? (
+                      <div className="sm:col-span-3">
+                        <span className="font-medium text-foreground/70">
+                          Revoked
+                        </span>{' '}
+                        {fmt(s.revokedAt)}
+                      </div>
                     ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </div>
+                {s.isActive ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={revoking}
+                    onClick={() => doRevoke({ id: s.id })}
+                  >
+                    Revoke
+                  </Button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       <Dialog
@@ -162,6 +180,6 @@ export function SecretsClient({ secrets }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

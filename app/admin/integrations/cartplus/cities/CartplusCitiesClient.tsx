@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
@@ -10,7 +11,7 @@ import type { CartplusCityRow } from '@/lib/admin/cartplus';
 import { updateCartplusCityMappingAction } from '../actions';
 
 // =============================================================================
-// HVA-248: per-row inline editor for cities ↔ CartPlus store_id
+// HVA-248 / HVA-248-FIX2: per-row card editor for cities ↔ CartPlus store_id
 // =============================================================================
 
 interface Props {
@@ -19,28 +20,15 @@ interface Props {
 
 export function CartplusCitiesClient({ rows }: Props) {
   return (
-    <div className="rounded-2xl border overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-4 py-2 text-left">City</th>
-            <th className="px-4 py-2 text-left">State</th>
-            <th className="px-4 py-2 text-left">CartPlus store ID</th>
-            <th className="px-4 py-2 text-left">Last webhook</th>
-            <th className="px-4 py-2"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <CityRow key={r.cityId} row={r} />
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <ul className="space-y-3">
+      {rows.map((r) => (
+        <CityRowCard key={r.cityId} row={r} />
+      ))}
+    </ul>
   );
 }
 
-function CityRow({ row }: { row: CartplusCityRow }) {
+function CityRowCard({ row }: { row: CartplusCityRow }) {
   const [input, setInput] = useState<string>(
     row.cartplusStoreId === null ? '' : String(row.cartplusStoreId),
   );
@@ -51,7 +39,8 @@ function CityRow({ row }: { row: CartplusCityRow }) {
 
   const trimmed = input.trim();
   const parsed = trimmed.length === 0 ? null : Number.parseInt(trimmed, 10);
-  const isInvalid = trimmed.length > 0 && (!Number.isFinite(parsed) || parsed! <= 0);
+  const isInvalid =
+    trimmed.length > 0 && (!Number.isFinite(parsed) || parsed! <= 0);
   const dirty = (parsed ?? null) !== row.cartplusStoreId;
 
   function onSave() {
@@ -63,38 +52,65 @@ function CityRow({ row }: { row: CartplusCityRow }) {
   }
 
   return (
-    <tr className="border-t">
-      <td className="px-4 py-3 font-medium">{row.cityName}</td>
-      <td className="px-4 py-3 text-muted-foreground">{row.state ?? '—'}</td>
-      <td className="px-4 py-3">
-        <Input
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="—"
-          disabled={isPending}
-          className={`w-32 ${isInvalid ? 'border-destructive' : ''}`}
-        />
-      </td>
-      <td className="px-4 py-3 text-xs text-muted-foreground">
-        {row.lastWebhookAt
-          ? row.lastWebhookAt.toLocaleString('en-IN', {
-              timeZone: 'Asia/Kolkata',
-            })
-          : 'Never'}
-      </td>
-      <td className="px-4 py-3 text-right">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isPending || isInvalid || !dirty}
-          onClick={onSave}
-        >
-          {isPending ? 'Saving…' : 'Save'}
-        </Button>
-      </td>
-    </tr>
+    <li className="rounded-3xl border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-semibold tracking-tight">
+              {row.cityName}
+            </h3>
+            {row.state ? (
+              <Badge variant="outline" className="text-xs">
+                {row.state}
+              </Badge>
+            ) : null}
+            {row.cartplusStoreId === null ? (
+              <Badge variant="outline" className="text-xs text-muted-foreground">
+                Unmapped
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="text-xs bg-emerald-500/10 text-emerald-700 border-emerald-500/30"
+              >
+                Mapped
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Last webhook:{' '}
+            {row.lastWebhookAt
+              ? row.lastWebhookAt.toLocaleString('en-IN', {
+                  timeZone: 'Asia/Kolkata',
+                })
+              : 'Never'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground">
+            store.id
+            <Input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="—"
+              disabled={isPending}
+              className={`mt-1 w-32 ${isInvalid ? 'border-destructive' : ''}`}
+            />
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending || isInvalid || !dirty}
+            onClick={onSave}
+            className="self-end"
+          >
+            {isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </li>
   );
 }

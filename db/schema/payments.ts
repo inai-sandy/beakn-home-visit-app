@@ -90,6 +90,10 @@ export const quotations = pgTable(
     // HVA-234 (HVA-230): timestamp of the most recent webhook delivery
     // that updated this row. Helps detect stale data / partner outages.
     lastWebhookAt: timestamp('last_webhook_at', { withTimezone: true }),
+    // HVA-248 (HVA-230): records CartPlus's `store.id` at creation time
+    // so the trail survives even if cities↔store mapping changes later.
+    // Only populated when source='portal'.
+    storeId: bigint('store_id', { mode: 'number' }),
     ...timestamps(),
   },
   (table) => [
@@ -130,6 +134,11 @@ export const quotationLineItems = pgTable(
     priority: lineItemPriorityEnum('priority').notNull().default('med'),
     // HVA-234: "by when does this item need to ship?" — exec sets, support reads.
     targetDispatchDate: date('target_dispatch_date'),
+    // HVA-248 (HVA-230): CartPlus product ID + line item ID — used by the
+    // webhook handler to upsert items on order.status_changed revisions.
+    // NULL for manual entries.
+    portalProductId: bigint('portal_product_id', { mode: 'number' }),
+    portalLineItemId: bigint('portal_line_item_id', { mode: 'number' }),
     ...timestamps(),
   },
   (table) => [

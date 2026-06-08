@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   integer,
   pgEnum,
@@ -57,6 +58,10 @@ export const users = pgTable(
     failedLoginAttempts: integer('failed_login_attempts').notNull().default(0),
     lockedUntil: timestamp('locked_until', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    // HVA-248 (HVA-230): CartPlus webhook exec mapping. Admin sets per user
+    // via /admin/integrations/cartplus/execs. Webhook resolves the
+    // request's exec by matching this against `data.order.created_by.id`.
+    portalExecId: bigint('portal_exec_id', { mode: 'number' }),
     ...timestamps(),
   },
   (table) => [

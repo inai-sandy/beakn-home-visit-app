@@ -2,14 +2,13 @@ import { TicketsQueueClient } from '@/components/tickets/TicketsQueueClient';
 import { loadTicketsPageData } from '@/lib/support-tickets/page-helpers';
 
 // =============================================================================
-// HVA-256-FIX1: /captain/tickets — captain portal version of the queue
+// HVA-256-FIX2: /captain/tickets — captain portal version of the queue
 // =============================================================================
 //
 // Mounted INSIDE the (captain) route group so the captain sidebar shell
-// wraps it. Was previously a top-level /tickets route which rendered
-// outside the captain portal (visual mismatch, no sidebar). Captain
-// visibility scope is now team-based (assigned_exec reports to me) —
-// not city-based — matching the rule used everywhere else.
+// wraps it. Layout pattern matches /captain/approvals + /captain/requests:
+// `<div className="p-4 sm:p-6 lg:p-8 max-w-5xl space-y-5">` (NOT a
+// fresh `<main>` — the captain layout already provides one).
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -36,14 +35,16 @@ export default async function CaptainTicketsPage({ searchParams }: PageProps) {
   });
 
   return (
-    <section className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
-        <p className="text-sm text-muted-foreground">
-          Customer-raised support tickets across your team. Click{' '}
-          <strong>Take this</strong> to claim one; the customer sees your
-          status update on their tracking page within seconds.
-        </p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl space-y-5">
+      <header className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {data.queue.totalCount === 0
+              ? 'No customer support tickets in your scope right now.'
+              : `${data.queue.totalCount} ticket${data.queue.totalCount === 1 ? '' : 's'} on requests across your team.`}
+          </p>
+        </div>
       </header>
 
       <TicketsQueueClient
@@ -58,6 +59,6 @@ export default async function CaptainTicketsPage({ searchParams }: PageProps) {
         currentRole={data.currentRole}
         categories={data.categories}
       />
-    </section>
+    </div>
   );
 }

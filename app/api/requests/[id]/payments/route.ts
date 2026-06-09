@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -10,6 +10,7 @@ import {
   payments,
   requestStatusHistory,
   statusStages,
+  supportTickets,
   users,
   visitRequests,
 } from '@/db/schema';
@@ -278,6 +279,75 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // HVA-256 (HVA-232 Phase 3): auto-resolve open refund-category tickets
+  // on this request when an outbound payment lands. Per the EPIC's
+  // workflow: refund tickets close when the captain records the refund.
+  if (body.direction === 'outbound') {
+    try {
+      const openRefundTickets = await db
+        .select({ id: supportTickets.id })
+        .from(supportTickets)
+        .where(
+          and(
+            eq(supportTickets.requestId, requestUuid),
+            eq(supportTickets.category, 'refund'),
+            inArray(supportTickets.status, ['open', 'in_progress']),
+          ),
+        );
+
+      if (openRefundTickets.length > 0) {
+        const now = new Date();
+        await db
+          .update(supportTickets)
+          .set({
+            status: 'resolved',
+            resolvedAt: now,
+            resolvedByUserId: actorUserId,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(supportTickets.requestId, requestUuid),
+              eq(supportTickets.category, 'refund'),
+              inArray(supportTickets.status, ['open', 'in_progress']),
+            ),
+          );
+
+        // Audit emit per ticket so each row's history shows the auto-close.
+        for (const t of openRefundTickets) {
+          await logEvent({
+            eventType: 'support_ticket_resolved',
+            actorUserId,
+            actorRole,
+            targetEntityType: 'support_ticket',
+            targetEntityId: t.id,
+            beforeState: { status: 'open_or_in_progress' },
+            afterState: { status: 'resolved', resolvedAt: now.toISOString() },
+            reason: `Auto-closed by refund payment ${resultRow.id}`,
+          });
+        }
+
+        reqLog.info(
+          {
+            requestId: requestUuid,
+            paymentId: resultRow.id,
+            ticketsAutoClosed: openRefundTickets.length,
+          },
+          'refund_payment_auto_closed_tickets',
+        );
+      }
+    } catch (err) {
+      // Non-blocking — the payment is the source of truth. Log + carry on.
+      reqLog.error(
+        {
+          err: err instanceof Error ? err.message : String(err),
+          requestId: requestUuid,
+        },
+        'refund_auto_close_ticket_failed',
+      );
+    }
+  }
 
   // HVA-125: emit `payment.received` for inbound payments. Stub-level — no
   // composer / rule exists yet, but the dispatch site is wired so later

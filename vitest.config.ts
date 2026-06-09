@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 // =============================================================================
@@ -25,29 +26,63 @@ export default defineConfig({
   },
   test: {
     globals: false,
-    environment: 'node',
-    pool: 'forks',
-    // singleFork forces all tests to share one worker so they serialize
-    // against the same Postgres container without racing truncates.
-    // (The vitest 4 runtime warning suggests moving these to top-level,
-    // but the vitest/config defineConfig signature doesn't expose
-    // poolOptions in 4.1.x — works at runtime, ts-expect-error documents
-    // the mismatch until the types catch up.)
-    // @ts-expect-error vitest 4.1 type/runtime mismatch — poolOptions is
-    // honored at runtime but not in the InlineConfig signature.
-    poolOptions: {
-      forks: { singleFork: true },
-    },
-    // fileParallelism: false makes vitest run test FILES sequentially
-    // within that single fork. Without this, multiple test files run
-    // concurrently and race against truncateAll() between tests — manifests
-    // as PG deadlocks + FK violations.
-    fileParallelism: false,
-    globalSetup: ['./tests/setup/global.ts'],
-    setupFiles: ['./tests/setup/per-file.ts'],
-    include: ['tests/**/*.test.ts'],
-    testTimeout: 30_000,
-    hookTimeout: 60_000,
+    // HVA-138: split into two projects so component tests run in a real
+    // browser (sidesteps Vite 8's dep-optimizer baking NODE_ENV=production
+    // into react-dom/test-utils — the wall HVA-138 hit twice in jsdom mode).
+    projects: [
+      {
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./', import.meta.url)),
+          },
+        },
+        test: {
+          name: 'node',
+          globals: false,
+          environment: 'node',
+          pool: 'forks',
+          // @ts-expect-error vitest 4.1 type/runtime mismatch — poolOptions
+          // is honored at runtime but not in the InlineConfig signature.
+          poolOptions: {
+            forks: { singleFork: true },
+          },
+          fileParallelism: false,
+          globalSetup: ['./tests/setup/global.ts'],
+          setupFiles: ['./tests/setup/per-file.ts'],
+          include: ['tests/**/*.test.ts'],
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
+        },
+      },
+      {
+        resolve: {
+          alias: {
+            '@': fileURLToPath(new URL('./', import.meta.url)),
+          },
+        },
+        // next/* modules read process.env at module-load time; the browser
+        // doesn't have a global `process`. Polyfilling at the vite layer
+        // makes the transitive imports tolerate this without per-test mocks.
+        define: {
+          'process.env.NODE_ENV': '"test"',
+          'process.env': '{}',
+        },
+        test: {
+          name: 'browser',
+          globals: false,
+          include: ['tests/components/**/*.test.tsx'],
+          setupFiles: ['./tests/setup/browser.ts'],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: 'chromium' }],
+          },
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
+        },
+      },
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html'],

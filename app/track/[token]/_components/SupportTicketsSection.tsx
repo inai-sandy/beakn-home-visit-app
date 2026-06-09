@@ -356,6 +356,18 @@ function SubmitDialog({
     }
   }
 
+  // HVA-257: a failed submit has CONSUMED the Turnstile token server-side
+  // (verification happens before the insert). Without a widget reset, the
+  // retry sends the spent token and fails with an unexplained
+  // "Verification failed". Reset the widget + clear our copy so the
+  // customer solves a fresh challenge before retrying.
+  function resetTurnstileForRetry() {
+    setTurnstileToken('');
+    if (widgetIdRef.current && window.turnstile) {
+      window.turnstile.reset(widgetIdRef.current);
+    }
+  }
+
   async function onSubmit() {
     if (submitting) return;
     const trimmedSubject = subject.trim();
@@ -392,6 +404,7 @@ function SubmitDialog({
       };
       if (!res.ok || !j.ok || !j.ticketId) {
         toast.error(j.error ?? 'Could not send — please try again');
+        resetTurnstileForRetry();
         return;
       }
       toast.success("Got it — we'll be in touch");
@@ -409,6 +422,7 @@ function SubmitDialog({
       resetForm();
     } catch {
       toast.error('Network error — please try again');
+      resetTurnstileForRetry();
     } finally {
       setSubmitting(false);
     }
@@ -448,22 +462,32 @@ function SubmitDialog({
             <Label htmlFor="ticket-category">
               Category <span className="text-destructive">*</span>
             </Label>
-            <Select
-              value={category}
-              onValueChange={(v) => setCategory(v)}
-              disabled={submitting}
-            >
-              <SelectTrigger id="ticket-category">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {categories.length === 0 ? (
+              // HVA-257: admin can deactivate every category; an empty
+              // Select would submit a code the API rejects with 400.
+              // Surface the real state instead of a dead-end error.
+              <p className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                Support requests are temporarily unavailable. Please reach
+                your sales executive on WhatsApp.
+              </p>
+            ) : (
+              <Select
+                value={category}
+                onValueChange={(v) => setCategory(v)}
+                disabled={submitting}
+              >
+                <SelectTrigger id="ticket-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="ticket-description">
@@ -497,7 +521,11 @@ function SubmitDialog({
           >
             Cancel
           </Button>
-          <Button type="button" onClick={onSubmit} disabled={submitting}>
+          <Button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitting || categories.length === 0}
+          >
             {submitting ? 'Sending…' : 'Send'}
           </Button>
         </DialogFooter>

@@ -53,6 +53,7 @@ async function pinAtPendingApproval(input: {
   cityId: string;
   customerName?: string;
   assignedExecUserId: string;
+  assignedCaptainUserId?: string;
   changedByUserId: string;
   changedAt: Date;
 }) {
@@ -66,6 +67,10 @@ async function pinAtPendingApproval(input: {
     .set({
       statusStageId: pending.id,
       assignedExecUserId: input.assignedExecUserId,
+      // HVA-258: loadPendingApprovals is team-scoped now (matches the
+      // /captain/approvals page) — a pending-approval request always
+      // has an accepting captain in real flow.
+      assignedCaptainUserId: input.assignedCaptainUserId ?? null,
       customerName: input.customerName ?? 'Pending Customer',
     })
     .where(eq(visitRequests.id, req.id));
@@ -128,6 +133,7 @@ describe('HVA-168 Fix 1 — loadPendingApprovals always uses snapshot semantic',
     const reqId = await pinAtPendingApproval({
       cityId: city.id,
       assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
       changedByUserId: exec.id,
       changedAt: yesterdayDate,
     });
@@ -158,6 +164,7 @@ describe('HVA-168 Fix 1 — loadPendingApprovals always uses snapshot semantic',
     const reqId = await pinAtPendingApproval({
       cityId: city.id,
       assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
       changedByUserId: exec.id,
       changedAt: new Date(`${offsetIstDate(istToday, -1)}T08:00:00+05:30`),
     });
@@ -185,6 +192,7 @@ describe('HVA-168 Fix 1 — loadPendingApprovals always uses snapshot semantic',
       cityId: city.id,
       customerName: 'Currently-Pending',
       assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
       changedByUserId: exec.id,
       changedAt: new Date(`${istToday}T09:00:00+05:30`),
     });
@@ -210,6 +218,7 @@ describe('HVA-168 Fix 2 — loadTeamPerformance orders count captain-fired appro
     const reqId = await pinAtPendingApproval({
       cityId: city.id,
       assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
       changedByUserId: exec.id,
       changedAt: new Date(`${istToday}T08:00:00+05:30`),
     });
@@ -285,6 +294,7 @@ describe('HVA-168 Fix 3 — loadDayCloseMetrics orders use assigned-exec attribu
     const reqId = await pinAtPendingApproval({
       cityId: city.id,
       assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
       changedByUserId: exec.id,
       changedAt: new Date(`${istToday}T08:00:00+05:30`),
     });

@@ -214,8 +214,34 @@ export default async function RequestDetailPage({ params }: PageProps) {
   if (role === "sales_executive" && reqRow.assignedExecUserId !== user.id) {
     redirect(ROLE_HOME_DENIED.sales_executive);
   }
-  if (role === "captain" && reqRow.cityCaptainUserId !== user.id) {
-    redirect(ROLE_HOME_DENIED.captain);
+  if (role === "captain") {
+    // HVA-258: was city-scoped only (cityCaptainUserId === me), which
+    // bounced even the request's OWN assigned captain whenever the city
+    // had no captain set (e.g. the "Other" city) or belonged to someone
+    // else. Captain visibility is team-scoped per the project lock:
+    //   1. I accepted the request (assigned_captain_user_id = me), OR
+    //   2. the assigned exec reports to me, OR
+    //   3. I own the request's city (kept for the unassigned/SUBMITTED
+    //      routing flow where no captain has accepted yet).
+    let captainAllowed =
+      reqRow.assignedCaptainUserId === user.id ||
+      reqRow.cityCaptainUserId === user.id;
+    if (!captainAllowed && reqRow.assignedExecUserId) {
+      const [teamRow] = await db
+        .select({ userId: salesExecutives.userId })
+        .from(salesExecutives)
+        .where(
+          and(
+            eq(salesExecutives.userId, reqRow.assignedExecUserId),
+            eq(salesExecutives.captainUserId, user.id),
+          ),
+        )
+        .limit(1);
+      captainAllowed = Boolean(teamRow);
+    }
+    if (!captainAllowed) {
+      redirect(ROLE_HOME_DENIED.captain);
+    }
   }
   if (
     role !== "super_admin" &&

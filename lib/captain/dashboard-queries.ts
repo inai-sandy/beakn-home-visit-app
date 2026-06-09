@@ -1,4 +1,15 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql as sqlBuilder } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  sql as sqlBuilder,
+  type SQL,
+} from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -13,6 +24,7 @@ import {
   users,
   visitRequests,
 } from '@/db/schema';
+import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
 import { getConfig } from '@/lib/config';
 import { loadMetrics } from '@/lib/metrics/registry';
 import {
@@ -186,9 +198,14 @@ async function loadWindowAggregates(args: {
       .from(salesExecutives)
       .where(eq(salesExecutives.userId, execIds[0]))
       .limit(1);
+    // HVA-258: the old `: {}` fallback meant "no scope" → loadMetrics
+    // aggregated GLOBALLY if the team lookup ever missed. Unreachable
+    // today (execIds comes from loadCaptainTeamIds, so execIds[0]
+    // always has this captain), but a global-metrics fallback is the
+    // wrong failure mode — degrade to single-exec scope instead.
     scope = captainRow?.captainUserId
       ? { captainUserId: captainRow.captainUserId }
-      : {};
+      : { execUserId: execIds[0] };
   }
 
   const [ssotMetrics, taskAgg] = await Promise.all([
@@ -433,20 +450,41 @@ export async function loadPendingApprovals(
   staleCount: number;
   topFive: PendingApprovalRow[];
 }> {
-  const myCities = await db
-    .select({ id: cities.id })
-    .from(cities)
-    .where(eq(cities.captainUserId, captainUserId));
-  const cityIds = myCities.map((c) => c.id);
-  return loadPendingApprovalsForCityIds(cityIds, filter);
+  // HVA-258: was city-scoped (cities.captain_user_id → cityId IN (...)),
+  // which disagreed with the /captain/approvals PAGE (team-scoped via
+  // buildCaptainRequestVisibilityWhere). The card count and the page it
+  // links to must show the same set — use the same scope rule.
+  return loadPendingApprovalsScoped(
+    buildCaptainRequestVisibilityWhere(captainUserId),
+    filter,
+  );
 }
 
 /** City-scoped variant of `loadPendingApprovals`. Sandeep 2026-06-03:
  *  the admin city drill page reuses this with `cityIds = [thisCity]`
- *  so the per-city Pending Approvals card shows the same rows the
- *  captain sees on their dashboard for the same city. */
+ *  so the per-city Pending Approvals card shows the requests pending in
+ *  that city regardless of which captain owns them. */
 export async function loadPendingApprovalsForCityIds(
   cityIds: readonly string[],
+  filter: DateFilter,
+): Promise<{
+  totalCount: number;
+  staleCount: number;
+  topFive: PendingApprovalRow[];
+}> {
+  if (cityIds.length === 0)
+    return { totalCount: 0, staleCount: 0, topFive: [] };
+  return loadPendingApprovalsScoped(
+    inArray(visitRequests.cityId, cityIds),
+    filter,
+  );
+}
+
+/** Shared loader — `scopeWhere` decides WHOSE pending approvals count
+ *  (team scope for the captain dashboard card, city scope for the admin
+ *  city drill). */
+async function loadPendingApprovalsScoped(
+  scopeWhere: SQL,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _filter: DateFilter,
 ): Promise<{
@@ -457,9 +495,6 @@ export async function loadPendingApprovalsForCityIds(
   staleCount: number;
   topFive: PendingApprovalRow[];
 }> {
-  if (cityIds.length === 0)
-    return { totalCount: 0, staleCount: 0, topFive: [] };
-
   const [pendingStage] = await db
     .select({ id: statusStages.id })
     .from(statusStages)
@@ -473,7 +508,7 @@ export async function loadPendingApprovalsForCityIds(
     .where(
       and(
         eq(visitRequests.statusStageId, pendingStage.id),
-        inArray(visitRequests.cityId, cityIds),
+        scopeWhere,
         isNull(visitRequests.cancelledAt),
       ),
     );
@@ -487,7 +522,7 @@ export async function loadPendingApprovalsForCityIds(
     .where(
       and(
         eq(visitRequests.statusStageId, pendingStage.id),
-        inArray(visitRequests.cityId, cityIds),
+        scopeWhere,
         isNull(visitRequests.cancelledAt),
         sqlBuilder`(
           SELECT rsh.changed_at FROM request_status_history rsh
@@ -517,7 +552,7 @@ export async function loadPendingApprovalsForCityIds(
     .where(
       and(
         eq(visitRequests.statusStageId, pendingStage.id),
-        inArray(visitRequests.cityId, cityIds),
+        scopeWhere,
         isNull(visitRequests.cancelledAt),
       ),
     )

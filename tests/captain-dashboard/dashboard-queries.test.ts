@@ -322,6 +322,10 @@ describe('Test #3 — loadPendingApprovals returns top 5 by completedAt DESC', (
         .set({
           statusStageId: pendingStage.id,
           assignedExecUserId: exec.id,
+          // HVA-258: the dashboard card is now team-scoped (same rule
+          // as the /captain/approvals page) — a request at
+          // PENDING_CAPTAIN_APPROVAL always has an accepting captain.
+          assignedCaptainUserId: captain.id,
           customerName: `Customer ${i}`,
         })
         .where(eq(visitRequests.id, r.id));
@@ -343,6 +347,50 @@ describe('Test #3 — loadPendingApprovals returns top 5 by completedAt DESC', (
     expect(topFive[0].customerName).toBe('Customer 2');
     expect(topFive[2].customerName).toBe('Customer 0');
     expect(topFive[0].execName).toBe('Pending Exec');
+  });
+
+  it('HVA-258: card is team-scoped — city-owning captain does NOT see another captain\'s pending approval', async () => {
+    // Captain A accepted the request; Captain B owns the city. The
+    // dashboard card must agree with the /captain/approvals page
+    // (assigned_captain_user_id = me), so A sees it, B does not.
+    const captainA = await seedCaptain({ phone: '+919100020010' });
+    const captainB = await seedCaptain({ phone: '+919100020011' });
+    const city = await getOrCreateCity('Bangalore');
+    await db
+      .update(cities)
+      .set({ captainUserId: captainB.id })
+      .where(eq(cities.id, city.id));
+    const exec = await seedExecutive(captainA.id, { phone: '+919100020012' });
+
+    const pendingStage = await getStatusStage('PENDING_CAPTAIN_APPROVAL');
+    const submitted = await getStatusStage('SUBMITTED');
+    const r = await seedVisitRequest({
+      cityId: city.id,
+      statusStageCode: 'SUBMITTED',
+    });
+    await db
+      .update(visitRequests)
+      .set({
+        statusStageId: pendingStage.id,
+        assignedExecUserId: exec.id,
+        assignedCaptainUserId: captainA.id,
+      })
+      .where(eq(visitRequests.id, r.id));
+    await db.insert(requestStatusHistory).values({
+      requestId: r.id,
+      fromStatusStageId: submitted.id,
+      toStatusStageId: pendingStage.id,
+      sequenceNumber: pendingStage.sequenceNumber,
+      transitionOrder: 1,
+      changedByUserId: exec.id,
+      changedAt: new Date(),
+    });
+
+    const forA = await loadPendingApprovals(captainA.id, todayFilter);
+    expect(forA.totalCount).toBe(1);
+
+    const forB = await loadPendingApprovals(captainB.id, todayFilter);
+    expect(forB.totalCount).toBe(0);
   });
 });
 

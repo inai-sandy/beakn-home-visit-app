@@ -7,6 +7,7 @@ import {
   index,
   pgTable,
   text,
+  uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -31,7 +32,14 @@ export const cities = pgTable(
     cartplusStoreId: bigint('cartplus_store_id', { mode: 'number' }),
     ...timestamps(),
   },
-  (table) => [index('cities_captain_user_idx').on(table.captainUserId)],
+  (table) => [
+    index('cities_captain_user_idx').on(table.captainUserId),
+    // HVA-259: matches migration 0068's partial unique index — the DB
+    // enforces it but the Drizzle schema previously didn't declare it.
+    uniqueIndex('cities_cartplus_store_id_unique_idx')
+      .on(table.cartplusStoreId)
+      .where(sql`${table.cartplusStoreId} IS NOT NULL`),
+  ],
 );
 
 export const captains = pgTable('captains', {

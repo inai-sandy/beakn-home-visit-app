@@ -67,5 +67,10 @@ export const users = pgTable(
   (table) => [
     uniqueIndex('users_phone_unique').on(table.phone),
     uniqueIndex('users_email_unique').on(table.email),
+    // HVA-259: matches migration 0068's partial unique index — the DB
+    // enforces it but the Drizzle schema previously didn't declare it.
+    uniqueIndex('users_portal_exec_id_unique_idx')
+      .on(table.portalExecId)
+      .where(sql`${table.portalExecId} IS NOT NULL`),
   ],
 );

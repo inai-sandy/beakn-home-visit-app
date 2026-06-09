@@ -1,7 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +16,7 @@ import {
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import type { TicketCategoryRow } from '@/lib/support-tickets/category-queries';
 
 import {
@@ -66,7 +66,6 @@ export function TicketCategoriesClient({
 }: {
   categories: TicketCategoryRow[];
 }) {
-  const router = useRouter();
   const existingCodes = new Set(categories.map((c) => c.code));
   const nextOrder =
     categories.length === 0
@@ -75,11 +74,19 @@ export function TicketCategoriesClient({
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm(nextOrder));
-  const [submitting, setSubmitting] = useState(false);
-  // eslint-disable-next-line no-restricted-syntax -- router refresh
-  const [, startTransition] = useTransition();
 
-  const busy = submitting;
+  // HVA-259: was a hand-rolled await-action + router.refresh() — the
+  // exact pattern useServerMutation exists to replace.
+  const createMutation = useServerMutation(createTicketCategoryAction, {
+    successMessage: 'Category added',
+    onSuccess: () => setOpen(false),
+  });
+  const updateMutation = useServerMutation(updateTicketCategoryAction, {
+    successMessage: 'Category updated',
+    onSuccess: () => setOpen(false),
+  });
+
+  const busy = createMutation.isPending || updateMutation.isPending;
 
   function openCreate() {
     setForm(emptyForm(nextOrder));
@@ -107,33 +114,18 @@ export function TicketCategoriesClient({
         toast.error('Code already exists');
         return;
       }
-    }
-    setSubmitting(true);
-    try {
-      const res =
-        form.mode === 'create'
-          ? await createTicketCategoryAction({
-              code: form.code.trim(),
-              name: trimmedName,
-              displayOrder: form.displayOrder,
-            })
-          : await updateTicketCategoryAction({
-              id: form.mode.id,
-              name: trimmedName,
-              displayOrder: form.displayOrder,
-              isActive: form.isActive,
-            });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      toast.success(
-        form.mode === 'create' ? 'Category added' : 'Category updated',
-      );
-      setOpen(false);
-      startTransition(() => router.refresh());
-    } finally {
-      setSubmitting(false);
+      await createMutation.mutate({
+        code: form.code.trim(),
+        name: trimmedName,
+        displayOrder: form.displayOrder,
+      });
+    } else {
+      await updateMutation.mutate({
+        id: form.mode.id,
+        name: trimmedName,
+        displayOrder: form.displayOrder,
+        isActive: form.isActive,
+      });
     }
   }
 

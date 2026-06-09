@@ -221,17 +221,24 @@ export async function loadExecCompletedTasksPaginated(
   }
   const whereExpr = and(...whereClauses);
 
+  // HVA-259: count query carries the SAME LEFT JOINs as the rows query.
+  // The joins are 1:1 (FK by id) so they don't change the count today,
+  // but an asymmetric pair silently diverges the moment whereExpr gains
+  // a condition on a joined column.
   const [[countRow], rows] = await Promise.all([
     db
       .select({ cnt: sql<number>`COUNT(*)::int` })
       .from(tasks)
+      .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
+      .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+      .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
       .where(whereExpr),
     db
       .select(ROW_COLUMNS)
       .from(tasks)
       .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
-    .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
-    .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
+      .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
+      .leftJoin(leads, eq(leads.id, tasks.linkLeadId))
       .where(whereExpr)
       .orderBy(desc(tasks.completedAt))
       .limit(pageSize)

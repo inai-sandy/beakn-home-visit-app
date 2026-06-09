@@ -79,7 +79,11 @@ export const webhookSecrets = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   },
   (table) => [
-    index('webhook_secrets_active_idx').on(table.provider),
+    // HVA-259: partial index — matches migration 0068 (WHERE revoked_at
+    // IS NULL); the Drizzle definition previously omitted the WHERE.
+    index('webhook_secrets_active_idx')
+      .on(table.provider)
+      .where(sql`${table.revokedAt} IS NULL`),
     index('webhook_secrets_created_at_idx').on(table.provider, table.createdAt),
   ],
 );

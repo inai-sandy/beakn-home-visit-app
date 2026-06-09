@@ -102,7 +102,12 @@ export async function POST(req: Request): Promise<NextResponse> {
             ),
           ),
         );
-      await tx.insert(rateLimitAttempts).values({ key, ipAddress: ip });
+      // HVA-259: only record the attempt when it will be ALLOWED.
+      // Inserting unconditionally meant rejected attempts also counted,
+      // blocking users one submission earlier than the stated limit.
+      if (n < RATE_LIMIT_MAX) {
+        await tx.insert(rateLimitAttempts).values({ key, ipAddress: ip });
+      }
       return n;
     });
   } catch (err) {

@@ -8,6 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import {
   claimTicketAction,
@@ -18,7 +25,15 @@ import type { QueueRow } from '@/lib/support-tickets/queue-queries';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
-// HVA-255 (HVA-232 Phase 2): /tickets queue UI
+// HVA-256-FIX2: queue UI — canonical HVA design language
+// =============================================================================
+//
+// Matches the patterns used by /captain/approvals + /admin/operations/requests:
+//   - Filter chip strip with `rounded-full border px-3 py-1 text-xs`
+//     (same shape as RequestBucketTabs / approvals filters)
+//   - shadcn <Select> for category (NOT raw <select>)
+//   - Row cards use `rounded-3xl border bg-card p-5 shadow-sm space-y-4`
+//   - Empty state mirrors approvals: rounded-3xl muted card
 // =============================================================================
 
 const STATUS_STYLE: Record<
@@ -42,8 +57,6 @@ const STATUS_STYLE: Record<
 interface Props {
   rows: QueueRow[];
   status: 'open' | 'in_progress' | 'resolved' | 'all';
-  // HVA-256-FIX1: category is now an open string from
-  // support_ticket_categories (admin-configurable). 'all' = no filter.
   category: string;
   mineOnly: boolean;
   search: string;
@@ -51,8 +64,6 @@ interface Props {
   pageSize: number;
   totalCount: number;
   currentRole: 'sales_executive' | 'captain' | 'super_admin';
-  // HVA-256-FIX1: categories list loaded by the server page; UI uses it
-  // for the filter dropdown + per-row label lookup.
   categories: TicketCategoryRow[];
 }
 
@@ -87,9 +98,6 @@ export function TicketsQueueClient({
   currentRole,
   categories,
 }: Props) {
-  // HVA-256-FIX1: build a lookup map from code → display name so the
-  // per-row badge can show the friendly label without rendering the code.
-  const categoryByCode = new Map(categories.map((c) => [c.code, c.name]));
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -97,6 +105,8 @@ export function TicketsQueueClient({
   const [, startTransition] = useTransition();
 
   const [searchInput, setSearchInput] = useState(search);
+
+  const categoryByCode = new Map(categories.map((c) => [c.code, c.name]));
 
   // Debounced search → URL push
   useEffect(() => {
@@ -121,60 +131,92 @@ export function TicketsQueueClient({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Status tabs */}
-      <div className="flex flex-wrap items-center gap-2">
-        {STATUS_TABS.map((t) => (
-          <Button
-            key={t.value}
-            variant={status === t.value ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => pushParam('status', t.value === 'open' ? null : t.value)}
-          >
-            {t.label}
-          </Button>
-        ))}
-        <div className="flex-1" />
-        <Button
-          variant={mineOnly ? 'default' : 'outline'}
-          size="sm"
+    <div className="space-y-5">
+      {/* Status chip strip — matches RequestBucketTabs pattern */}
+      <nav
+        aria-label="Filter by status"
+        className="flex flex-wrap gap-1.5 border-b pb-3"
+      >
+        {STATUS_TABS.map((t) => {
+          const isActive = status === t.value;
+          return (
+            <button
+              type="button"
+              key={t.value}
+              onClick={() =>
+                pushParam('status', t.value === 'open' ? null : t.value)
+              }
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                isActive
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-muted-foreground/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+              )}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
           onClick={() => pushParam('mine', mineOnly ? null : '1')}
+          aria-pressed={mineOnly}
+          className={cn(
+            'ml-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+            mineOnly
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-muted-foreground/20 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+          )}
         >
           <Icon name="person" size="xs" />
           My tickets
-        </Button>
-      </div>
+        </button>
+      </nav>
 
-      {/* Search + category */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Filter bar — search + category, matches ApprovalsFiltersBar shape */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-muted/30 px-4 py-3">
         <Input
           type="search"
           placeholder="Search customer name, phone, or subject"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          className="h-9 flex-1 min-w-[200px]"
+          className="h-11 flex-1 min-w-[220px] bg-background"
         />
-        <select
-          className="h-9 rounded-md border bg-background px-3 text-sm"
+        <Select
           value={category}
-          onChange={(e) =>
-            pushParam('category', e.target.value === 'all' ? null : e.target.value)
-          }
+          onValueChange={(v) => pushParam('category', v === 'all' ? null : v)}
         >
-          <option value="all">All categories</option>
-          {categories.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-              {!c.isActive ? ' (inactive)' : ''}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-11 sm:w-56" aria-label="Filter by category">
+            <SelectValue placeholder="All categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.code} value={c.code}>
+                {c.name}
+                {!c.isActive ? ' (inactive)' : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Rows */}
       {rows.length === 0 ? (
         <div className="rounded-3xl border bg-muted/40 p-10 text-center">
-          <p className="text-sm text-muted-foreground">No tickets match.</p>
+          <Icon
+            name="inbox"
+            size="lg"
+            className="text-muted-foreground/70 mx-auto"
+          />
+          <p className="text-sm text-muted-foreground mt-3">
+            {status === 'open'
+              ? 'No open tickets right now. Customers will appear here when they raise one.'
+              : status === 'resolved'
+                ? 'No resolved tickets match the current filter.'
+                : 'No tickets match the current filter.'}
+          </p>
         </div>
       ) : (
         <ul className="space-y-3">
@@ -189,7 +231,6 @@ export function TicketsQueueClient({
         </ul>
       )}
 
-      {/* Pagination */}
       <Pagination
         page={page}
         pageSize={pageSize}
@@ -227,41 +268,42 @@ function TicketRow({
     (currentRole === 'super_admin' && row.status === 'open');
 
   return (
-    <li className="rounded-3xl border bg-card p-5 shadow-sm space-y-3">
-      <div className="flex items-start gap-2 flex-wrap">
-        <Badge variant="outline" className={cn('text-[10px]', status.cls)}>
-          {status.label}
-        </Badge>
-        <Badge variant="outline" className="text-[10px]">
-          {categoryLabel}
-        </Badge>
-        <h3 className="text-base font-semibold tracking-tight flex-1 min-w-0">
-          {row.subject}
-        </h3>
-      </div>
-
-      <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-        <div>
-          <span className="font-medium text-foreground/70">Customer</span>{' '}
-          {row.customerName} · {row.customerPhone}
-        </div>
-        <div>
-          <span className="font-medium text-foreground/70">City</span>{' '}
-          {row.cityName}
-        </div>
-        <div>
-          <span className="font-medium text-foreground/70">Raised</span>{' '}
-          {relativeTime(opened)}
-        </div>
-        {row.claimedByName ? (
-          <div>
-            <span className="font-medium text-foreground/70">Owner</span>{' '}
-            {row.claimedByName}
+    <li className="rounded-3xl border bg-card p-5 shadow-sm space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" className={cn('text-[10px]', status.cls)}>
+              {status.label}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {categoryLabel}
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {relativeTime(opened)}
+            </span>
           </div>
-        ) : null}
+          <h3 className="text-base font-semibold tracking-tight">
+            {row.subject}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {row.customerName} ·{' '}
+            <span className="font-medium text-foreground/70">
+              {row.customerPhone}
+            </span>{' '}
+            · {row.cityName}
+          </p>
+          {row.claimedByName ? (
+            <p className="text-xs text-muted-foreground">
+              Owner:{' '}
+              <span className="font-medium text-foreground/80">
+                {row.claimedByName}
+              </span>
+            </p>
+          ) : null}
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="outline" size="sm">
           <Link href={`/requests/${row.requestId}`}>
             <Icon name="open_in_new" size="xs" />
@@ -304,17 +346,11 @@ function Pagination({
   onGoto: (p: number) => void;
 }) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  if (totalPages <= 1) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        {totalCount} {totalCount === 1 ? 'ticket' : 'tickets'}
-      </p>
-    );
-  }
+  if (totalPages <= 1) return null;
   const start = (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, totalCount);
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex items-center justify-between gap-2 pt-2">
       <Button
         variant="outline"
         size="sm"

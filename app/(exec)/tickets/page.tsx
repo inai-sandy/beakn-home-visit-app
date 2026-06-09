@@ -2,11 +2,12 @@ import { TicketsQueueClient } from '@/components/tickets/TicketsQueueClient';
 import { loadTicketsPageData } from '@/lib/support-tickets/page-helpers';
 
 // =============================================================================
-// HVA-256-FIX1: /tickets — exec portal version of the queue
+// HVA-256-FIX2: /tickets — exec portal version of the queue
 // =============================================================================
 //
-// Mounted in the (exec) route group so the exec drawer/topbar shell
-// wraps the page. Scope = tickets on requests assigned to this exec.
+// Mounted in the (exec) route group so the exec shell wraps it.
+// Layout pattern matches the other exec pages: outer wrapper is
+// `p-4 sm:p-6 lg:p-8 max-w-5xl space-y-5` (no fresh <main>).
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -33,14 +34,16 @@ export default async function ExecTicketsPage({ searchParams }: PageProps) {
   });
 
   return (
-    <section className="space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
-        <p className="text-sm text-muted-foreground">
-          Customer-raised support tickets on your assigned requests. Click{' '}
-          <strong>Take this</strong> to claim one; the customer sees your
-          status update on their tracking page within seconds.
-        </p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl space-y-5">
+      <header className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {data.queue.totalCount === 0
+              ? 'No support tickets on your assigned requests right now.'
+              : `${data.queue.totalCount} ticket${data.queue.totalCount === 1 ? '' : 's'} on your assigned requests.`}
+          </p>
+        </div>
       </header>
 
       <TicketsQueueClient
@@ -55,6 +58,6 @@ export default async function ExecTicketsPage({ searchParams }: PageProps) {
         currentRole={data.currentRole}
         categories={data.categories}
       />
-    </section>
+    </div>
   );
 }

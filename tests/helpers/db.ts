@@ -129,6 +129,10 @@ const SAFE_TRUNCATE_TABLES = [
   'support_tickets',
 ];
 
+// HVA-256-FIX1: support_ticket_categories is a CATALOG table seeded by
+// migration 0072 — NOT truncated. Tests that add categories should
+// clean up after themselves (or use the 4 seeded defaults).
+
 export async function truncateAll(): Promise<void> {
   // TRUNCATE everything except cities/status_stages/config (migration
   // seeds, must survive) and users (cleared via DELETE below).

@@ -74,7 +74,7 @@ describe('HVA-152: shared captain nav config', () => {
           "label": "Pending Approvals",
         },
         {
-          "href": "/tickets",
+          "href": "/captain/tickets",
           "icon": "help_center",
           "label": "Tickets",
         },

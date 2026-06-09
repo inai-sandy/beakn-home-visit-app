@@ -17,7 +17,7 @@ vi.mock('next/headers', () => ({
 import {
   claimTicketAction,
   resolveTicketAction,
-} from '@/app/tickets/_actions/transitions';
+} from '@/lib/support-tickets/actions';
 
 import { loginByPhone } from '../helpers/auth';
 import {

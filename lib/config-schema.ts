@@ -273,6 +273,10 @@ export const CONFIG_SCHEMA = {
       'support_ticket_claimed',
       'support_ticket_resolved',
       'support_ticket_reopened',
+      // HVA-256-FIX1: admin-configurable categories (replaces the
+      // hardcoded enum).
+      'support_ticket_category_created',
+      'support_ticket_category_updated',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

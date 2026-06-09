@@ -100,6 +100,7 @@ export function AdvanceStatusButton({
           open={scheduleOpen}
           onOpenChange={setScheduleOpen}
           requestId={requestId}
+          nextStatus={nextStatus}
         />
       )}
     </>

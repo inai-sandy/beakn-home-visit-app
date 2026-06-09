@@ -36,13 +36,58 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   requestId: string;
+  // HVA-253: dialog now serves every transition with requires_datetime=true,
+  // not just VISIT_SCHEDULED. Caller passes the target stage so the action
+  // can look up the transition row + the right auto-task type.
+  nextStatus: { id: string; code: string; name: string };
 }
 
-export function ScheduleVisitDialog({ open, onOpenChange, requestId }: Props) {
+// HVA-253: copy adapts to the destination stage. Add more cases here as
+// new transitions opt into the calendar picker.
+function copyForStage(code: string, name: string): {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  successMessage: string;
+} {
+  if (code === 'VISIT_SCHEDULED') {
+    return {
+      title: 'Schedule the visit',
+      description:
+        'Pick a date + time for the home visit. Status moves to Visit Scheduled, a Customer-home-visit task lands on the exec’s plan, and the customer is notified.',
+      confirmLabel: 'Schedule visit',
+      successMessage: 'Visit scheduled — task created on the exec’s plan',
+    };
+  }
+  if (code === 'INSTALLATION_SCHEDULED') {
+    return {
+      title: 'Schedule the installation',
+      description:
+        'Pick a date + time for the installation. Status moves to Installation Scheduled and an Installation & Activation task lands on the exec’s plan for that day.',
+      confirmLabel: 'Schedule installation',
+      successMessage:
+        'Installation scheduled — task created on the exec’s plan',
+    };
+  }
+  return {
+    title: `Schedule ${name}`,
+    description: `Pick a date + time. The request moves to ${name} and an auto-task lands on the exec’s plan for that day.`,
+    confirmLabel: `Schedule ${name.toLowerCase()}`,
+    successMessage: `${name} scheduled — task created on the exec’s plan`,
+  };
+}
+
+export function ScheduleVisitDialog({
+  open,
+  onOpenChange,
+  requestId,
+  nextStatus,
+}: Props) {
   const [when, setWhen] = useState(() => defaultDatetimeValue());
+  const copy = copyForStage(nextStatus.code, nextStatus.name);
 
   const { mutate, isPending } = useServerMutation(scheduleVisitAction, {
-    successMessage: 'Visit scheduled — task created on the exec\'s plan',
+    successMessage: copy.successMessage,
     onSuccess: () => onOpenChange(false),
   });
 
@@ -54,28 +99,27 @@ export function ScheduleVisitDialog({ open, onOpenChange, requestId }: Props) {
       return;
     }
     if (target.getTime() <= Date.now()) {
-      toast.error('Visit date must be in the future');
+      toast.error('Scheduled date must be in the future');
       return;
     }
-    void mutate({ requestId, visitScheduledAt: target.toISOString() });
+    void mutate({
+      requestId,
+      nextStatusId: nextStatus.id,
+      visitScheduledAt: target.toISOString(),
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !isPending && onOpenChange(o)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Schedule the visit</DialogTitle>
-          <DialogDescription>
-            Pick a date + time for the home visit. Status moves to{' '}
-            <strong>Visit Scheduled</strong>, a Customer-home-visit task
-            lands on the exec's plan for that date, and the customer is
-            notified.
-          </DialogDescription>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="visit-schedule-when">
-              Visit date + time <span className="text-destructive">*</span>
+              Date + time <span className="text-destructive">*</span>
             </Label>
             <Input
               id="visit-schedule-when"
@@ -86,8 +130,8 @@ export function ScheduleVisitDialog({ open, onOpenChange, requestId }: Props) {
               className="h-11"
             />
             <p className="text-[11px] text-muted-foreground">
-              Customer + exec see this on their tracking page / calendar
-              within seconds.
+              Exec + customer see this on their plan / tracking page within
+              seconds.
             </p>
           </div>
         </div>
@@ -111,7 +155,7 @@ export function ScheduleVisitDialog({ open, onOpenChange, requestId }: Props) {
                 Scheduling…
               </>
             ) : (
-              'Schedule visit'
+              copy.confirmLabel
             )}
           </Button>
         </DialogFooter>

@@ -50,6 +50,14 @@ export default defineConfig({
           globalSetup: ['./tests/setup/global.ts'],
           setupFiles: ['./tests/setup/per-file.ts'],
           include: ['tests/**/*.test.ts'],
+          // HVA-138-FIX2: hard-exclude component tests from the node
+          // project. Vitest's default extension match catches .tsx
+          // alongside .ts, so without this the node project would try
+          // to run advance-status-button.test.tsx via jsdom (which is
+          // exactly the dep-optimizer wall HVA-138 was designed to
+          // sidestep). Belt-and-suspenders alongside the explicit
+          // 'tests/**/*.test.ts' include.
+          exclude: ['tests/components/**', 'tests/e2e/**', '**/node_modules/**'],
           testTimeout: 30_000,
           hookTimeout: 60_000,
         },

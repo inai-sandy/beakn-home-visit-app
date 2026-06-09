@@ -19,7 +19,10 @@ import { supportTickets, users, visitRequests } from '@/db/schema';
 export interface CustomerTicketRow {
   id: string;
   subject: string;
-  category: 'complaint' | 'warranty' | 'refund' | 'other';
+  // HVA-256-FIX1: was a fixed enum; now a code string from
+  // support_ticket_categories. The UI renders by joining the active
+  // categories list passed alongside.
+  category: string;
   status: 'open' | 'in_progress' | 'resolved';
   openedAt: Date;
   resolvedAt: Date | null;

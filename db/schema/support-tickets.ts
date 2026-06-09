@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -16,20 +18,30 @@ import { visitRequests } from './visits';
 
 // =============================================================================
 // HVA-254 (HVA-232 Phase 1): customer support tickets
-// =============================================================================
-//
-// Customer raises via the public form on /track/[token]. Anchored to a
-// visit_request (CASCADE) so a deleted order also removes its tickets.
-// customer_name_snapshot + customer_phone_snapshot captured at submission
-// time so the team has the identity even if the visit_requests row mutates.
+// HVA-256-FIX1: ticket category is now admin-configurable; the
+// support_ticket_category enum has been replaced by a table.
 // =============================================================================
 
-export const supportTicketCategoryEnum = pgEnum('support_ticket_category', [
-  'complaint',
-  'warranty',
-  'refund',
-  'other',
-]);
+export const supportTicketCategories = pgTable(
+  'support_ticket_categories',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    // Stable identifier — admin can edit `name` but NOT `code` (the
+    // refund auto-close logic + any future code-side branches read by
+    // code). 'complaint' / 'warranty' / 'refund' / 'other' seeded.
+    code: varchar('code', { length: 64 }).notNull().unique(),
+    name: varchar('name', { length: 100 }).notNull(),
+    displayOrder: integer('display_order').notNull().default(100),
+    isActive: boolean('is_active').notNull().default(true),
+    ...timestamps(),
+  },
+  (table) => [
+    index('support_ticket_categories_active_order_idx').on(
+      table.isActive,
+      table.displayOrder,
+    ),
+  ],
+);
 
 export const supportTicketStatusEnum = pgEnum('support_ticket_status', [
   'open',
@@ -44,7 +56,10 @@ export const supportTickets = pgTable(
     requestId: uuid('request_id')
       .notNull()
       .references(() => visitRequests.id, { onDelete: 'cascade' }),
-    category: supportTicketCategoryEnum('category').notNull(),
+    // HVA-256-FIX1: was enum; now varchar holding the category code from
+    // support_ticket_categories. Soft reference (no FK) so deactivating
+    // a category doesn't cascade to historic tickets.
+    category: varchar('category', { length: 64 }).notNull(),
     subject: varchar('subject', { length: 200 }).notNull(),
     description: text('description').notNull(),
     status: supportTicketStatusEnum('status').notNull().default('open'),

@@ -12,6 +12,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
+import { loadActiveCategoryCodes } from '@/lib/support-tickets/category-queries';
 import { verifyTurnstile } from '@/lib/turnstile';
 
 // =============================================================================
@@ -40,11 +41,13 @@ const RATE_LIMIT_KEY_PREFIX = 'support_ticket';
 const RATE_LIMIT_WINDOW = '24 hours';
 const RATE_LIMIT_MAX = 5;
 
+// HVA-256-FIX1: category is no longer a fixed enum; validate against
+// the admin-managed support_ticket_categories table after parse.
 const bodySchema = z.object({
   trackingToken: z.string().min(8).max(32),
   subject: z.string().trim().min(1).max(200),
   description: z.string().trim().min(1).max(2000),
-  category: z.enum(['complaint', 'warranty', 'refund', 'other']),
+  category: z.string().trim().min(1).max(64),
   turnstileToken: z.string().min(1),
 });
 
@@ -123,6 +126,19 @@ export async function POST(req: Request): Promise<NextResponse> {
         error: 'You\'ve raised the maximum number of tickets for this order today. Please try again tomorrow.',
       },
       { status: 429 },
+    );
+  }
+
+  // ----- 2b. HVA-256-FIX1: category must exist + be active -----
+  const activeCodes = await loadActiveCategoryCodes();
+  if (!activeCodes.includes(parsed.data.category)) {
+    routeLog.warn(
+      { category: parsed.data.category },
+      'support_ticket_unknown_category',
+    );
+    return NextResponse.json(
+      { ok: false, error: 'Unknown category' },
+      { status: 400 },
     );
   }
 

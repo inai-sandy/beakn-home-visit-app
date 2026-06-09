@@ -4,6 +4,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db/client';
 import {
   cities,
+  salesExecutives,
   supportTickets,
   users,
   visitRequests,
@@ -20,12 +21,10 @@ import {
 // =============================================================================
 
 export type TicketStatusFilter = 'open' | 'in_progress' | 'resolved' | 'all';
-export type TicketCategoryFilter =
-  | 'complaint'
-  | 'warranty'
-  | 'refund'
-  | 'other'
-  | 'all';
+// HVA-256-FIX1: category is now an open string (code from
+// support_ticket_categories), since admin can add/rename categories.
+// 'all' = no filter; any other string is matched literally.
+export type TicketCategoryFilter = string;
 
 export interface QueueOptions {
   callerRole: 'sales_executive' | 'captain' | 'super_admin';
@@ -41,7 +40,9 @@ export interface QueueOptions {
 export interface QueueRow {
   ticketId: string;
   subject: string;
-  category: 'complaint' | 'warranty' | 'refund' | 'other';
+  // HVA-256-FIX1: category is now a code string from
+  // support_ticket_categories. UI joins with loaded categories for label.
+  category: string;
   status: 'open' | 'in_progress' | 'resolved';
   openedAt: Date;
   resolvedAt: Date | null;
@@ -71,18 +72,33 @@ export async function loadTicketsQueue(
 
   const conditions: SQL[] = [];
 
-  // Scope by role
+  // Scope by role.
+  // HVA-256-FIX1: captain visibility was scoped by cities.captain_user_id
+  // (city captain), which doesn't match HVA's team-scope rule for
+  // requests (the captain sees requests whose assigned_exec reports to
+  // them via sales_executives.captain_user_id). Aligning the ticket
+  // queue with that rule so the captain who raised a ticket actually
+  // sees it on the queue page.
   if (opts.callerRole === 'sales_executive') {
     conditions.push(eq(visitRequests.assignedExecUserId, opts.callerUserId));
   } else if (opts.callerRole === 'captain') {
-    conditions.push(eq(cities.captainUserId, opts.callerUserId));
+    // Match: assigned_captain_user_id = me  OR
+    //        assigned_exec reports to me (sales_executives.captain_user_id)
+    const captainScope = or(
+      eq(visitRequests.assignedCaptainUserId, opts.callerUserId),
+      sql`${visitRequests.assignedExecUserId} IN (
+        SELECT user_id FROM sales_executives
+        WHERE captain_user_id = ${opts.callerUserId}
+      )`,
+    );
+    if (captainScope) conditions.push(captainScope);
   }
   // super_admin sees everything (no scope condition)
 
   if (opts.status && opts.status !== 'all') {
     conditions.push(eq(supportTickets.status, opts.status));
   }
-  if (opts.category && opts.category !== 'all') {
+  if (opts.category && opts.category !== 'all' && opts.category.length > 0) {
     conditions.push(eq(supportTickets.category, opts.category));
   }
   if (opts.mineOnly) {
@@ -147,3 +163,4 @@ export async function loadTicketsQueue(
 // Reference imports the linter would otherwise drop
 void inArray;
 void count;
+void salesExecutives;

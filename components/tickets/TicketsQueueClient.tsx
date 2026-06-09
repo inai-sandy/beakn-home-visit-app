@@ -9,13 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { Input } from '@/components/ui/input';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
-import type { QueueRow } from '@/lib/support-tickets/queue-queries';
-import { cn } from '@/lib/utils';
-
 import {
   claimTicketAction,
   resolveTicketAction,
-} from '../_actions/transitions';
+} from '@/lib/support-tickets/actions';
+import type { TicketCategoryRow } from '@/lib/support-tickets/category-queries';
+import type { QueueRow } from '@/lib/support-tickets/queue-queries';
+import { cn } from '@/lib/utils';
 
 // =============================================================================
 // HVA-255 (HVA-232 Phase 2): /tickets queue UI
@@ -39,23 +39,21 @@ const STATUS_STYLE: Record<
   },
 };
 
-const CATEGORY_LABEL: Record<string, string> = {
-  complaint: 'Complaint',
-  warranty: 'Warranty',
-  refund: 'Refund',
-  other: 'Other',
-};
-
 interface Props {
   rows: QueueRow[];
   status: 'open' | 'in_progress' | 'resolved' | 'all';
-  category: 'complaint' | 'warranty' | 'refund' | 'other' | 'all';
+  // HVA-256-FIX1: category is now an open string from
+  // support_ticket_categories (admin-configurable). 'all' = no filter.
+  category: string;
   mineOnly: boolean;
   search: string;
   page: number;
   pageSize: number;
   totalCount: number;
   currentRole: 'sales_executive' | 'captain' | 'super_admin';
+  // HVA-256-FIX1: categories list loaded by the server page; UI uses it
+  // for the filter dropdown + per-row label lookup.
+  categories: TicketCategoryRow[];
 }
 
 const STATUS_TABS: Array<{ value: Props['status']; label: string }> = [
@@ -63,14 +61,6 @@ const STATUS_TABS: Array<{ value: Props['status']; label: string }> = [
   { value: 'in_progress', label: 'In progress' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'all', label: 'All' },
-];
-
-const CATEGORY_OPTIONS: Array<{ value: Props['category']; label: string }> = [
-  { value: 'all', label: 'All categories' },
-  { value: 'complaint', label: 'Complaint' },
-  { value: 'warranty', label: 'Warranty' },
-  { value: 'refund', label: 'Refund' },
-  { value: 'other', label: 'Other' },
 ];
 
 function relativeTime(when: Date): string {
@@ -95,7 +85,11 @@ export function TicketsQueueClient({
   pageSize,
   totalCount,
   currentRole,
+  categories,
 }: Props) {
+  // HVA-256-FIX1: build a lookup map from code → display name so the
+  // per-row badge can show the friendly label without rendering the code.
+  const categoryByCode = new Map(categories.map((c) => [c.code, c.name]));
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -167,9 +161,11 @@ export function TicketsQueueClient({
             pushParam('category', e.target.value === 'all' ? null : e.target.value)
           }
         >
-          {CATEGORY_OPTIONS.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
+          <option value="all">All categories</option>
+          {categories.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name}
+              {!c.isActive ? ' (inactive)' : ''}
             </option>
           ))}
         </select>
@@ -183,7 +179,12 @@ export function TicketsQueueClient({
       ) : (
         <ul className="space-y-3">
           {rows.map((r) => (
-            <TicketRow key={r.ticketId} row={r} currentRole={currentRole} />
+            <TicketRow
+              key={r.ticketId}
+              row={r}
+              currentRole={currentRole}
+              categoryLabel={categoryByCode.get(r.category) ?? r.category}
+            />
           ))}
         </ul>
       )}
@@ -202,9 +203,11 @@ export function TicketsQueueClient({
 function TicketRow({
   row,
   currentRole,
+  categoryLabel,
 }: {
   row: QueueRow;
   currentRole: 'sales_executive' | 'captain' | 'super_admin';
+  categoryLabel: string;
 }) {
   const status = STATUS_STYLE[row.status];
   const opened = new Date(row.openedAt);
@@ -230,7 +233,7 @@ function TicketRow({
           {status.label}
         </Badge>
         <Badge variant="outline" className="text-[10px]">
-          {CATEGORY_LABEL[row.category]}
+          {categoryLabel}
         </Badge>
         <h3 className="text-base font-semibold tracking-tight flex-1 min-w-0">
           {row.subject}

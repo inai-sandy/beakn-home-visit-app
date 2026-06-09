@@ -47,19 +47,12 @@ const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
 // window.turnstile is already declared globally by app/request/request-form.tsx
 // (HVA-34). Just use the existing global here.
 
-const CATEGORY_OPTIONS: Array<{
-  value: 'complaint' | 'warranty' | 'refund' | 'other';
-  label: string;
-}> = [
-  { value: 'complaint', label: 'Complaint' },
-  { value: 'warranty', label: 'Warranty' },
-  { value: 'refund', label: 'Refund' },
-  { value: 'other', label: 'Other' },
-];
-
-const CATEGORY_LABEL_MAP: Record<string, string> = Object.fromEntries(
-  CATEGORY_OPTIONS.map((c) => [c.value, c.label]),
-);
+// HVA-256-FIX1: categories come from the server (admin-managed table);
+// no more hardcoded enum here.
+interface CategoryOption {
+  code: string;
+  name: string;
+}
 
 const STATUS_STYLE: Record<
   'open' | 'in_progress' | 'resolved',
@@ -97,16 +90,20 @@ function relativeTime(when: Date): string {
 interface Props {
   trackingToken: string;
   initialTickets: CustomerTicketRow[];
+  // HVA-256-FIX1: active categories loaded by the server page
+  categories: CategoryOption[];
 }
 
 export function SupportTicketsSection({
   trackingToken,
   initialTickets,
+  categories,
 }: Props) {
   const [tickets, setTickets] = useState<CustomerTicketRow[]>(
     initialTickets.map(rehydrateDates),
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const categoryLabelByCode = new Map(categories.map((c) => [c.code, c.name]));
 
   function onTicketCreated(newRow: CustomerTicketRow) {
     setTickets((prev) => [newRow, ...prev]);
@@ -146,6 +143,7 @@ export function SupportTicketsSection({
                 ticket={t}
                 trackingToken={trackingToken}
                 onReopened={() => onTicketReopened(t.id)}
+                categoryLabel={categoryLabelByCode.get(t.category) ?? t.category}
               />
             ))}
           </ul>
@@ -156,6 +154,7 @@ export function SupportTicketsSection({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         trackingToken={trackingToken}
+        categories={categories}
         onSuccess={onTicketCreated}
       />
     </section>
@@ -166,10 +165,12 @@ function TicketCard({
   ticket,
   trackingToken,
   onReopened,
+  categoryLabel,
 }: {
   ticket: CustomerTicketRow;
   trackingToken: string;
   onReopened: () => void;
+  categoryLabel: string;
 }) {
   const [reopening, setReopening] = useState(false);
   const reopenTurnstileRef = useRef<HTMLDivElement | null>(null);
@@ -256,7 +257,7 @@ function TicketCard({
           {style.label}
         </Badge>
         <Badge variant="outline" className="text-[10px]">
-          {CATEGORY_LABEL_MAP[ticket.category]}
+          {categoryLabel}
         </Badge>
         <p className="text-sm font-medium flex-1 min-w-0">{ticket.subject}</p>
       </div>
@@ -290,17 +291,19 @@ function SubmitDialog({
   open,
   onOpenChange,
   trackingToken,
+  categories,
   onSuccess,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   trackingToken: string;
+  categories: CategoryOption[];
   onSuccess: (row: CustomerTicketRow) => void;
 }) {
+  const defaultCategory = categories[0]?.code ?? 'other';
   const [subject, setSubject] = useState('');
-  const [category, setCategory] = useState<
-    'complaint' | 'warranty' | 'refund' | 'other'
-  >('other');
+  // HVA-256-FIX1: category is an open string (from admin-managed table).
+  const [category, setCategory] = useState<string>(defaultCategory);
   const [description, setDescription] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -344,7 +347,7 @@ function SubmitDialog({
 
   function resetForm() {
     setSubject('');
-    setCategory('other');
+    setCategory(defaultCategory);
     setDescription('');
     setTurnstileToken('');
     if (widgetIdRef.current && window.turnstile) {
@@ -447,18 +450,16 @@ function SubmitDialog({
             </Label>
             <Select
               value={category}
-              onValueChange={(v) =>
-                setCategory(v as 'complaint' | 'warranty' | 'refund' | 'other')
-              }
+              onValueChange={(v) => setCategory(v)}
               disabled={submitting}
             >
               <SelectTrigger id="ticket-category">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {CATEGORY_OPTIONS.map((c) => (
-                  <SelectItem key={c.value} value={c.value}>
-                    {c.label}
+                {categories.map((c) => (
+                  <SelectItem key={c.code} value={c.code}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>

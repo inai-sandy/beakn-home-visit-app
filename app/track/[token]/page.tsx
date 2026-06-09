@@ -22,6 +22,7 @@ import { getConfig } from "@/lib/config";
 import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
 import type { ResourceRow } from "@/lib/content/types";
 import { log } from "@/lib/logger";
+import { loadActiveCategories } from "@/lib/support-tickets/category-queries";
 import { loadTicketsForRequest } from "@/lib/support-tickets/queries";
 import { cn } from "@/lib/utils";
 
@@ -294,7 +295,12 @@ export default async function TrackPage({ params }: PageProps) {
 
   // HVA-254: load support tickets for this order. Cheap (indexed by
   // request_id); render the customer-facing section below the timeline.
-  const supportTickets = await loadTicketsForRequest(reqRow.requestId);
+  // HVA-256-FIX1: also load active categories so the form's dropdown
+  // shows whatever admin has configured.
+  const [supportTickets, supportCategories] = await Promise.all([
+    loadTicketsForRequest(reqRow.requestId),
+    loadActiveCategories(),
+  ]);
 
   return (
     <main className="min-h-svh bg-background">
@@ -509,6 +515,7 @@ export default async function TrackPage({ params }: PageProps) {
           <SupportTicketsSection
             trackingToken={token}
             initialTickets={supportTickets}
+            categories={supportCategories}
           />
         )}
 

@@ -85,6 +85,12 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'help_center',
         href: '/admin/operations/admin-help',
       },
+      // HVA-256-FIX1: customer support tickets — admin sees all cities.
+      {
+        label: 'Customer Tickets',
+        icon: 'support',
+        href: '/admin/tickets',
+      },
       // HVA-199: global queue of all assist requests across teams.
       {
         label: 'Assist Requests',
@@ -158,6 +164,13 @@ export const ADMIN_NAV: AdminNavGroup[] = [
             label: 'Announcement Categories',
             icon: 'bookmarks',
             href: '/admin/settings/audit-content/announcement-categories',
+          },
+          {
+            // HVA-256-FIX1: admin-configurable customer support ticket
+            // categories (replaces the hardcoded enum from HVA-254).
+            label: 'Ticket Categories',
+            icon: 'help_center',
+            href: '/admin/settings/audit-content/ticket-categories',
           },
         ],
       },

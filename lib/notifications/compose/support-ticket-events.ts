@@ -19,14 +19,14 @@ export interface SupportTicketCreatedContext {
   ticketId: string;
   requestId: string;
   customerName: string;
-  category: 'complaint' | 'warranty' | 'refund' | 'other';
+  // HVA-257: open string — categories are admin-configurable
+  // (support_ticket_categories table) since HVA-256-FIX1, so any code
+  // can arrive here, not just the 4 seeded ones.
+  category: string;
   subject: string;
 }
 
-const CATEGORY_LABEL: Record<
-  SupportTicketCreatedContext['category'],
-  string
-> = {
+const CATEGORY_LABEL: Record<string, string> = {
   complaint: 'Complaint',
   warranty: 'Warranty claim',
   refund: 'Refund request',
@@ -36,8 +36,13 @@ const CATEGORY_LABEL: Record<
 export function composeSupportTicketCreatedInApp(
   ctx: SupportTicketCreatedContext,
 ): InAppBody {
+  // HVA-257: indexing the fixed map with an admin-created code used to
+  // return undefined and throw on .toLowerCase(), silently killing the
+  // notification. Fall back to the code itself, humanized.
+  const label =
+    CATEGORY_LABEL[ctx.category] ?? ctx.category.replace(/_/g, ' ');
   return {
-    title: `New ${CATEGORY_LABEL[ctx.category].toLowerCase()} from ${ctx.customerName}`,
+    title: `New ${label.toLowerCase()} from ${ctx.customerName}`,
     body: ctx.subject.length > 120
       ? `${ctx.subject.slice(0, 117)}…`
       : ctx.subject,

@@ -1,5 +1,5 @@
 import { headers as headersFn } from 'next/headers';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -43,6 +43,15 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const { id: ticketId } = await params;
+
+  // HVA-257: a malformed id used to flow straight into the uuid-typed
+  // Drizzle query and surface as an unhandled Postgres 22P02 → 500.
+  if (!z.string().uuid().safeParse(ticketId).success) {
+    return NextResponse.json(
+      { ok: false, error: 'Invalid ticket id' },
+      { status: 400 },
+    );
+  }
 
   let raw: unknown;
   try {
@@ -106,7 +115,11 @@ export async function POST(
   }
 
   const now = new Date();
-  await db
+  // HVA-257: conditional update — only flips if the ticket is STILL
+  // resolved. A concurrent agent action between our read and this write
+  // (e.g. they reopened-and-reclaimed it) makes this match 0 rows; we
+  // then report already-open instead of silently clobbering their state.
+  const updated = await db
     .update(supportTickets)
     .set({
       status: 'open',
@@ -117,7 +130,20 @@ export async function POST(
       resolvedByUserId: null,
       updatedAt: now,
     })
-    .where(eq(supportTickets.id, ticketId));
+    .where(
+      and(
+        eq(supportTickets.id, ticketId),
+        eq(supportTickets.status, 'resolved'),
+      ),
+    )
+    .returning({ id: supportTickets.id });
+
+  if (updated.length === 0) {
+    return NextResponse.json(
+      { ok: true, status: 'already-open' },
+      { status: 200 },
+    );
+  }
 
   await logEvent({
     eventType: 'support_ticket_reopened',

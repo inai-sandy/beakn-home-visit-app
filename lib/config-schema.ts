@@ -266,6 +266,13 @@ export const CONFIG_SCHEMA = {
       // install date via the same calendar dialog as the visit-scheduled
       // path. Notification fans out to exec + captain + super_admin.
       'request.installation_scheduled',
+      // HVA-254 (HVA-232 Phase 1): customer support tickets — raised
+      // via the public form on /track/[token]. Phase 2 (HVA-256) wires
+      // the claim/resolve transitions which use the next 3 events.
+      'support_ticket_created',
+      'support_ticket_claimed',
+      'support_ticket_resolved',
+      'support_ticket_reopened',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

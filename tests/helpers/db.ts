@@ -124,6 +124,9 @@ const SAFE_TRUNCATE_TABLES = [
   // has no FK but lives next to it.
   'webhook_events',
   'webhook_secrets',
+  // HVA-254 (HVA-232): support_tickets.claimed_by_user_id +
+  // resolved_by_user_id are ON DELETE RESTRICT. Truncate before users.
+  'support_tickets',
 ];
 
 export async function truncateAll(): Promise<void> {

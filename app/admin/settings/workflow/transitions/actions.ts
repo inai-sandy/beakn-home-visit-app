@@ -97,17 +97,23 @@ export async function updateTransitionAction(
 
   if (!before) return { ok: false, error: 'Transition not found' };
 
-  // Calendar plumbing guard: scheduleVisitAction (the action behind the
-  // calendar dialog) only knows how to handle the VISIT_SCHEDULED path
-  // — it sets visit_scheduled_at + auto-creates a customer_home_visit
-  // task. Enabling requires_datetime on a different transition would
-  // open the picker but the submit would fail. Lifted in HVA-226 when
-  // the calendar action becomes generic.
-  if (parsed.data.requiresDatetime && before.toCode !== 'VISIT_SCHEDULED') {
+  // HVA-253 (lifts the original HVA-226 placeholder): the schedule
+  // action is now generic — it reads the transition's auto_task_type and
+  // emits_event, only writes visit_scheduled_at on the VISIT_SCHEDULED
+  // move. So the old toCode !== 'VISIT_SCHEDULED' guard is gone.
+  //
+  // New sanity check: the calendar's output is the auto-created task, so
+  // turning requires_datetime on with no auto_task_type has no useful
+  // effect (picker would open then create nothing). Refuse with a clear
+  // message.
+  if (
+    parsed.data.requiresDatetime &&
+    !(parsed.data.autoTaskType && parsed.data.autoTaskType.length > 0)
+  ) {
     return {
       ok: false,
       error:
-        'Calendar picker action is only wired for VISIT_SCHEDULED today. Enabling on other stages needs HVA-226 (generalised calendar/auto-task plumbing).',
+        'Set an auto-task type first — the calendar picker creates a task on the chosen date, so without one it has nothing to do.',
     };
   }
 

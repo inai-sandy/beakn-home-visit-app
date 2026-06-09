@@ -262,6 +262,10 @@ export const CONFIG_SCHEMA = {
       'cartplus_exec_mapping_updated',
       // HVA-250 (HVA-230 Phase 2.A): portal order_received webhook handler
       'webhook_cartplus_order_received',
+      // HVA-253 (HVA-226 lifted): generalised calendar — exec picks an
+      // install date via the same calendar dialog as the visit-scheduled
+      // path. Notification fans out to exec + captain + super_admin.
+      'request.installation_scheduled',
       'city_routing_email_updated',
       // HVA-90 — admin edits Discord webhook URL and/or other_routing_email
       // alongside captain_routing_email on /admin/settings/organization/cities.

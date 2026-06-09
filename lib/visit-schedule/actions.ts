@@ -1,5 +1,6 @@
 'use server';
 
+import { alias } from 'drizzle-orm/pg-core';
 import { and, eq, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
@@ -9,6 +10,7 @@ import {
   dayPlans,
   requestStatusHistory,
   statusStages,
+  statusTransitions,
   tasks,
   visitRequests,
 } from '@/db/schema';
@@ -18,23 +20,30 @@ import { getServerSession } from '@/lib/auth-server';
 import { dispatchNotification } from '@/lib/notifications/engine';
 
 // =============================================================================
-// Schedule-Visit transactional writer
+// Schedule-with-Calendar transactional writer
 // =============================================================================
 //
-// "Advance to Visit Scheduled" used to be a one-tap status flip that
-// never touched visit_scheduled_at. That meant Calendar/Reschedule/
-// Rebalance had nothing to anchor on. This action wraps three writes:
+// HVA-253 (lifts the HVA-226 placeholder): generalised the legacy
+// VISIT_SCHEDULED-only action into a generic "transition + pick a date +
+// create an auto-task" action. The same dialog is now reused by every
+// transition whose status_transitions row has `requires_datetime = true`
+// AND `auto_task_type IS NOT NULL`.
 //
-//   1. Status: current -> VISIT_SCHEDULED (existing forward-only logic
-//      mirrored from /api/requests/[id]/status, but inline so the
-//      transaction holds the same lock as the other writes)
-//   2. visit_requests.visit_scheduled_at = <picked datetime>
-//   3. tasks: auto-create one Customer-home-visit task for the assigned
-//      exec on the scheduled date, linked to this request, so the visit
-//      lands on /today and /calendar without manual entry
+// Behaviours kept identical to the pre-HVA-253 implementation for the
+// VISIT_SCHEDULED path:
+//   - Status flip current → next
+//   - visit_requests.visit_scheduled_at = <picked datetime>
+//     **only when toCode === 'VISIT_SCHEDULED'** (the column is purpose-
+//     specific to the visit move — installation dates live only on the
+//     auto-task row)
+//   - tasks row created with the transition's auto_task_type, dated to
+//     the picked day, linked to this request
 //
-// Auth: assigned sales exec, captain owning the request's city, or
-// super_admin. Mirrors the matrix in /api/requests/[id]/status.
+// New behaviours (HVA-253):
+//   - Transition + autoTaskType are looked up from status_transitions
+//   - emits_event is read from the transition; null = no notification
+//   - Notification context is per-event (visit-scheduled uses customer
+//     WhatsApp template; installation-scheduled is internal-only)
 // =============================================================================
 
 type ActionResult<T = undefined> =
@@ -43,12 +52,55 @@ type ActionResult<T = undefined> =
 
 const scheduleSchema = z.object({
   requestId: z.string().uuid(),
+  // HVA-253: callers MUST pass the target stage id so we look up the
+  // right transition row + can decide downstream behavior generically.
+  nextStatusId: z.string().uuid(),
+  // Field name kept as `visitScheduledAt` for backward-compat with the
+  // existing dialog. Semantically it's just "the picked datetime" — we
+  // only write it to visit_requests.visit_scheduled_at on the
+  // VISIT_SCHEDULED path.
   visitScheduledAt: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u, 'Pick a valid date + time'),
 });
 
 export type ScheduleVisitInput = z.infer<typeof scheduleSchema>;
+
+// HVA-253: status_transitions.auto_task_type uses snake_case identifiers
+// (matches the admin TASK_TYPES dropdown). The tasks.task_type enum is
+// display-style. Map between the two.
+const TASK_TYPE_DISPLAY: Record<
+  string,
+  'Outlet visit' | 'Customer home visit' | 'Sales pitch' | 'Follow-up' | 'Installation & Activation' | 'Stall Activity' | 'Other'
+> = {
+  customer_home_visit: 'Customer home visit',
+  outlet_visit: 'Outlet visit',
+  sales_pitch: 'Sales pitch',
+  follow_up: 'Follow-up',
+  installation: 'Installation & Activation',
+  stall_activity: 'Stall Activity',
+  other: 'Other',
+};
+
+// Default human-friendly task description per task type. Falls back to a
+// generic "<verb> {customerName}" string when not listed.
+function taskDescriptionFor(
+  taskType: string,
+  customerName: string,
+): string {
+  switch (taskType) {
+    case 'customer_home_visit':
+      return `Visit ${customerName}`;
+    case 'installation':
+      return `Install for ${customerName}`;
+    case 'follow_up':
+      return `Follow up with ${customerName}`;
+    case 'sales_pitch':
+      return `Sales pitch — ${customerName}`;
+    default:
+      return `Task — ${customerName}`;
+  }
+}
 
 export async function scheduleVisitAction(
   input: ScheduleVisitInput,
@@ -77,7 +129,7 @@ export async function scheduleVisitAction(
     return { ok: false, error: 'Pick a valid date + time' };
   }
   if (target.getTime() <= Date.now()) {
-    return { ok: false, error: 'Visit date must be in the future' };
+    return { ok: false, error: 'Scheduled date must be in the future' };
   }
 
   // Load + auth.
@@ -126,87 +178,122 @@ export async function scheduleVisitAction(
     };
   }
 
-  // Find the VISIT_SCHEDULED stage.
-  const [visitStage] = await db
+  // HVA-253: look up the target stage + the transition row generically.
+  // Previously hardcoded to look up VISIT_SCHEDULED by code; now driven
+  // by the nextStatusId the caller passes from advance-status-button.
+  const fromStage = alias(statusStages, 'from_stage');
+  const toStage = alias(statusStages, 'to_stage');
+  const [transitionRow] = await db
     .select({
-      id: statusStages.id,
-      sequenceNumber: statusStages.sequenceNumber,
+      id: statusTransitions.id,
+      toStageId: statusTransitions.toStageId,
+      toStageCode: toStage.code,
+      toStageSeq: toStage.sequenceNumber,
+      isActive: statusTransitions.isActive,
+      requiresDatetime: statusTransitions.requiresDatetime,
+      autoTaskType: statusTransitions.autoTaskType,
+      emitsEvent: statusTransitions.emitsEvent,
     })
-    .from(statusStages)
-    .where(eq(statusStages.code, 'VISIT_SCHEDULED'))
+    .from(statusTransitions)
+    .innerJoin(fromStage, eq(fromStage.id, statusTransitions.fromStageId))
+    .innerJoin(toStage, eq(toStage.id, statusTransitions.toStageId))
+    .where(
+      and(
+        eq(statusTransitions.fromStageId, reqRow.statusStageId),
+        eq(statusTransitions.toStageId, data.nextStatusId),
+      ),
+    )
     .limit(1);
-  if (!visitStage) {
-    return { ok: false, error: 'VISIT_SCHEDULED stage missing' };
-  }
-  if (visitStage.sequenceNumber <= reqRow.currentStageSeq) {
+  if (!transitionRow) {
     return {
       ok: false,
-      error: `Request is already past Visit Scheduled (currently at ${reqRow.currentStageCode})`,
+      error: `No transition configured from ${reqRow.currentStageCode} to the requested stage`,
+    };
+  }
+  if (!transitionRow.isActive) {
+    return { ok: false, error: 'Transition is currently disabled' };
+  }
+  if (!transitionRow.requiresDatetime) {
+    return {
+      ok: false,
+      error: 'This transition does not require a date+time picker',
     };
   }
 
   // Day-plan lookup: tasks link to the exec's day_plan when one exists
-  // for the visit date; otherwise we leave day_plan_id NULL and let the
-  // exec's Start-My-Day flow re-link on that date.
-  const visitDateIso = target.toISOString().slice(0, 10);
+  // for the scheduled date; otherwise we leave day_plan_id NULL and let
+  // the exec's Start-My-Day flow re-link on that date.
+  const scheduledDateIso = target.toISOString().slice(0, 10);
   const [planRow] = await db
     .select({ id: dayPlans.id })
     .from(dayPlans)
     .where(
       and(
         eq(dayPlans.execUserId, reqRow.assignedExecUserId),
-        eq(dayPlans.planDate, visitDateIso),
+        eq(dayPlans.planDate, scheduledDateIso),
       ),
     )
     .limit(1);
+
+  const writesVisitScheduledAt =
+    transitionRow.toStageCode === 'VISIT_SCHEDULED';
+  const taskTypeDisplay = transitionRow.autoTaskType
+    ? TASK_TYPE_DISPLAY[transitionRow.autoTaskType] ?? null
+    : null;
 
   const now = new Date();
   let taskId: string | null = null;
   try {
     await db.transaction(async (tx) => {
-      // 1) status flip
+      // 1) status flip — write visit_scheduled_at only on the visit move
+      const updateValues: Record<string, unknown> = {
+        statusStageId: transitionRow.toStageId,
+        updatedAt: now,
+      };
+      if (writesVisitScheduledAt) {
+        updateValues.visitScheduledAt = target;
+      }
       await tx
         .update(visitRequests)
-        .set({
-          statusStageId: visitStage.id,
-          visitScheduledAt: target,
-          updatedAt: now,
-        })
+        .set(updateValues)
         .where(eq(visitRequests.id, data.requestId));
 
       // 2) history row
       await tx.insert(requestStatusHistory).values({
         requestId: data.requestId,
         fromStatusStageId: reqRow.statusStageId,
-        toStatusStageId: visitStage.id,
-        sequenceNumber: visitStage.sequenceNumber,
+        toStatusStageId: transitionRow.toStageId,
+        sequenceNumber: transitionRow.toStageSeq,
         transitionOrder: sql`COALESCE((SELECT MAX(transition_order) FROM request_status_history WHERE request_id = ${data.requestId}), 0) + 1`,
         changedByUserId: actor.id,
-        // 2026-05-26 IST tz fix: without timeZone this rendered UTC into
-        // the audit/timeline reason. The timeline reads this string
-        // verbatim, so the user saw "06:30" or similar instead of the
-        // 12:00 they picked.
-        reason: `Visit scheduled for ${target.toLocaleString('en-IN', {
+        // 2026-05-26 IST tz fix: must pin timeZone or the rendered string
+        // is UTC-shifted from what the user actually picked.
+        reason: `${transitionRow.toStageCode} scheduled for ${target.toLocaleString('en-IN', {
           timeZone: 'Asia/Kolkata',
         })}`,
       });
 
-      // 3) auto-task for the assigned exec on that date
-      const [taskInsert] = await tx
-        .insert(tasks)
-        .values({
-          execUserId: reqRow.assignedExecUserId!,
-          dayPlanId: planRow?.id ?? null,
-          taskType: 'Customer home visit',
-          description: `Visit ${reqRow.customerName}`,
-          estimatedTime: '01:00',
-          taskDate: visitDateIso,
-          linkRequestId: data.requestId,
-          linkLeadId: null,
-          status: 'pending',
-        })
-        .returning({ id: tasks.id });
-      taskId = taskInsert?.id ?? null;
+      // 3) auto-task — only when the transition row has an auto_task_type
+      if (taskTypeDisplay) {
+        const [taskInsert] = await tx
+          .insert(tasks)
+          .values({
+            execUserId: reqRow.assignedExecUserId!,
+            dayPlanId: planRow?.id ?? null,
+            taskType: taskTypeDisplay,
+            description: taskDescriptionFor(
+              transitionRow.autoTaskType!,
+              reqRow.customerName,
+            ),
+            estimatedTime: '01:00',
+            taskDate: scheduledDateIso,
+            linkRequestId: data.requestId,
+            linkLeadId: null,
+            status: 'pending',
+          })
+          .returning({ id: tasks.id });
+        taskId = taskInsert?.id ?? null;
+      }
     });
   } catch (err) {
     return {
@@ -215,39 +302,49 @@ export async function scheduleVisitAction(
     };
   }
 
+  // Audit (always — every scheduling action is recordable)
   await logEvent({
-    eventType: 'visit_scheduled',
+    eventType:
+      transitionRow.toStageCode === 'VISIT_SCHEDULED'
+        ? 'visit_scheduled'
+        : 'status_change',
     actorUserId: actor.id,
     actorRole: actor.role as 'sales_executive' | 'captain' | 'super_admin',
     targetEntityType: 'visit_request',
     targetEntityId: data.requestId,
     beforeState: {
       statusStageCode: reqRow.currentStageCode,
-      visitScheduledAt: null,
+      scheduledAt: null,
     },
     afterState: {
-      statusStageCode: 'VISIT_SCHEDULED',
-      visitScheduledAt: target.toISOString(),
+      statusStageCode: transitionRow.toStageCode,
+      scheduledAt: target.toISOString(),
       autoCreatedTaskId: taskId,
     },
     reason: null,
   });
 
-  try {
-    await dispatchNotification('request.scheduled', {
-      requestId: data.requestId,
-      visitScheduledAt: target.toISOString(),
-      customerName: reqRow.customerName,
-      // HVA-47: customer-facing WhatsApp uses customerPhone (the
-      // `customer` recipient role resolves to it via directAddress).
-      // trackingToken populates the {{N}} tracking-URL placeholder.
-      customerPhone: reqRow.customerPhone,
-      trackingToken: reqRow.trackingToken,
-      // HVA-79: opt-in gate.
-      customerWhatsappOptIn: reqRow.whatsappOptIn,
-    });
-  } catch {
-    // Never block on notification engine failure.
+  // Notifications — fire only when the transition has an emits_event
+  if (transitionRow.emitsEvent) {
+    try {
+      const context: Record<string, unknown> = {
+        requestId: data.requestId,
+        scheduledAt: target.toISOString(),
+        customerName: reqRow.customerName,
+        customerPhone: reqRow.customerPhone,
+        trackingToken: reqRow.trackingToken,
+        customerWhatsappOptIn: reqRow.whatsappOptIn,
+      };
+      // Preserve the existing field name for the visit-scheduled event
+      // so the WhatsApp template body params keep resolving (the template
+      // composer reads visitScheduledAt by name).
+      if (writesVisitScheduledAt) {
+        context.visitScheduledAt = target.toISOString();
+      }
+      await dispatchNotification(transitionRow.emitsEvent, context);
+    } catch {
+      // Never block on notification engine failure.
+    }
   }
 
   revalidatePath('/', 'layout');

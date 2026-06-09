@@ -34,6 +34,9 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // in this ticket; edit lands in PR 3.
   { href: '/captain/contacts', label: 'Contacts', icon: 'contacts' },
   { href: '/captain/approvals', label: 'Pending Approvals', icon: 'task_alt' },
+  // HVA-255 (HVA-232 Phase 2): customer support tickets queue. Same
+  // /tickets page as the exec — scoped server-side to captain's city.
+  { href: '/tickets', label: 'Tickets', icon: 'help_center' },
   // HVA-199: assist requests from the captain's team execs.
   { href: '/captain/assist', label: 'Assist Requests', icon: 'support_agent' },
   { href: '/captain/collections', label: 'Finance', icon: 'payments' },

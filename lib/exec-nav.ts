@@ -62,6 +62,8 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Tasks', icon: 'checklist', href: '/tasks' },
   { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
+  // HVA-255 (HVA-232 Phase 2): customer support tickets queue.
+  { label: 'Tickets', icon: 'help_center', href: '/tickets' },
   // HVA-199: assist requests — exec submits material requests; captain
   // / admin processes through a 4-stage workflow.
   { label: 'Assist', icon: 'support_agent', href: '/assist' },

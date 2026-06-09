@@ -11,14 +11,28 @@ import { z } from 'zod';
 // row, no code change needed.
 // =============================================================================
 
+// HVA-259: money fields arrive as rupee decimals and get converted to
+// paise via Math.round(x * 100). A malformed amount with >2 decimal
+// places (e.g. 123.456) would silently round instead of being rejected
+// — violating the paise-integer invariant at the validation boundary.
+// EPSILON soaks float representation noise (1234.56 * 100 =
+// 123455.99999999999 must still pass).
+const rupeeAmount = z
+  .number()
+  .nonnegative()
+  .refine(
+    (v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6,
+    'amount must have at most 2 decimal places',
+  );
+
 export const cartplusOrderItemSchema = z.object({
   id: z.number().int(),
   product_id: z.number().int().nullable(),
   name: z.string().min(1).max(500),
   sku: z.string().nullable(),
-  unit_price: z.number().nonnegative(),
+  unit_price: rupeeAmount,
   quantity: z.number().int().positive(),
-  line_total: z.number().nonnegative(),
+  line_total: rupeeAmount,
   notes: z.string().nullable().optional(),
 });
 
@@ -44,7 +58,7 @@ export const cartplusOrderSchema = z.object({
   payment_status: z.string(),
   fulfillment_status: z.string(),
   currency: z.string(),
-  total_amount: z.number().nonnegative(),
+  total_amount: rupeeAmount,
   placed_at: z.string().nullable(),
   items: z.array(cartplusOrderItemSchema).min(1),
   created_by: cartplusOrderCreatedBySchema,

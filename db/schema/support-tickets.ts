@@ -87,7 +87,12 @@ export const supportTickets = pgTable(
       table.openedAt,
     ),
     index('support_tickets_status_opened_idx').on(table.status, table.openedAt),
-    index('support_tickets_claimed_by_idx').on(table.claimedByUserId),
+    // HVA-259: partial index — matches migration 0071 (WHERE claimed_by
+    // IS NOT NULL); the Drizzle definition previously omitted the WHERE,
+    // which a future drizzle-kit introspect would flag as drift.
+    index('support_tickets_claimed_by_idx')
+      .on(table.claimedByUserId)
+      .where(sql`${table.claimedByUserId} IS NOT NULL`),
     check(
       'support_tickets_subject_length',
       sql`char_length(${table.subject}) BETWEEN 1 AND 200`,

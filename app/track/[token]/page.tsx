@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
+import Script from "next/script";
 
 import { CancelRequestButton } from "@/components/track/CancelRequestButton";
 import { RescheduleRequestButton } from "@/components/track/RescheduleRequestButton";
@@ -21,7 +22,10 @@ import { getConfig } from "@/lib/config";
 import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
 import type { ResourceRow } from "@/lib/content/types";
 import { log } from "@/lib/logger";
+import { loadTicketsForRequest } from "@/lib/support-tickets/queries";
 import { cn } from "@/lib/utils";
+
+import { SupportTicketsSection } from "./_components/SupportTicketsSection";
 
 // =============================================================================
 // HVA-36: /track/[token] — public customer tracking page (premium)
@@ -111,6 +115,9 @@ export default async function TrackPage({ params }: PageProps) {
   //    BHK-matched proposal(s) via tagged Resources.
   const [reqRow] = await db
     .select({
+      // HVA-254: pull the visit_requests.id so we can load support_tickets
+      // for this order on the public /track page.
+      requestId: visitRequests.id,
       customerName: visitRequests.customerName,
       createdAt: visitRequests.createdAt,
       currentStageId: visitRequests.statusStageId,
@@ -285,8 +292,22 @@ export default async function TrackPage({ params }: PageProps) {
   const currentStageDescription =
     STAGE_DESCRIPTIONS[reqRow.currentStageCode] ?? "";
 
+  // HVA-254: load support tickets for this order. Cheap (indexed by
+  // request_id); render the customer-facing section below the timeline.
+  const supportTickets = await loadTicketsForRequest(reqRow.requestId);
+
   return (
     <main className="min-h-svh bg-background">
+      {/* HVA-254: Cloudflare Turnstile script for the support-ticket
+          form's verification widget. Scoped to /track only so other
+          public routes don't pay the script cost. */}
+      <Script
+        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+        strategy="afterInteractive"
+        async
+        defer
+      />
+
       <div className="mx-auto max-w-2xl px-6 md:px-12 py-8 md:py-12 space-y-8">
         {/* Header — logo only (no settings icon per brief deviation) */}
         <header className="flex items-center">
@@ -480,6 +501,15 @@ export default async function TrackPage({ params }: PageProps) {
             )}
             <CancelRequestButton token={token} />
           </section>
+        )}
+
+        {/* HVA-254 (HVA-232): customer-raised support tickets. Hidden
+            when the request is cancelled — there's no order to support. */}
+        {!isCancelled && (
+          <SupportTicketsSection
+            trackingToken={token}
+            initialTickets={supportTickets}
+          />
         )}
 
         {/* HVA-37: Documents — BHK-matched proposal(s) + standard catalogues.

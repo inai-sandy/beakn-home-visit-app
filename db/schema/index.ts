@@ -18,3 +18,4 @@ export * from './assist';
 export * from './warnings';
 export * from './order-comments';
 export * from './webhooks';
+export * from './support-tickets';

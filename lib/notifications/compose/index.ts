@@ -91,6 +91,10 @@ import {
   composeOrderCommentAddedInApp,
   type OrderCommentAddedContext,
 } from './order-comment-events';
+import {
+  composeSupportTicketCreatedInApp,
+  type SupportTicketCreatedContext,
+} from './support-ticket-events';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -286,6 +290,11 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   'support.order_comment_added': (ctx) =>
     composeOrderCommentAddedInApp(
       ctx as unknown as OrderCommentAddedContext,
+    ),
+  // HVA-254 (HVA-232 Phase 1): customer support tickets.
+  'customer.support_ticket_created': (ctx) =>
+    composeSupportTicketCreatedInApp(
+      ctx as unknown as SupportTicketCreatedContext,
     ),
 };
 

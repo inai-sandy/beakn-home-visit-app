@@ -457,6 +457,79 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
     expect(summary.buckets.thirtyPlus).toBe(expectedBuckets.thirtyPlus);
   });
 
+  it('HVA-260: card uses Finance-page scope — counts accepted no-exec orders, excludes other captains', async () => {
+    // Sandeep 2026-06-10: card and Finance page must always show the
+    // same number. Three fixtures:
+    //   (a) CartPlus-style order: accepted by me, NO exec → counted
+    //       (the case the old exec-roster scope missed)
+    //   (b) normal order: accepted by me, my exec → counted
+    //   (c) accepted by ANOTHER captain in another city → excluded
+    const me = await seedCaptain({ phone: '+919100020030' });
+    const other = await seedCaptain({ phone: '+919100020031' });
+    const myCity = await getOrCreateCity('Bangalore');
+    const otherCity = await getOrCreateCity('Hyderabad');
+    await db
+      .update(cities)
+      .set({ captainUserId: me.id })
+      .where(eq(cities.id, myCity.id));
+    await db
+      .update(cities)
+      .set({ captainUserId: other.id })
+      .where(eq(cities.id, otherCity.id));
+    const myExec = await seedExecutive(me.id, { phone: '+919100020032' });
+
+    async function seedQuotedRequest(opts: {
+      cityId: string;
+      captainId: string | null;
+      execId: string | null;
+      valuePaise: number;
+    }) {
+      const r = await seedVisitRequest({
+        cityId: opts.cityId,
+        statusStageCode: 'QUOTATION_GIVEN',
+      });
+      await db
+        .update(visitRequests)
+        .set({
+          assignedCaptainUserId: opts.captainId,
+          assignedExecUserId: opts.execId,
+        })
+        .where(eq(visitRequests.id, r.id));
+      await db.insert(quotations).values({
+        visitRequestId: r.id,
+        totalOrderValuePaise: opts.valuePaise,
+        submittedByUserId: opts.execId ?? me.id,
+        submittedAt: new Date(),
+      });
+    }
+
+    // (a) accepted by me, no exec (CartPlus order with unmapped exec)
+    await seedQuotedRequest({
+      cityId: myCity.id,
+      captainId: me.id,
+      execId: null,
+      valuePaise: 5_000_00,
+    });
+    // (b) accepted by me, my exec
+    await seedQuotedRequest({
+      cityId: myCity.id,
+      captainId: me.id,
+      execId: myExec.id,
+      valuePaise: 3_000_00,
+    });
+    // (c) other captain's order in their city
+    await seedQuotedRequest({
+      cityId: otherCity.id,
+      captainId: other.id,
+      execId: null,
+      valuePaise: 9_000_00,
+    });
+
+    const summary = await loadPendingCollections(me.id, todayFilter);
+    expect(summary.outstandingRequestCount).toBe(2);
+    expect(summary.totalDueRupees).toBe(8_000);
+  });
+
   it('excludes fully-paid quotations from the outstanding count', async () => {
     const captain = await seedCaptain();
     const city = await getOrCreateCity('Bangalore');

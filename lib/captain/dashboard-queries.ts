@@ -615,8 +615,22 @@ export async function loadPendingCollections(
   captainUserId: string,
   filter: DateFilter,
 ): Promise<PendingCollectionsSummary> {
-  const execIds = await loadCaptainTeamIds(captainUserId);
-  return loadPendingCollectionsForExecIds(execIds, filter);
+  // HVA-260 (Sandeep 2026-06-10): the card previously counted by team-
+  // exec roster, while the /captain/collections Finance page counts by
+  // captain visibility (accepted-by-me OR unaccepted-in-my-cities). The
+  // two diverged for CartPlus orders with no mapped exec — a quotation
+  // exists immediately, so the page showed money the card missed. Both
+  // surfaces now use the SAME scope so the numbers always agree.
+  const myCities = await db
+    .select({ id: cities.id })
+    .from(cities)
+    .where(eq(cities.captainUserId, captainUserId));
+  return loadPendingCollectionsScoped(
+    buildCaptainRequestVisibilityWhere(captainUserId, {
+      captainCityIds: myCities.map((c) => c.id),
+    }),
+    filter,
+  );
 }
 
 /** Exec-id-scoped variant of `loadPendingCollections`. Admin city
@@ -626,7 +640,6 @@ export async function loadPendingCollectionsForExecIds(
   execIds: readonly string[],
   filter: DateFilter,
 ): Promise<PendingCollectionsSummary> {
-  const resolved = resolveDateFilter(filter);
   if (execIds.length === 0) {
     return {
       totalDueRupees: 0,
@@ -635,6 +648,20 @@ export async function loadPendingCollectionsForExecIds(
       staleCount: 0,
     };
   }
+  return loadPendingCollectionsScoped(
+    inArray(visitRequests.assignedExecUserId, execIds),
+    filter,
+  );
+}
+
+/** Shared loader — `scopeWhere` decides WHOSE quotations count (captain
+ *  visibility for the dashboard card, exec roster for the admin city
+ *  drill). */
+async function loadPendingCollectionsScoped(
+  scopeWhere: SQL,
+  filter: DateFilter,
+): Promise<PendingCollectionsSummary> {
+  const resolved = resolveDateFilter(filter);
 
   // Filter semantic (locked decision):
   //   single mode → "as of date X" = all quotations submitted on/before X
@@ -676,7 +703,7 @@ export async function loadPendingCollectionsForExecIds(
     .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
     .where(
       and(
-        inArray(visitRequests.assignedExecUserId, execIds),
+        scopeWhere,
         isNull(visitRequests.cancelledAt),
         submittedConstraint,
       ),

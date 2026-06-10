@@ -46,6 +46,11 @@ jobs:
           # for the e2e suite itself.
           DATABASE_URL: postgres://build:build@localhost:5432/build
           BETTER_AUTH_SECRET: ${{ secrets.E2E_BETTER_AUTH_SECRET || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }}
+          # HVA-261: Cloudflare's official ALWAYS-PASS test site key —
+          # the golden-journey spec drives the customer ticket form,
+          # whose Turnstile widget auto-resolves with this key. Pairs
+          # with the always-pass test SECRET the e2e runner defaults to.
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
         run: pnpm next build
 
       - name: Vitest

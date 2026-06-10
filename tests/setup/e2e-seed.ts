@@ -30,6 +30,11 @@ export interface SeededE2EUsers {
    *  it to verify the list views render + the request detail page
    *  loads. */
   sampleRequest: { id: string; customerName: string; trackingToken: string };
+  /** HVA-261: a SUBMITTED, fully-unassigned request reserved for the
+   *  golden-journey spec — it walks assignment → scheduling →
+   *  quotation → payment → ticket via the real UI, so it must start
+   *  untouched. Other specs must NOT mutate this row. */
+  journeyRequest: { id: string; customerName: string; trackingToken: string };
 }
 
 interface UserSeed {
@@ -126,6 +131,27 @@ export async function seedE2EUsers(
       RETURNING id, tracking_token
     `;
 
+    // HVA-261: golden-journey starting point — SUBMITTED, unassigned.
+    const [submittedStage] = await sql<{ id: string }[]>`
+      SELECT id FROM status_stages WHERE code = 'SUBMITTED' LIMIT 1
+    `;
+    if (!submittedStage) {
+      throw new Error(
+        'status_stages seed missing — SUBMITTED row not present. Migrations may be incomplete.',
+      );
+    }
+    const [journey] = await sql<{ id: string; tracking_token: string }[]>`
+      INSERT INTO visit_requests (
+        customer_name, customer_phone, address, city_id,
+        bhk, interest, tracking_token, source, status_stage_id
+      ) VALUES (
+        'Journey Customer', '+919876500002', '42 Golden Path, Hyderabad', ${city.id},
+        '2BHK'::bhk_type, '["Complete Lighting"]'::jsonb, 'e2ejourney1234567890ab', 'web',
+        ${submittedStage.id}
+      )
+      RETURNING id, tracking_token
+    `;
+
     return {
       exec: {
         id: veeraId,
@@ -150,6 +176,11 @@ export async function seedE2EUsers(
         id: request.id,
         customerName: 'E2E Customer',
         trackingToken: request.tracking_token,
+      },
+      journeyRequest: {
+        id: journey.id,
+        customerName: 'Journey Customer',
+        trackingToken: journey.tracking_token,
       },
     };
   } finally {

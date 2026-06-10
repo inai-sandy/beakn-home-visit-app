@@ -47,8 +47,29 @@ while IFS= read -r webm; do
   rm -f "$mp4"
 done < <(find "$OUT_DIR" -name 'video.webm' 2>/dev/null)
 
+# ---------------------------------------------------------------------------
+# HVA-264: manual screenshots — publish every PNG under
+# test-results/manual-shots/ to /var/www/docs/images/manual/.
+# Captured by tests/videos/manual-shots.capture.spec.ts.
+# ---------------------------------------------------------------------------
+SHOTS_DIR="$ROOT/test-results/manual-shots"
+if [ -d "$SHOTS_DIR" ]; then
+  docker exec filebrowser sh -c 'mkdir -p /srv/var/www/docs/images/manual'
+  shot_count=0
+  for png in "$SHOTS_DIR"/*.png; do
+    [ -e "$png" ] || continue
+    name="$(basename "$png")"
+    docker exec -i filebrowser sh -c \
+      "cat > /srv/var/www/docs/images/manual/${name} && chmod 644 /srv/var/www/docs/images/manual/${name}" \
+      < "$png"
+    shot_count=$((shot_count + 1))
+  done
+  echo "[videos] published $shot_count manual screenshots"
+  [ "$shot_count" -gt 0 ] && found=1
+fi
+
 if [ "$found" -eq 0 ]; then
-  echo "[videos] no recordings found under $OUT_DIR — run the recording config first" >&2
+  echo "[videos] nothing found — run the recording config first" >&2
   exit 1
 fi
 

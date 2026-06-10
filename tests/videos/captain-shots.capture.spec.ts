@@ -254,3 +254,45 @@ test('H1 resources + announcements + profile', async ({ page }) => {
   await page.goto('/captain/profile');
   await shoot(page, '24-profile');
 });
+
+// ---------------------------------------------------------------------------
+// I. HVA-265-FIX1: features the first pass missed — warnings, notes,
+// order comments. (Sandeep's "have we skipped?" audit caught these.)
+// ---------------------------------------------------------------------------
+
+test('I1 exec warnings page', async ({ page }) => {
+  const users = seededUsers();
+  await loginAs(page, 'captain');
+  await page.goto(`/captain/team/${users.exec.id}/warnings`);
+  await settle(page, 1200);
+  await shoot(page, '25-warnings');
+});
+
+test('I2 notes + order comments on a request', async ({ page }) => {
+  const users = seededUsers();
+  await loginAs(page, 'captain');
+  await page.goto(`/requests/${users.sampleRequest.id}`);
+  await settle(page, 1200);
+
+  // Notes live further down — scroll the section into view and shoot.
+  const notes = page.getByText(/^notes$/i).first();
+  if (await notes.isVisible().catch(() => false)) {
+    await notes.scrollIntoViewIfNeeded();
+    await shoot(page, '26-notes');
+  } else {
+    // Try the Activity tab (HVA-243 moved history surfaces there).
+    await page.getByRole('tab', { name: /activity/i }).click();
+    await settle(page);
+    await shoot(page, '26-notes');
+  }
+
+  // Order comments live on the Order tab.
+  await page.getByRole('tab', { name: /order/i }).click();
+  await settle(page);
+  const comments = page.getByText(/comments/i).first();
+  if (await comments.isVisible().catch(() => false)) {
+    await comments.scrollIntoViewIfNeeded();
+    await settle(page, 600);
+  }
+  await shoot(page, '27-order-comments');
+});

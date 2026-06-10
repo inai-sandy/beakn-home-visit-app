@@ -52,21 +52,28 @@ done < <(find "$OUT_DIR" -name 'video.webm' 2>/dev/null)
 # test-results/manual-shots/ to /var/www/docs/images/manual/.
 # Captured by tests/videos/manual-shots.capture.spec.ts.
 # ---------------------------------------------------------------------------
-SHOTS_DIR="$ROOT/test-results/manual-shots"
-if [ -d "$SHOTS_DIR" ]; then
-  docker exec filebrowser sh -c 'mkdir -p /srv/var/www/docs/images/manual'
-  shot_count=0
-  for png in "$SHOTS_DIR"/*.png; do
+# Two screenshot sets: exec manual (manual-shots → images/manual) and
+# captain manual (captain-shots → images/captain-manual, HVA-265).
+publish_shots() {
+  local src_dir="$1" dest_dir="$2"
+  [ -d "$src_dir" ] || return 0
+  docker exec filebrowser sh -c "mkdir -p /srv/var/www/docs/images/${dest_dir}"
+  local shot_count=0
+  for png in "$src_dir"/*.png; do
     [ -e "$png" ] || continue
+    local name
     name="$(basename "$png")"
     docker exec -i filebrowser sh -c \
-      "cat > /srv/var/www/docs/images/manual/${name} && chmod 644 /srv/var/www/docs/images/manual/${name}" \
+      "cat > /srv/var/www/docs/images/${dest_dir}/${name} && chmod 644 /srv/var/www/docs/images/${dest_dir}/${name}" \
       < "$png"
     shot_count=$((shot_count + 1))
   done
-  echo "[videos] published $shot_count manual screenshots"
+  echo "[videos] published $shot_count screenshots → images/${dest_dir}/"
   [ "$shot_count" -gt 0 ] && found=1
-fi
+  return 0
+}
+publish_shots "$ROOT/test-results/manual-shots" "manual"
+publish_shots "$ROOT/test-results/captain-shots" "captain-manual"
 
 if [ "$found" -eq 0 ]; then
   echo "[videos] nothing found — run the recording config first" >&2

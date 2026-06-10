@@ -181,6 +181,8 @@ describe('ADMIN_NAV structure (HVA-89 accordion)', () => {
       'Resource Categories',
       'Announcements',
       'Announcement Categories',
+      // HVA-256-FIX1: admin-configurable customer ticket categories
+      'Ticket Categories',
     ]);
     expect(getSubgroup('Notifications').items.map((i) => i.label)).toEqual([
       'Notification Rules',

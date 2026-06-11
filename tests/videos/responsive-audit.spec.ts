@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 
 import { test, type Page } from '@playwright/test';
+import postgres from 'postgres';
 
 import { flatAdminNavItems } from '../../lib/admin-nav';
 import { CAPTAIN_NAV_ITEMS } from '../../lib/captain/nav';
@@ -48,6 +49,54 @@ interface PageResult {
 }
 
 const results: PageResult[] = [];
+
+// ---------------------------------------------------------------------------
+// HVA-272: STRESS SEED — prod-shaped extremes the clean seed can't show.
+// Long names/addresses, ₹99,99,99,999 amounts, max-length ticket
+// subjects. Runs FIRST (file order, workers=1) so every later
+// measurement sees the worst realistic content.
+// ---------------------------------------------------------------------------
+
+const LONG_NAME = 'Venkata Subrahmanyeswara Prasad Rao Chowdary Garu Jr.';
+const LONG_ADDR =
+  'Flat No. 1203-B, Sri Lakshmi Venkateswara Heights, Plot 45-47, Road No. 12, Banjara Hills Extension, Near Apollo Hospital Back Gate, Hyderabad 500034, Telangana';
+
+test('S0 stress seed', async () => {
+  const users = seededUsers();
+  const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  try {
+    await sql`
+      UPDATE visit_requests
+      SET customer_name = ${LONG_NAME}, address = ${LONG_ADDR}
+      WHERE id = ${users.sampleRequest.id}
+    `;
+    await sql`
+      UPDATE users SET full_name = 'Veera Venkata Satyanarayana Murthy (Senior Sales Executive)'
+      WHERE id = ${users.exec.id}
+    `;
+    // Huge money: ₹99,99,99,999 quotation + partial payment → wide
+    // numbers on finance/dashboard/collection surfaces.
+    await sql`
+      INSERT INTO quotations (visit_request_id, total_order_value_paise, submitted_by_user_id)
+      VALUES (${users.sampleRequest.id}, 999999999900, ${users.exec.id})
+      ON CONFLICT (visit_request_id) DO UPDATE SET total_order_value_paise = 999999999900
+    `;
+    await sql`
+      INSERT INTO payments (visit_request_id, direction, amount_paise, payment_date, mode, recorded_by_user_id)
+      VALUES (${users.sampleRequest.id}, 'inbound', 123456789, CURRENT_DATE, 'Bank Transfer', ${users.exec.id})
+    `;
+    // Max-length ticket subject (200 chars) + long snapshots.
+    await sql`
+      INSERT INTO support_tickets (request_id, category, subject, description, status,
+        customer_name_snapshot, customer_phone_snapshot)
+      VALUES (${users.sampleRequest.id}, 'complaint', ${'The motorised curtain track in the master bedroom is making a continuous loud clicking and grinding noise every time it operates and the fabric is also getting stuck halfway through closing fully now'}, 'Long description for stress testing the queue row rendering with realistic verbose customer complaints.', 'open',
+        ${LONG_NAME}, '+919876500001')
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+});
+
 
 async function measure(page: Page, portal: string, url: string) {
   for (const width of WIDTHS) {

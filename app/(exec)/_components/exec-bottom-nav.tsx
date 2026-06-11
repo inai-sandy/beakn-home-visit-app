@@ -44,12 +44,18 @@ export function ExecBottomNav() {
         {EXEC_NAV.map((item) => {
           const active = isExecNavItemActive(item, pathname);
           return (
-            <li key={item.href} className="flex">
+            <li key={item.href} className="flex min-w-0">
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex-1 flex flex-col items-center justify-center gap-0.5 h-16 px-2",
+                  // HVA-266: min-w-0 lets each item shrink to its grid
+                  // track. Without it, flexbox's min-width:auto kept the
+                  // widest label ("Dashboard" ≈ 75px incl. padding) from
+                  // compressing, blowing the 5-track grid out by ~8px on
+                  // 320px phones — which put EVERY exec page into
+                  // horizontal scroll.
+                  "flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 h-16 px-1",
                   "transition-colors",
                   active
                     ? "text-primary"
@@ -58,7 +64,7 @@ export function ExecBottomNav() {
               >
                 <span
                   className={cn(
-                    "inline-flex items-center justify-center rounded-full px-4 py-0.5 transition-colors",
+                    "inline-flex items-center justify-center rounded-full px-3 py-0.5 transition-colors",
                     active && "bg-primary/15",
                   )}
                 >
@@ -66,7 +72,7 @@ export function ExecBottomNav() {
                 </span>
                 <span
                   className={cn(
-                    "text-[11px] leading-none",
+                    "text-[11px] leading-none max-w-full truncate",
                     active ? "font-semibold" : "font-medium",
                   )}
                 >

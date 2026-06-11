@@ -29,6 +29,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // HVA-266-FIX2: default 30s test budget was killing slow mobile-project
+  // logins on CI runners before waitForURL could resolve. 60s per test;
+  // real hangs still fail fast enough.
+  timeout: 60_000,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: BASE_URL,

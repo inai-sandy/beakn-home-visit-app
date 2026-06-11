@@ -2,7 +2,8 @@
 
 import {
   AnimatePresence,
-  motion,
+  LazyMotion,
+  m,
   useReducedMotion,
   type HTMLMotionProps,
 } from 'framer-motion';
@@ -25,10 +26,19 @@ import type { ReactNode } from 'react';
 //   3. List rows use enter/exit + layout so add/remove/reorder feels
 //      physical. Simple fades/hovers stay CSS (Tailwind transition-*).
 //
+// HVA-271: LazyMotion + m.* in strict mode — only the domMax feature
+// pack ships (layout/layoutId need it); importing full `motion.*`
+// anywhere inside these boundaries throws at runtime.
+//
 // Spring tuned for "snappy but calm" — high stiffness, medium damping.
 // =============================================================================
 
 const SPRING = { type: 'spring', stiffness: 420, damping: 32, mass: 0.8 } as const;
+
+// Async feature loading — the engine chunk leaves the first-paint
+// bundle; framer renders nothing-fancy until it arrives (~one frame on
+// wifi, gracefully static on slow networks).
+const loadFeatures = () => import('./motion-features').then((mod) => mod.default);
 
 /** Wrap a keyed list so its items can animate in/out. Place OUTSIDE the
  *  map; pair with <AnimatedItem key={...}> inside. */
@@ -48,17 +58,19 @@ export function AnimatedItem({
     return <div className={className}>{children}</div>;
   }
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0, overflow: 'hidden' }}
-      transition={SPRING}
-      className={className}
-      {...rest}
-    >
-      {children}
-    </motion.div>
+    <LazyMotion features={loadFeatures} strict>
+      <m.div
+        layout
+        initial={{ opacity: 0, y: 10, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0, overflow: 'hidden' }}
+        transition={SPRING}
+        className={className}
+        {...rest}
+      >
+        {children}
+      </m.div>
+    </LazyMotion>
   );
 }
 
@@ -74,17 +86,19 @@ export function AnimatedLi({
     return <li className={className}>{children}</li>;
   }
   return (
-    <motion.li
-      layout
-      initial={{ opacity: 0, y: 10, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0, overflow: 'hidden' }}
-      transition={SPRING}
-      className={className}
-      {...rest}
-    >
-      {children}
-    </motion.li>
+    <LazyMotion features={loadFeatures} strict>
+      <m.li
+        layout
+        initial={{ opacity: 0, y: 10, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0, overflow: 'hidden' }}
+        transition={SPRING}
+        className={className}
+        {...rest}
+      >
+        {children}
+      </m.li>
+    </LazyMotion>
   );
 }
 
@@ -104,15 +118,28 @@ export function FadeRise({
     return <div className={className}>{children}</div>;
   }
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...SPRING, delay }}
-      className={className}
-    >
-      {children}
-    </motion.div>
+    <LazyMotion features={loadFeatures} strict>
+      <m.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...SPRING, delay }}
+        className={className}
+      >
+        {children}
+      </m.div>
+    </LazyMotion>
   );
 }
 
-export { motion, AnimatePresence, useReducedMotion, SPRING };
+/** Boundary for surfaces that use `m.*` directly (e.g. the nav pill).
+ *  strict mode turns any accidental full-bundle `motion.*` usage into a
+ *  loud error instead of a silent 28KB regression. */
+export function LazyMotionProvider({ children }: { children: ReactNode }) {
+  return (
+    <LazyMotion features={loadFeatures} strict>
+      {children}
+    </LazyMotion>
+  );
+}
+
+export { m, AnimatePresence, useReducedMotion, SPRING };

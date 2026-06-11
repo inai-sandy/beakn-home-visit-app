@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { motion, useReducedMotion, SPRING } from "@/components/motion/motion-kit";
+import { LazyMotionProvider, m, SPRING, useReducedMotion } from "@/components/motion/motion-kit";
 import { Icon } from "@/components/ui/icon";
 import { EXEC_NAV, isExecNavItemActive } from "@/lib/exec-nav";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,7 @@ export function ExecBottomNav() {
   const pathname = usePathname() ?? "/today";
   const reduceMotion = useReducedMotion();
   return (
+    <LazyMotionProvider>
     <nav
       aria-label="Primary"
       className={cn(
@@ -72,7 +73,7 @@ export function ExecBottomNav() {
                     (reduceMotion ? (
                       <span className="absolute inset-0 rounded-full bg-primary/15" />
                     ) : (
-                      <motion.span
+                      <m.span
                         layoutId="exec-nav-active-pill"
                         transition={SPRING}
                         className="absolute inset-0 rounded-full bg-primary/15"
@@ -96,5 +97,6 @@ export function ExecBottomNav() {
         })}
       </ul>
     </nav>
+    </LazyMotionProvider>
   );
 }

@@ -57,10 +57,14 @@ export async function loginAs(
     .getByRole('button', { name: /sign in|log in|continue/i })
     .first()
     .click();
-  // Wait for the navigation away from /login. Up to 10s to account for
-  // cold-cache first-render of the role home.
+  // Wait for the navigation away from /login. HVA-266-FIX1: was 10s,
+  // which flaked repeatedly on the mobile project under load (local VPS
+  // contention AND GitHub runners) — the role-home cold render can take
+  // longer when three viewport projects run back-to-back. 30s is
+  // tolerance for slow renders, not a hidden product bug: the page
+  // either navigates or the test still fails.
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), {
-    timeout: 10_000,
+    timeout: 30_000,
   });
   // Sanity: not still on a login error variant.
   await expect(page).not.toHaveURL(/\/login/);

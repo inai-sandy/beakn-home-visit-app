@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { motion, useReducedMotion, SPRING } from "@/components/motion/motion-kit";
 import { Icon } from "@/components/ui/icon";
 import { EXEC_NAV, isExecNavItemActive } from "@/lib/exec-nav";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 export function ExecBottomNav() {
   const pathname = usePathname() ?? "/today";
+  const reduceMotion = useReducedMotion();
   return (
     <nav
       aria-label="Primary"
@@ -62,13 +64,23 @@ export function ExecBottomNav() {
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                <span
-                  className={cn(
-                    "inline-flex items-center justify-center rounded-full px-3 py-0.5 transition-colors",
-                    active && "bg-primary/15",
-                  )}
-                >
-                  <Icon name={item.icon} size="sm" fill={active} />
+                <span className="relative inline-flex items-center justify-center rounded-full px-3 py-0.5">
+                  {/* HVA-267: the active pill SLIDES between tabs via a
+                      shared layoutId instead of popping. Falls back to a
+                      static pill under prefers-reduced-motion. */}
+                  {active &&
+                    (reduceMotion ? (
+                      <span className="absolute inset-0 rounded-full bg-primary/15" />
+                    ) : (
+                      <motion.span
+                        layoutId="exec-nav-active-pill"
+                        transition={SPRING}
+                        className="absolute inset-0 rounded-full bg-primary/15"
+                      />
+                    ))}
+                  <span className="relative">
+                    <Icon name={item.icon} size="sm" fill={active} />
+                  </span>
                 </span>
                 <span
                   className={cn(

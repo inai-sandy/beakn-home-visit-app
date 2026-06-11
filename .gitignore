@@ -58,3 +58,6 @@ tests/e2e/.e2e-users.json
 # Recreated on every failing run; never useful in git.
 .vitest-attachments/
 tests/components/__screenshots__/
+
+# HVA-269: cached e2e login sessions — per-run artifacts
+tests/e2e/.auth/

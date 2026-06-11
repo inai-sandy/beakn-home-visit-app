@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { AnimatedItem, AnimatedList } from '@/components/motion/motion-kit';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 
@@ -213,21 +214,26 @@ export function PostSubmissionTasksList({
             )}
           </div>
         )}
-        {otherTasks.map((t) => (
-          <div
-            key={t.id}
-            className={t.pending ? 'opacity-70 pointer-events-none' : undefined}
-          >
-            <TaskItem
-              task={t}
-              outcomeOptionsForType={outcomeOptionsByType[t.taskType] ?? []}
-              postponeReasons={postponeReasons}
-              readOnly={dayPlanClosed || (t.pending ?? false)}
-              linkableRequests={linkableRequests}
-              linkableLeads={linkableLeads}
-            />
-          </div>
-        ))}
+        {/* HVA-267: rows rise in when added and collapse out when they
+            leave this group (done / postponed / promoted to next-task);
+            survivors glide into place via layout. */}
+        <AnimatedList>
+          {otherTasks.map((t) => (
+            <AnimatedItem
+              key={t.id}
+              className={t.pending ? 'opacity-70 pointer-events-none' : undefined}
+            >
+              <TaskItem
+                task={t}
+                outcomeOptionsForType={outcomeOptionsByType[t.taskType] ?? []}
+                postponeReasons={postponeReasons}
+                readOnly={dayPlanClosed || (t.pending ?? false)}
+                linkableRequests={linkableRequests}
+                linkableLeads={linkableLeads}
+              />
+            </AnimatedItem>
+          ))}
+        </AnimatedList>
       </section>
 
       {!dayPlanClosed && (

@@ -120,7 +120,10 @@ test('audit captain portal', async ({ page }) => {
 test('audit admin portal', async ({ page }) => {
   test.setTimeout(600_000);
   await loginAs(page, 'superAdmin');
-  const urls = flatAdminNavItems().map((i) => i.href);
+  // href is optional on AdminNavItem (disabled stubs render without one).
+  const urls = flatAdminNavItems()
+    .map((i) => i.href)
+    .filter((href): href is string => typeof href === 'string');
   for (const url of urls) await measure(page, 'admin', url);
 });
 

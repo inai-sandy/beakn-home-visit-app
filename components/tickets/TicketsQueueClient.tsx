@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 
+import { AnimatedLi, AnimatedList } from '@/components/motion/motion-kit';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -220,14 +221,18 @@ export function TicketsQueueClient({
         </div>
       ) : (
         <ul className="space-y-3">
-          {rows.map((r) => (
-            <TicketRow
-              key={r.ticketId}
-              row={r}
-              currentRole={currentRole}
-              categoryLabel={categoryByCode.get(r.category) ?? r.category}
-            />
-          ))}
+          {/* HVA-269: claimed/resolved rows collapse out of the current
+              filter; survivors glide up. */}
+          <AnimatedList>
+            {rows.map((r) => (
+              <TicketRow
+                key={r.ticketId}
+                row={r}
+                currentRole={currentRole}
+                categoryLabel={categoryByCode.get(r.category) ?? r.category}
+              />
+            ))}
+          </AnimatedList>
         </ul>
       )}
 
@@ -268,7 +273,7 @@ function TicketRow({
     (currentRole === 'super_admin' && row.status === 'open');
 
   return (
-    <li className="rounded-3xl border bg-card p-5 shadow-sm space-y-4">
+    <AnimatedLi className="rounded-3xl border bg-card p-5 shadow-sm space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2 flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -330,7 +335,7 @@ function TicketRow({
           </Button>
         ) : null}
       </div>
-    </li>
+    </AnimatedLi>
   );
 }
 

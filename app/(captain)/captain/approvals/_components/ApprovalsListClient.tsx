@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { AnimatedLi, AnimatedList } from '@/components/motion/motion-kit';
 import {
   Dialog,
   DialogContent,
@@ -236,11 +237,14 @@ export function ApprovalsListClient({ rows, pageRange }: Props) {
       </div>
 
       <ul className="space-y-4">
+        {/* HVA-269: approved/rejected rows collapse out; the queue melts
+            as the captain clears it. */}
+        <AnimatedList>
         {rows.map((r) => {
           const isChecked = selected.has(r.id);
           const completedDate = r.completedAt ? new Date(r.completedAt) : null;
           return (
-            <li
+            <AnimatedLi
               key={r.id}
               className="rounded-3xl border bg-card p-5 shadow-sm space-y-4"
             >
@@ -307,9 +311,10 @@ export function ApprovalsListClient({ rows, pageRange }: Props) {
                   customerName={r.customerName}
                 />
               </div>
-            </li>
+            </AnimatedLi>
           );
         })}
+        </AnimatedList>
       </ul>
 
       {pageRange && pageRange.totalPages > 1 && (

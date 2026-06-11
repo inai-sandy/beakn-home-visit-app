@@ -16,6 +16,7 @@ import { ExecStatusList } from './_components/ExecStatusList';
 import { PendingApprovalsCard } from './_components/PendingApprovalsCard';
 import { PendingCollectionsCard } from './_components/PendingCollectionsCard';
 import { PerformanceCard } from './_components/PerformanceCard';
+import { FadeRise } from '@/components/motion/motion-kit';
 
 // =============================================================================
 // HVA-80: Captain Dashboard — two-column desktop / stacked mobile
@@ -115,19 +116,30 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Left column — 2/5 of desktop width (= 40%) */}
         <div className="md:col-span-2 space-y-5">
-          <PerformanceCard performance={performance} />
-          <PendingApprovalsCard
-            totalCount={approvals.totalCount}
-            staleCount={approvals.staleCount}
-            topFive={approvals.topFive}
-            filter={filter}
-          />
-          <PendingCollectionsCard summary={collections} filter={filter} />
+          {/* HVA-269: cards rise in with a gentle stagger. The cards
+              themselves stay server-rendered — FadeRise is a thin
+              client wrapper around RSC children. */}
+          <FadeRise>
+            <PerformanceCard performance={performance} />
+          </FadeRise>
+          <FadeRise delay={0.06}>
+            <PendingApprovalsCard
+              totalCount={approvals.totalCount}
+              staleCount={approvals.staleCount}
+              topFive={approvals.topFive}
+              filter={filter}
+            />
+          </FadeRise>
+          <FadeRise delay={0.12}>
+            <PendingCollectionsCard summary={collections} filter={filter} />
+          </FadeRise>
         </div>
 
         {/* Right column — 3/5 of desktop width (= 60%) */}
         <div className="md:col-span-3">
-          <ExecStatusList execs={execs} filter={filter} />
+          <FadeRise delay={0.18}>
+            <ExecStatusList execs={execs} filter={filter} />
+          </FadeRise>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { writeFileSync, existsSync } from 'node:fs';
+import { rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 
@@ -160,6 +160,10 @@ async function main() {
     await cleanup();
     process.exit(1);
   }
+    // HVA-269: wipe cached login sessions from previous runs — the
+  // testcontainer is fresh, so old cookies are invalid anyway.
+  rmSync('tests/e2e/.auth', { recursive: true, force: true });
+
   console.log('[e2e] server healthy — running playwright');
 
   const pwArgs = process.argv.slice(2);

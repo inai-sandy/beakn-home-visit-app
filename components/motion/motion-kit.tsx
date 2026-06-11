@@ -62,6 +62,32 @@ export function AnimatedItem({
   );
 }
 
+/** Same enter/exit/layout behaviour as AnimatedItem, rendered as a real
+ *  <li> so ul>li semantics (and screen readers) stay intact. */
+export function AnimatedLi({
+  children,
+  className,
+  ...rest
+}: { children: ReactNode; className?: string } & HTMLMotionProps<'li'>) {
+  const reduce = useReducedMotion();
+  if (reduce) {
+    return <li className={className}>{children}</li>;
+  }
+  return (
+    <motion.li
+      layout
+      initial={{ opacity: 0, y: 10, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97, height: 0, marginBottom: 0, overflow: 'hidden' }}
+      transition={SPRING}
+      className={className}
+      {...rest}
+    >
+      {children}
+    </motion.li>
+  );
+}
+
 /** Section/block entrance — a soft rise+fade for content that mounts
  *  with the page or after a tab switch. */
 export function FadeRise({

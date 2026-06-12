@@ -57,7 +57,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     unit: 'paise',
     icon: 'payments',
     explainer:
-      'Sum of inbound payments (excluding voided ones) recorded against requests in the selected scope, where payment_date falls in the date range. Captains and admins recording on behalf of an exec still credit the exec.',
+      'Net cash: inbound payments minus outbound refunds (excluding voided ones) recorded against requests in the selected scope, where payment_date falls in the date range. Captains and admins recording on behalf of an exec still credit the exec.',
   },
   orders_count: {
     key: 'orders_count',
@@ -111,7 +111,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     unit: 'percent',
     icon: 'trending_up',
     explainer:
-      'Orders confirmed ÷ Visits completed × 100, both within the date range and scope. Blank when there were zero visits.',
+      'Orders confirmed ÷ customer requests whose visit was completed × 100, both within the date range and scope. Blank when no visits were completed. Note: the denominator is visited requests (status history), not the Visits tile (which counts field tasks).',
   },
   outstanding: {
     key: 'outstanding',
@@ -120,7 +120,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     unit: 'paise',
     icon: 'pending_actions',
     explainer:
-      'Across all non-cancelled requests in scope: quotation total minus inbound payments, summed where positive. Includes executed-but-unpaid orders. Snapshot — ignores the date range.',
+      'Across all non-cancelled requests in scope: quotation total minus net payments (inbound − refunds), summed where positive. Includes executed-but-unpaid orders. Snapshot — ignores the date range.',
   },
   new_requests: {
     key: 'new_requests',

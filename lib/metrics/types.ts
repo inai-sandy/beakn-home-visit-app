@@ -79,7 +79,7 @@ export type MetricKey =
   | 'visits'               // completed visit-type tasks in range
   | 'quotations_count'     // quotations submitted in range
   | 'quotations_value'     // sum of submitted quotations' value (paise)
-  | 'conversion_pct'       // orders_count / visits as %; null when visits=0
+  | 'conversion_pct'       // orders_count / visited requests as %; null when 0 visited (HVA-276)
   | 'outstanding'          // open balance owed across non-cancelled requests (paise)
   | 'new_requests'         // visit_requests.created_at in range
   | 'cancelled_requests'   // visit_requests.cancelled_at in range

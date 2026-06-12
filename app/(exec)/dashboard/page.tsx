@@ -334,6 +334,7 @@ const EMPTY_HERO_METRICS = {
   amountCollectedPaise: 0,
   inboundPaymentCount: 0,
   quotationsCount: 0,
+  visitedRequests: 0,
   targets: {
     revenue: { actual: 0, target: null, status: 'no_target' as const },
     visits: { actual: 0, target: null, status: 'no_target' as const },

@@ -160,14 +160,14 @@ export function PerformanceCard({ performance }: { performance: TeamPerformance 
           metric={performance.orders}
           format="count"
           showTrafficLights={performance.showTrafficLights}
-          tooltip="Requests that reached Order Confirmed or Order Executed Successfully in the selected window."
+          tooltip="Requests that reached Order Confirmed in the selected window. Each request counts once even if it rolled back and reconfirmed."
         />
         <MetricTile
           label="Conversion"
           metric={performance.conversionPct}
           format="percent"
           showTrafficLights={performance.showTrafficLights}
-          tooltip="Orders ÷ Visits × 100. Shows the fraction of visits that became confirmed orders. Null when no visits."
+          tooltip="Orders ÷ customers visited × 100. Of the requests whose visit completed in this window, the share that became confirmed orders. Blank when no visits completed."
         />
         <MetricTile
           label="Tasks done"

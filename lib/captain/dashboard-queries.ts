@@ -26,6 +26,7 @@ import {
 } from '@/db/schema';
 import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
 import { getConfig } from '@/lib/config';
+import { loadVisitedRequestsCount } from '@/lib/metrics/conversion';
 import { loadMetrics } from '@/lib/metrics/registry';
 import {
   compareConversionPct,
@@ -137,7 +138,13 @@ export function resolveDateFilter(filter: DateFilter): ResolvedDateFilter {
 
 interface WindowAggregates {
   revenueRupees: number;
+  /** HVA-278: quotation value of orders confirmed in the window (₹). */
+  bookedRupees: number;
   visitsCompleted: number;
+  /** HVA-278: DISTINCT requests entering VISIT_COMPLETED — the
+   *  conversion denominator (the HVA-276 fix never reached this path;
+   *  conversion here still divided by task-visits). */
+  visitedRequests: number;
   quotationsCount: number;
   ordersClosed: number;
   taskDone: number;
@@ -154,7 +161,9 @@ async function loadWindowAggregates(args: {
   if (execIds.length === 0) {
     return {
       revenueRupees: 0,
+      bookedRupees: 0,
       visitsCompleted: 0,
+      visitedRequests: 0,
       quotationsCount: 0,
       ordersClosed: 0,
       taskDone: 0,
@@ -203,12 +212,13 @@ async function loadWindowAggregates(args: {
       : { execUserId: execIds[0] };
   }
 
-  const [ssotMetrics, taskAgg] = await Promise.all([
+  const [ssotMetrics, visitedRequests, taskAgg] = await Promise.all([
     loadMetrics(
-      ['revenue', 'visits', 'quotations_count', 'orders_count'],
+      ['revenue', 'orders_value', 'visits', 'quotations_count', 'orders_count'],
       scope,
       range,
     ),
+    loadVisitedRequestsCount(scope, range),
     db
       .select({
         status: tasks.status,
@@ -236,7 +246,9 @@ async function loadWindowAggregates(args: {
 
   return {
     revenueRupees: (ssotMetrics.revenue ?? 0) / 100,
+    bookedRupees: (ssotMetrics.orders_value ?? 0) / 100,
     visitsCompleted: ssotMetrics.visits ?? 0,
+    visitedRequests,
     quotationsCount: ssotMetrics.quotations_count ?? 0,
     ordersClosed: ssotMetrics.orders_count ?? 0,
     taskDone,
@@ -273,6 +285,9 @@ export interface PerformanceMetric {
 
 export interface TeamPerformance {
   revenue: PerformanceMetric;
+  /** HVA-278: quotation value of orders confirmed in the window. No
+   *  config target exists — status is always no_target. */
+  booked: PerformanceMetric;
   visits: PerformanceMetric;
   quotations: PerformanceMetric;
   orders: PerformanceMetric;
@@ -353,9 +368,11 @@ export async function loadPerformanceForExecIds(
       ? null
       : (compare.taskDone / denomCompare) * 100;
 
+  // HVA-278: conversion denominator = visited REQUESTS (status history),
+  // not visit tasks — completing the HVA-276 fix on this path too.
   const targetConversion = compareConversionPct(
     target.ordersClosed,
-    target.visitsCompleted,
+    target.visitedRequests,
     targetConversionPct,
   );
   const compareConversion =
@@ -363,7 +380,7 @@ export async function loadPerformanceForExecIds(
       ? { actual: null as number | null, status: 'no_target' as TargetStatus }
       : compareConversionPct(
           compare.ordersClosed,
-          compare.visitsCompleted,
+          compare.visitedRequests,
           targetConversionPct,
         );
 
@@ -373,6 +390,12 @@ export async function loadPerformanceForExecIds(
       target: targetRevenue ?? null,
       status: compareToTargetSafe(target.revenueRupees, targetRevenue),
       previous: compare === null ? null : compare.revenueRupees,
+    },
+    booked: {
+      actual: target.bookedRupees,
+      target: null,
+      status: 'no_target',
+      previous: compare === null ? null : compare.bookedRupees,
     },
     visits: {
       actual: target.visitsCompleted,
@@ -765,6 +788,10 @@ export interface TeamExecStatus {
   visitsToday: number;
   collectionsTodayRupees: number;
   overdueTaskCount: number;
+  /** HVA-278: pending tasks carrying rolled_over_at for >3 days. Was
+   *  folded invisibly into hasRedFlag — now exposed so the row can say
+   *  WHY the flag is red even with zero overdue tasks. */
+  hasAgedRolledOver: boolean;
   hasRedFlag: boolean;
   todayTaskBreakdown: {
     pending: number;
@@ -981,6 +1008,7 @@ async function loadExecStatusesByFilter(
       visitsToday: visits,
       collectionsTodayRupees: (collectionsByExec.get(t.userId) ?? 0) / 100,
       overdueTaskCount: overdueCount,
+      hasAgedRolledOver,
       // HVA-169: either signal raises the flag. overdueTaskCount stays
       // the literal count (consumers can split-display if they want);
       // hasRedFlag is the OR.

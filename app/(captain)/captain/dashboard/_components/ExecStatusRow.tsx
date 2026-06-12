@@ -83,7 +83,12 @@ export function ExecStatusRow({
             <p className="text-sm font-medium truncate">{exec.fullName}</p>
             {exec.hasRedFlag && (
               <Badge variant="destructive" className="text-[10px]">
-                ⚑ {exec.overdueTaskCount} overdue
+                {/* HVA-278: name the reason — the aged-rolled-over
+                    condition used to raise the flag with no visible
+                    explanation. */}
+                {exec.overdueTaskCount > 0
+                  ? `⚑ ${exec.overdueTaskCount} overdue`
+                  : '⚑ stuck tasks'}
               </Badge>
             )}
           </div>
@@ -141,6 +146,11 @@ export function ExecStatusRow({
               ⚑ {exec.overdueTaskCount} task
               {exec.overdueTaskCount === 1 ? '' : 's'} past their postpone date
               and still pending.
+            </p>
+          )}
+          {exec.hasAgedRolledOver && (
+            <p className="text-destructive">
+              ⚑ Has pending tasks carried over for more than 3 days.
             </p>
           )}
         </div>

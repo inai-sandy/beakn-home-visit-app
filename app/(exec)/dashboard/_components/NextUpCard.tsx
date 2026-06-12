@@ -6,7 +6,7 @@ import type {
   ExecDashboardTaskRow,
 } from '@/lib/exec/dashboard-queries';
 
-import { AsOfNowTag } from './AsOfNowTag';
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
 
 // =============================================================================
 // HVA-277: "What's next?" — the single most-relevant live item

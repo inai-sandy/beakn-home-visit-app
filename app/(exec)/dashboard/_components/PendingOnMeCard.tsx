@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Icon } from '@/components/ui/icon';
 import { formatInrFromPaise } from '@/lib/money';
 
-import { AsOfNowTag } from './AsOfNowTag';
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
 
 // =============================================================================
 // HVA-277: "What's pending on me?" — live obligations in one place

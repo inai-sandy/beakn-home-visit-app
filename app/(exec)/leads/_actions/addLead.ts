@@ -3,8 +3,10 @@
 import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 
+import { z } from 'zod';
+
 import { db } from '@/db/client';
-import { businessTypes, cities, leads } from '@/db/schema';
+import { businessTypes, cities, leads, salesExecutives } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import { leadSchema, type LeadInput } from '@/lib/validators/lead';
 
@@ -100,4 +102,110 @@ export async function addLeadAction(
 
   revalidatePath('/', 'layout');
   return { ok: true, data: { leadId: inserted.id } };
+}
+
+// =============================================================================
+// HVA-273: quickAddLeadAction — Quick Capture (name + phone only)
+// =============================================================================
+//
+// Field-speed path: the exec types a name and a 10-digit number, we fill
+// in everything else — type='Customer', interests empty, city = the
+// exec's OWN city (sales_executives.city_id; locked decision D3).
+//
+// Duplicate phones (D4): phone is the project-wide dedup key. If the
+// number already exists:
+//   - captured by THIS exec → ok:false error='duplicate' with
+//     fieldErrors.dupLeadId + fieldErrors.dupName so the sheet can offer
+//     "Open contact". (fieldErrors doubles as the typed side-channel —
+//     useServerMutation already forwards it.)
+//   - captured by someone else → ok:false error='duplicate' WITHOUT the
+//     id/name. Revealing another exec's contact would leak outside the
+//     captured-by visibility rule.
+// =============================================================================
+
+const quickLeadSchema = z.object({
+  name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
+  phone: z
+    .string()
+    .regex(/^[6-9]\d{9}$/u, 'Enter a valid 10-digit mobile number'),
+});
+
+export type QuickLeadInput = z.infer<typeof quickLeadSchema>;
+
+export async function quickAddLeadAction(
+  input: QuickLeadInput,
+): Promise<ActionResult<{ leadId: string; name: string }>> {
+  const session = await getServerSession();
+  if (!session) return { ok: false, error: 'Not signed in' };
+  const actor = session.user as { id: string; role?: string };
+  if (!ALLOWED_ROLES.includes(actor.role as (typeof ALLOWED_ROLES)[number])) {
+    return { ok: false, error: 'Forbidden' };
+  }
+
+  const parsed = quickLeadSchema.safeParse(input);
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const path = issue.path.join('.');
+      if (path && !fieldErrors[path]) fieldErrors[path] = issue.message;
+    }
+    return { ok: false, error: 'Some fields are invalid.', fieldErrors };
+  }
+  const data = parsed.data;
+
+  // D3: city comes from the exec's own registration — no input needed.
+  const [execRow] = await db
+    .select({ cityId: salesExecutives.cityId })
+    .from(salesExecutives)
+    .where(eq(salesExecutives.userId, actor.id))
+    .limit(1);
+  if (!execRow?.cityId) {
+    return {
+      ok: false,
+      error: 'Quick capture needs your city on file — use "Add full details" instead.',
+    };
+  }
+
+  const phoneWithPrefix = `+91${data.phone}`;
+
+  // D4: dedup by phone before inserting.
+  const [existing] = await db
+    .select({
+      id: leads.id,
+      name: leads.name,
+      capturedByUserId: leads.capturedByUserId,
+    })
+    .from(leads)
+    .where(eq(leads.phone, phoneWithPrefix))
+    .limit(1);
+  if (existing) {
+    const visible = existing.capturedByUserId === actor.id;
+    return {
+      ok: false,
+      error: 'duplicate',
+      fieldErrors: visible
+        ? { dupLeadId: existing.id, dupName: existing.name }
+        : {},
+    };
+  }
+
+  const [inserted] = await db
+    .insert(leads)
+    .values({
+      type: 'Customer',
+      name: data.name,
+      phone: phoneWithPrefix,
+      email: null,
+      cityId: execRow.cityId,
+      interest: [],
+      notes: null,
+      bhk: null,
+      firmName: null,
+      businessTypeId: null,
+      capturedByUserId: actor.id,
+    })
+    .returning({ id: leads.id });
+
+  revalidatePath('/', 'layout');
+  return { ok: true, data: { leadId: inserted.id, name: data.name } };
 }

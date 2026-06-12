@@ -32,6 +32,7 @@ function buildMetrics(
     amountCollectedPaise: 0,
     inboundPaymentCount: 0,
     quotationsCount: 0,
+    visitedRequests: 0,
     targets: {
       revenue: { ...EMPTY_TARGET },
       visits: { ...EMPTY_TARGET },

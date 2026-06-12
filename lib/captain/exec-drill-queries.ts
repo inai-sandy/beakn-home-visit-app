@@ -260,6 +260,7 @@ const EMPTY_METRICS: DayCloseMetrics = {
   amountCollectedPaise: 0,
   inboundPaymentCount: 0,
   quotationsCount: 0,
+  visitedRequests: 0,
   targets: {
     revenue: { ...EMPTY_TARGET_CELL },
     visits: { ...EMPTY_TARGET_CELL },
@@ -288,6 +289,7 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
     amountCollectedPaise: 0,
     inboundPaymentCount: 0,
     quotationsCount: 0,
+    visitedRequests: 0,
     targets: {
       revenue: { actual: 0, target: null, status: 'no_target' },
       visits: { actual: 0, target: null, status: 'no_target' },
@@ -310,6 +312,7 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
     merged.amountCollectedPaise += p.amountCollectedPaise;
     merged.inboundPaymentCount += p.inboundPaymentCount;
     merged.quotationsCount += p.quotationsCount;
+    merged.visitedRequests += p.visitedRequests;
     for (const k of ['revenue', 'visits', 'quotations', 'orders'] as const) {
       const left = merged.targets[k];
       const right = p.targets[k];
@@ -337,11 +340,13 @@ function aggregateMetrics(parts: DayCloseMetrics[]): DayCloseMetrics {
     };
   }
   // Conversion pct = orders / visits; null when visits = 0.
-  const visits = merged.targets.visits.actual ?? 0;
+  // HVA-276: conversion = orders ÷ visited REQUESTS (funnel), not visit
+  // tasks. Both sides are per-day DISTINCT counts summed across the
+  // window — same day-wise semantics the orders tile already had.
   const orders = merged.targets.orders.actual ?? 0;
-  if (visits > 0) {
+  if (merged.visitedRequests > 0) {
     merged.targets.conversionPct = {
-      actual: Math.round((orders / visits) * 1000) / 10,
+      actual: Math.round((orders / merged.visitedRequests) * 1000) / 10,
       target: null,
       status: 'no_target',
     };

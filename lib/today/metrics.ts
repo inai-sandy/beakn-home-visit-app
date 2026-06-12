@@ -11,6 +11,7 @@ import {
 } from '@/db/schema';
 
 import { getConfig } from '@/lib/config';
+import { STATUS_CODES, VISIT_TASK_TYPES } from '@/lib/metrics/constants';
 
 import { compareConversionPct, compareToTarget, type TargetStatus } from './targets';
 import { isFastCompletion, parseEstimatedMinutes } from './time';
@@ -30,17 +31,17 @@ import { isFastCompletion, parseEstimatedMinutes } from './time';
 // Note on the "orders closed today" metric (D8 in the bundle):
 // `request_status_history` carries one row per stage transition with
 // `changed_by_user_id` + `changed_at` + `to_status_stage_id`. Counting
-// DISTINCT request_id where the transition target was ORDER_CONFIRMED or
-// ORDER_EXECUTED_SUCCESSFULLY catches both "order placed today" and
-// "order executed today" without double-counting a single request that
-// hit both stages on the same day.
+// DISTINCT request_id where the transition target was ORDER_CONFIRMED.
+//
+// HVA-276: two calc fixes brought this file in line with the SSOT
+// loaders (lib/metrics/*):
+//   * Orders = ORDER_CONFIRMED only. The old union with
+//     ORDER_EXECUTED_SUCCESSFULLY counted one request as an order on
+//     BOTH its confirm day and its execute day.
+//   * Every date comparison on a timestamptz column wraps with
+//     AT TIME ZONE 'Asia/Kolkata' — the bare ::date cast used the UTC
+//     calendar, so a 12:30 AM IST event landed on the previous day.
 // =============================================================================
-
-const VISIT_TASK_TYPES = ['Customer home visit', 'Sales pitch', 'Outlet visit'] as const;
-const ORDERS_STAGE_CODES = [
-  'ORDER_CONFIRMED',
-  'ORDER_EXECUTED_SUCCESSFULLY',
-] as const;
 
 export interface DayCloseMetrics {
   // Plan vs Actual
@@ -64,6 +65,10 @@ export interface DayCloseMetrics {
   inboundPaymentCount: number;
   // Submissions
   quotationsCount: number;
+  /** HVA-276: DISTINCT requests entering VISIT_COMPLETED on the date —
+   *  the conversion denominator (funnel), distinct from the visits
+   *  TARGET cell which counts completed visit-type tasks (activity). */
+  visitedRequests: number;
   // 6 target metrics
   targets: {
     revenue: TargetCell;
@@ -135,12 +140,13 @@ export async function loadFinancialMetricsForDate(args: {
       and(
         eq(visitRequests.assignedExecUserId, execUserId),
         isNull(visitRequests.cancelledAt),
-        sqlBuilder`${quotations.submittedAt}::date = ${istDateStr}::date`,
+        sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
       ),
     );
   const quotationsCount = quotationAgg?.cnt ?? 0;
 
-  // Orders closed
+  // Orders closed + visited requests — same status-history shape,
+  // different target stage (HVA-276).
   const [ordersAgg] = await db
     .select({
       cnt: sqlBuilder<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
@@ -151,11 +157,27 @@ export async function loadFinancialMetricsForDate(args: {
     .where(
       and(
         eq(visitRequests.assignedExecUserId, execUserId),
-        inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
-        sqlBuilder`${requestStatusHistory.changedAt}::date = ${istDateStr}::date`,
+        eq(statusStages.code, STATUS_CODES.ORDER_CONFIRMED),
+        sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
       ),
     );
   const ordersClosed = ordersAgg?.cnt ?? 0;
+
+  const [visitedAgg] = await db
+    .select({
+      cnt: sqlBuilder<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+    })
+    .from(requestStatusHistory)
+    .innerJoin(statusStages, eq(statusStages.id, requestStatusHistory.toStatusStageId))
+    .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        eq(statusStages.code, STATUS_CODES.VISIT_COMPLETED),
+        sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
+      ),
+    );
+  const visitedRequests = visitedAgg?.cnt ?? 0;
 
   // Visits — completed visit-type tasks anchored to this date.
   const visitTaskRows = await db
@@ -192,6 +214,7 @@ export async function loadFinancialMetricsForDate(args: {
     amountCollectedPaise,
     inboundPaymentCount,
     quotationsCount,
+    visitedRequests,
     targets: {
       revenue: { actual: revenueRupees, target: null, status: 'no_target' },
       visits: { actual: visitsCompleted, target: null, status: 'no_target' },
@@ -321,7 +344,7 @@ export async function loadDayCloseMetrics(args: {
       and(
         eq(visitRequests.assignedExecUserId, execUserId),
         isNull(visitRequests.cancelledAt),
-        sqlBuilder`${quotations.submittedAt}::date = ${istDateStr}::date`,
+        sqlBuilder`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
       ),
     );
   const quotationsCount = quotationAgg?.cnt ?? 0;
@@ -348,11 +371,29 @@ export async function loadDayCloseMetrics(args: {
     .where(
       and(
         eq(visitRequests.assignedExecUserId, execUserId),
-        inArray(statusStages.code, ORDERS_STAGE_CODES as readonly string[]),
-        sqlBuilder`${requestStatusHistory.changedAt}::date = ${istDateStr}::date`,
+        eq(statusStages.code, STATUS_CODES.ORDER_CONFIRMED),
+        sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
       ),
     );
   const ordersClosed = ordersAgg?.cnt ?? 0;
+
+  // HVA-276: conversion denominator — DISTINCT requests whose visit
+  // completed today. Same shape as orders, different target stage.
+  const [visitedAgg] = await db
+    .select({
+      cnt: sqlBuilder<number>`COUNT(DISTINCT ${requestStatusHistory.requestId})::int`,
+    })
+    .from(requestStatusHistory)
+    .innerJoin(statusStages, eq(statusStages.id, requestStatusHistory.toStatusStageId))
+    .innerJoin(visitRequests, eq(visitRequests.id, requestStatusHistory.requestId))
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        eq(statusStages.code, STATUS_CODES.VISIT_COMPLETED),
+        sqlBuilder`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDateStr}::date`,
+      ),
+    );
+  const visitedRequests = visitedAgg?.cnt ?? 0;
 
   // -------------------------------------------------------------------------
   // 5. Targets — pull all 6 keys once via getConfig. compareToTarget
@@ -383,7 +424,9 @@ export async function loadDayCloseMetrics(args: {
   // Convert paise → ₹ for the actual-vs-target comparison.
   const revenueRupees = amountCollectedPaise / 100;
 
-  const conversion = compareConversionPct(ordersClosed, visitsCompleted, targetConversionPct);
+  // HVA-276: denominator is visited REQUESTS (funnel), not visit tasks
+  // (activity) — the old task denominator let conversion exceed 100%.
+  const conversion = compareConversionPct(ordersClosed, visitedRequests, targetConversionPct);
 
   const targets: DayCloseMetrics['targets'] = {
     revenue: {
@@ -429,6 +472,7 @@ export async function loadDayCloseMetrics(args: {
     amountCollectedPaise,
     inboundPaymentCount,
     quotationsCount,
+    visitedRequests,
     targets,
   };
 }

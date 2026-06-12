@@ -59,11 +59,6 @@ const VISIT_TASK_TYPES = [
   'Outlet visit',
 ] as const;
 
-const ORDERS_STAGE_CODES = [
-  'ORDER_CONFIRMED',
-  'ORDER_EXECUTED_SUCCESSFULLY',
-] as const;
-
 // =============================================================================
 // Date filter
 // =============================================================================
@@ -861,10 +856,17 @@ async function loadExecStatusesByFilter(
   // 2026-05-27: per-exec collections roll up by the request's assigned
   // exec (not the clicker). Captain or admin recording on behalf still
   // lands in the right exec's bucket.
+  // HVA-276: net cash (inbound − outbound), same CASE as the team
+  // Revenue card — the old inbound-only sum made the per-exec rows add
+  // up to MORE than the team total whenever a refund existed.
   const paymentRows = await db
     .select({
       execUserId: visitRequests.assignedExecUserId,
-      total: sqlBuilder<string | null>`COALESCE(SUM(${payments.amountPaise}), 0)::text`,
+      total: sqlBuilder<string | null>`COALESCE(SUM(
+        CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
+             WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
+             ELSE 0 END
+      ), 0)::text`,
     })
     .from(payments)
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
@@ -874,7 +876,6 @@ async function loadExecStatusesByFilter(
         isNull(visitRequests.cancelledAt),
         gte(payments.paymentDate, from),
         lte(payments.paymentDate, to),
-        eq(payments.direction, 'inbound'),
         isNull(payments.voidedAt),
       ),
     )

@@ -83,7 +83,7 @@ proxy.ts            — top-level route gating (replaces middleware.ts)
 - **HVA Postgres:** `beakn-postgres` container, bound to `127.0.0.1:5432` only (NOT host-exposed)
 - **Caddy:** shared `caddy` container, reverse-proxies `visits.beakn.in → beakn-app:3001`
 - **Public domain:** visits.beakn.in (Cloudflare DNS, NOT Hostinger DNS)
-- **Health check:** `curl -sf http://localhost:3001/api/health` returns `{"status":"ok","db":"connected","timestamp":"..."}`
+- **Health check:** `docker inspect beakn-app --format '{{.State.Health.Status}}'` → `healthy`, or `curl -sf https://visits.beakn.in/api/health` → `{"status":"ok","db":"connected","timestamp":"..."}`. **NOT `curl localhost:3001`** — the container does not publish port 3001 to the host (Caddy reaches it over mcp-network), so a host-side curl hits whatever stray process owns that port (found 2026-06-12: a leftover e2e next-server answering 500s)
 
 **Other containers on the same VPS (DO NOT TOUCH):**
 - `rag-postgres` — RAG-system's Postgres, internal only
@@ -196,7 +196,7 @@ Claude Code executes the full ship pipeline automatically for auto-mergeable PRs
 
 **Step 6**: Run `bash scripts/deploy.sh` from `/opt/beakn-home-visit-app`. No need to switch users — Claude Code already runs as `beakn`.
 
-**Step 7**: Health check. Execute `curl -sf http://localhost:3001/api/health`. Expect HTTP 200 with body containing `status:ok` and `db:connected`.
+**Step 7**: Health check. Execute `docker inspect beakn-app --format '{{.State.Health.Status}}'` and expect `healthy` (deploy.sh already polls this and aborts if it never gets there), then `curl -sf https://visits.beakn.in/api/health` and expect HTTP 200 with `status:ok` and `db:connected`. Do NOT use `curl localhost:3001` — port 3001 is not published to the host.
 
 **Step 8**: Report ship summary to Sandeep in chat: PR number, merge SHA, migration count (applied/skipped), container health status, tests passing count, files changed count.
 

@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 
 import { BackButton } from '@/components/ui/back-button';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 
 // =============================================================================
@@ -62,27 +61,27 @@ export function StickyRequestHeader({
               <Badge variant="outline" className="text-[10px]">
                 {cityName}
               </Badge>
+              {/* HVA-274: the phone used to be a full-size button row that
+                  dominated the header. Sandeep 2026-06-12: shrink it to
+                  city-badge scale. Still one tap to call. */}
+              <a
+                href={`tel:${customerPhone}`}
+                aria-label={`Call ${customerName}`}
+                className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-mono text-foreground hover:bg-muted transition-colors"
+              >
+                <Icon name="phone" size="xs" />
+                {customerPhone}
+              </a>
               {sourceBadge}
             </div>
           </div>
           {editButton}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button asChild variant="outline" size="sm" className="h-9">
-            <a
-              href={`tel:${customerPhone}`}
-              aria-label={`Call ${customerName}`}
-            >
-              <Icon name="phone" size="xs" />
-              <span className="font-mono">{customerPhone}</span>
-            </a>
-          </Button>
-          {primaryAction && (
-            <div className="ml-auto flex items-center gap-2">
-              {primaryAction}
-            </div>
-          )}
-        </div>
+        {primaryAction && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {primaryAction}
+          </div>
+        )}
       </div>
     </header>
   );

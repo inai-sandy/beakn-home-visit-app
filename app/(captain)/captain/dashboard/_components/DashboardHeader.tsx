@@ -61,6 +61,7 @@ export function DashboardHeader({
   filter,
   pathname = '/captain/dashboard',
   maxDaysBack,
+  subtitle,
 }: {
   filter: DateFilter;
   /** Where the date picker URL state should write to. Defaults to
@@ -70,6 +71,8 @@ export function DashboardHeader({
   /** HVA-278: forwarded to DateRangePicker. The captain dashboard
    *  passes 365 (its server validator clamps the same window). */
   maxDaysBack?: number;
+  /** HVA-279: desktop subtitle. Admin passes its own copy. */
+  subtitle?: string;
 }) {
   const label = viewLabel(filter);
   return (
@@ -79,7 +82,7 @@ export function DashboardHeader({
         <p className="text-sm text-muted-foreground mt-1">
           <span className="md:hidden">{label}</span>
           <span className="hidden md:inline">
-            Today&apos;s team performance and what needs your attention.
+            {subtitle ?? "Today's team performance and what needs your attention."}
           </span>
         </p>
       </div>

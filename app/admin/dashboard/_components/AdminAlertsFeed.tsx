@@ -1,5 +1,6 @@
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
 
 import { Icon } from '@/components/ui/icon';
 
@@ -54,8 +55,9 @@ export function AdminAlertsFeed({ alerts }: Props) {
       className="rounded-3xl border bg-card p-5 sm:p-6 shadow-sm"
     >
       <header className="flex items-center justify-between gap-2 mb-4">
-        <h2 className="text-base sm:text-lg font-semibold tracking-tight">
+        <h2 className="text-base sm:text-lg font-semibold tracking-tight inline-flex items-center gap-2">
           Alerts
+          <AsOfNowTag />
         </h2>
         {alerts.length > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-300 px-2 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-rose-500/20">

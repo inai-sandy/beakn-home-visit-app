@@ -20,14 +20,19 @@ import { computeDelta, formatRupees, greetingFor } from './format';
 
 interface Props {
   displayName: string;
-  todayRevenuePaise: number;
-  yesterdayRevenuePaise: number;
+  /** Net cash received in the picked window (HVA-279: window-driven). */
+  collectedPaise: number;
+  /** Same metric for the previous same-length window; null when unknown. */
+  previousPaise: number | null;
+  /** e.g. "vs yesterday" / "vs previous 32 days" — from resolveDateFilter. */
+  comparisonLabel: string;
 }
 
 export function AdminDashboardHero({
   displayName,
-  todayRevenuePaise,
-  yesterdayRevenuePaise,
+  collectedPaise,
+  previousPaise,
+  comparisonLabel,
 }: Props) {
   const now = new Date();
   const greeting = greetingFor(now);
@@ -38,11 +43,7 @@ export function AdminDashboardHero({
     month: 'short',
   });
 
-  const delta = computeDelta(
-    todayRevenuePaise,
-    yesterdayRevenuePaise,
-    'pct',
-  );
+  const delta = computeDelta(collectedPaise, previousPaise ?? 0, 'pct');
 
   const firstName = displayName.split(/\s+/u)[0] ?? displayName;
 
@@ -73,21 +74,22 @@ export function AdminDashboardHero({
 
         <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-semibold">
-            Collected today
+            Collected · cash received − refunds
           </p>
           <div className="flex items-baseline gap-3 flex-wrap">
             <p className="text-4xl sm:text-5xl font-bold tracking-tight tabular-nums">
-              {formatRupees(todayRevenuePaise)}
+              {formatRupees(collectedPaise)}
             </p>
-            <DeltaChip delta={delta} />
+            {previousPaise !== null && <DeltaChip delta={delta} />}
           </div>
-          <p className="text-xs text-muted-foreground">
-            vs.{' '}
-            <span className="tabular-nums font-medium">
-              {formatRupees(yesterdayRevenuePaise)}
-            </span>{' '}
-            yesterday
-          </p>
+          {previousPaise !== null && (
+            <p className="text-xs text-muted-foreground">
+              <span className="tabular-nums font-medium">
+                {formatRupees(previousPaise)}
+              </span>{' '}
+              {comparisonLabel}
+            </p>
+          )}
         </div>
       </div>
     </section>

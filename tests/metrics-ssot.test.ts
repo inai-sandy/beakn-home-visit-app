@@ -125,8 +125,8 @@ describe('SSOT metrics — admin global vs captain team', () => {
       {}, // global scope
       range,
     );
-    const adminGlobal = await loadAdminGlobalMetrics(istToday);
-    const adminRevenue = await loadAdminRevenueSnapshot(istToday);
+    const adminGlobal = await loadAdminGlobalMetrics({ fromDate: istToday, toDate: istToday });
+    const adminRevenue = await loadAdminRevenueSnapshot({ fromDate: istToday, toDate: istToday });
     const captainPerf = await loadTeamPerformance(captain.id, {
       mode: 'single',
       date: istToday,
@@ -136,20 +136,20 @@ describe('SSOT metrics — admin global vs captain team', () => {
     // (captain layer historically stores revenue in rupees so its
     // PerformanceCard formatter renders ₹ without dividing — we
     // compare numerically equivalent values rather than units).
-    expect(adminGlobal.collectionsTodayPaise).toBe(directMetrics.revenue);
-    expect(adminRevenue.receivedTodayPaise).toBe(directMetrics.revenue);
+    expect(adminGlobal.collectedPaise).toBe(directMetrics.revenue);
+    expect(adminRevenue.collectedPaise).toBe(directMetrics.revenue);
     expect((captainPerf.revenue.actual ?? 0) * 100).toBe(
       directMetrics.revenue,
     );
 
     // Visits.
-    expect(adminGlobal.visitsToday).toBe(directMetrics.visits);
+    expect(adminGlobal.visits).toBe(directMetrics.visits);
     expect(captainPerf.visits.actual).toBe(directMetrics.visits);
 
     // Orders (this is the one that was historically inconsistent —
     // admin used ORDER_EXECUTED_SUCCESSFULLY, captain used both, SSOT
     // uses ORDER_CONFIRMED only).
-    expect(adminGlobal.completedOrdersToday).toBe(directMetrics.orders_count);
+    expect(adminGlobal.ordersCount).toBe(directMetrics.orders_count);
     expect(captainPerf.orders.actual).toBe(directMetrics.orders_count);
 
     // Quotations.
@@ -194,10 +194,10 @@ describe('SSOT metrics — admin global vs captain team', () => {
       {},
       range,
     );
-    const adminCounts = await loadAdminCounts(istToday);
+    const adminCounts = await loadAdminCounts({ fromDate: istToday, toDate: istToday });
 
     expect(adminCounts.pendingCaptainApprovals).toBe(direct.pending_approvals);
-    expect(adminCounts.cancelledToday).toBe(direct.cancelled_requests);
+    expect(adminCounts.cancelled).toBe(direct.cancelled_requests);
   });
 });
 

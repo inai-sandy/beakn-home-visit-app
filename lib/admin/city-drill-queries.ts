@@ -119,7 +119,7 @@ export async function loadCityExecs(
       isActive: users.isActive,
       tasksToday: sql<number>`(
         SELECT COUNT(*)::int FROM ${tasks}
-        WHERE ${tasks.execUserId} = ${users.id}
+        WHERE ${tasks.execUserId} = ${users}.id
           AND ${tasks.taskDate} = ${istToday}
       )`,
     })
@@ -171,7 +171,7 @@ export async function loadCityOpenRequests(
         COALESCE((
           SELECT MAX(total_order_value_paise)
           FROM quotations
-          WHERE quotations.visit_request_id = ${visitRequests.id}
+          WHERE quotations.visit_request_id = ${visitRequests}.id
         ), 0)
         -
         COALESCE((
@@ -181,7 +181,7 @@ export async function loadCityOpenRequests(
                  ELSE 0 END
           )::int
           FROM ${payments}
-          WHERE ${payments.visitRequestId} = ${visitRequests.id}
+          WHERE ${payments.visitRequestId} = ${visitRequests}.id
             AND ${payments.voidedAt} IS NULL
         ), 0)
       )::int`,

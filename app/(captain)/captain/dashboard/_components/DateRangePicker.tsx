@@ -58,6 +58,14 @@ function offsetDateLocal(date: string, days: number): string {
 interface Props {
   filter: DateFilter;
   /**
+   * HVA-277: how far back the picker allows. Defaults to 30 (the
+   * original captain limit). The exec dashboard passes 365 — Sandeep
+   * hit the 30-day wall asking for "the last 31 days" and the server
+   * silently reset him to today. Widen per-portal as each dashboard's
+   * server validator is widened to match (HVA-278/279).
+   */
+  maxDaysBack?: number;
+  /**
    * HVA-167: the route to push URL updates into. Required (no default)
    * so the captain drill-down doesn't silently navigate to the dashboard
    * if someone forgets to wire it. DashboardHeader passes
@@ -67,14 +75,17 @@ interface Props {
   pathname: string;
 }
 
-export function DateRangePicker({ filter, pathname }: Props) {
+export function DateRangePicker({ filter, pathname, maxDaysBack = 30 }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   // eslint-disable-next-line no-restricted-syntax -- HVA-149: URL push for date range, not a mutation
   const [isPending, startTransition] = useTransition();
 
   const today = useMemo(() => todayIstApprox(), []);
-  const minDate = useMemo(() => offsetDateLocal(today, -30), [today]);
+  const minDate = useMemo(
+    () => offsetDateLocal(today, -maxDaysBack),
+    [today, maxDaysBack],
+  );
   const sevenDaysAgo = useMemo(() => offsetDateLocal(today, -6), [today]);
 
   // Tab state + per-tab local values seeded from the active filter.
@@ -139,7 +150,9 @@ export function DateRangePicker({ filter, pathname }: Props) {
           <DialogHeader>
             <DialogTitle>Pick a date</DialogTitle>
             <DialogDescription>
-              Single day or a date range. Range limit: 30 days ago to today.
+              Single day or a date range. Limit:{' '}
+              {maxDaysBack >= 365 ? 'one year' : `${maxDaysBack} days`} back to
+              today.
             </DialogDescription>
           </DialogHeader>
 

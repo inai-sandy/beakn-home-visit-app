@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'driz
 import { db } from '@/db/client';
 import {
   dayPlans,
+  leads,
   outcomeOptions,
   payments,
   tasks,
@@ -623,3 +624,60 @@ export type { DateFilter, TeamPerformance };
 // Re-export drizzle helpers that internal callers (tests) need to read but
 // shouldn't have to import via drizzle-orm directly.
 export const _drizzleExprs = { asc, desc, eq, and, gte, lt, inArray, isNull, or };
+
+// =============================================================================
+// HVA-277: window-driven tiles for the redesigned dashboard
+// =============================================================================
+//
+// Both helpers obey the page's from/to picker — the redesign's contract
+// is that EVERY tile recomputes when the dates change.
+// =============================================================================
+
+export interface ExecTaskWindowCounts {
+  done: number;
+  total: number;
+}
+
+/** All-task-type completion counts for tasks dated inside the window.
+ *  `task_date` is a plain date column — no IST wrap needed. */
+export async function loadExecTaskWindowCounts(
+  execUserId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<ExecTaskWindowCounts> {
+  const [row] = await db
+    .select({
+      done: sql<number>`COUNT(*) FILTER (WHERE ${tasks.status} = 'completed')::int`,
+      total: sql<number>`COUNT(*)::int`,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.execUserId, execUserId),
+        gte(tasks.taskDate, fromDate),
+        lte(tasks.taskDate, toDate),
+      ),
+    );
+  return { done: row?.done ?? 0, total: row?.total ?? 0 };
+}
+
+/** Contacts (leads) captured by this exec inside the window, by
+ *  created_at on the IST calendar. Replaces the old lifetime Leads
+ *  Enrolled card — pick a window, see what was captured in it. */
+export async function loadExecContactsCaptured(
+  execUserId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ cnt: sql<number>`COUNT(*)::int` })
+    .from(leads)
+    .where(
+      and(
+        eq(leads.capturedByUserId, execUserId),
+        sql`(${leads.createdAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${fromDate}`,
+        sql`(${leads.createdAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${toDate}`,
+      ),
+    );
+  return row?.cnt ?? 0;
+}

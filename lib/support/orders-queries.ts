@@ -95,14 +95,14 @@ export async function loadAllOrders(
         COALESCE((
           SELECT SUM(${dispatchItems.qtyInThisDispatch})
           FROM ${dispatchItems}
-          WHERE ${dispatchItems.quotationLineItemId} = ${quotationLineItems.id}
+          WHERE ${dispatchItems.quotationLineItemId} = ${quotationLineItems}.id
         ), 0)
       ), 0)::int`.as('qty_dispatched'),
       hasAnyDispatch: sql<boolean>`EXISTS (
         SELECT 1
         FROM ${dispatchItems} di
         WHERE di.quotation_line_item_id IN (
-          SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations.id}
+          SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations}.id
         )
       )`.as('has_any_dispatch'),
       hasOpenDispatch: sql<boolean>`EXISTS (
@@ -117,7 +117,7 @@ export async function loadAllOrders(
           LIMIT 1
         ) latest ON TRUE
         WHERE di.quotation_line_item_id IN (
-          SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations.id}
+          SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations}.id
         )
           AND latest.stage <> 'handed_off'
       )`.as('has_open_dispatch'),
@@ -133,7 +133,7 @@ export async function loadAllOrders(
           SELECT DISTINCT di.dispatch_id
           FROM ${dispatchItems} di
           WHERE di.quotation_line_item_id IN (
-            SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations.id}
+            SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations}.id
           )
         )
       )`.as('last_dispatch_at'),

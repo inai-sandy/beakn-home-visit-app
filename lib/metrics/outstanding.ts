@@ -38,6 +38,13 @@ export const loadOutstanding: MetricLoader<number> = async (
 ) => {
   const scopeFilter = visitRequestsScopeFilter(scope);
 
+  // HVA-277 bug fix: the correlation MUST be table-qualified by hand.
+  // `${visitRequests.id}` renders as bare `"id"` inside this raw
+  // template, and SQL name scoping resolves a bare `id` inside the
+  // subqueries to the INNER table's own id (quotations.id /
+  // payments.id) — the correlation never matched and Outstanding
+  // returned 0 for every scope on every portal. `${visitRequests}.id`
+  // renders the qualified `"visit_requests".id`.
   const [row] = await db
     .select({
       sum: sql<string | null>`COALESCE(SUM(
@@ -45,7 +52,7 @@ export const loadOutstanding: MetricLoader<number> = async (
           COALESCE((
             SELECT MAX(total_order_value_paise)
             FROM quotations
-            WHERE quotations.visit_request_id = ${visitRequests.id}
+            WHERE quotations.visit_request_id = ${visitRequests}.id
           ), 0)
           -
           COALESCE((
@@ -55,7 +62,7 @@ export const loadOutstanding: MetricLoader<number> = async (
                    ELSE 0 END
             )
             FROM payments
-            WHERE payments.visit_request_id = ${visitRequests.id}
+            WHERE payments.visit_request_id = ${visitRequests}.id
               AND payments.voided_at IS NULL
           ), 0),
           0

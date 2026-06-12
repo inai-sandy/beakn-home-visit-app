@@ -69,7 +69,7 @@ export function ExecDashboardHeader({ filter }: { filter: DateFilter }) {
           <Icon name="calendar_today" size="xs" className="mr-1.5" />
           {label}
         </span>
-        <DateRangePicker filter={filter} pathname="/dashboard" />
+        <DateRangePicker filter={filter} pathname="/dashboard" maxDaysBack={365} />
       </div>
     </header>
   );

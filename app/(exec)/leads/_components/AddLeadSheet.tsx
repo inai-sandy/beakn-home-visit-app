@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
@@ -29,7 +30,7 @@ import { cn } from '@/lib/utils';
 import { ALLOWED_INTERESTS } from '@/lib/validators/customer-request';
 import { LEAD_BHK_VALUES } from '@/lib/validators/lead';
 
-import { addLeadAction } from '../_actions/addLead';
+import { addLeadAction, quickAddLeadAction } from '../_actions/addLead';
 import type { BusinessTypeOption, CityOption } from './types';
 
 // =============================================================================
@@ -100,6 +101,53 @@ export function AddLeadSheet({ cities, businessTypes, onClose, optimistic }: Pro
     suppressErrorToast: Boolean(optimistic),
   });
 
+  // ---------------------------------------------------------------------------
+  // HVA-273 Quick Capture (locked decisions D1-D4)
+  // ---------------------------------------------------------------------------
+  // The sheet OPENS in quick view: Name + Phone + Save. "Add full
+  // details" switches to the classic form below, carrying over whatever
+  // was typed. Save keeps the sheet open (rapid-fire capture): fields
+  // clear, a "Saved" strip confirms, focus returns to Name.
+  //
+  // Deviation from the HVA-150 optimistic pattern, deliberately: quick
+  // saves are awaited (sheet stays open with a busy state) instead of
+  // inserting pending rows — multiple in-flight temp rows while the
+  // sheet stays open is exactly the kind of state juggling that breeds
+  // bugs, and the await is sub-second. Double-submit is covered by the
+  // disabled button.
+  const [view, setView] = useState<'quick' | 'full'>('quick');
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [dup, setDup] = useState<{ leadId?: string; name?: string } | null>(null);
+  const quickNameRef = useRef<HTMLInputElement | null>(null);
+
+  const { mutate: quickMutate, isPending: quickBusy } = useServerMutation(
+    quickAddLeadAction,
+    {
+      suppressErrorToast: true,
+      onError: (err, errs) => {
+        if (err === 'duplicate') {
+          setDup({ leadId: errs?.dupLeadId, name: errs?.dupName });
+          return;
+        }
+        setGeneralError(err);
+        if (errs) setFieldErrors(errs);
+      },
+    },
+  );
+
+  async function onQuickSave() {
+    if (quickBusy) return;
+    setGeneralError(null);
+    setFieldErrors({});
+    setDup(null);
+    const result = await quickMutate({ name: name.trim(), phone });
+    if (result === null) return; // error states already set
+    setSavedName(result.name);
+    setName('');
+    setPhone('');
+    quickNameRef.current?.focus();
+  }
+
   function toggleInterest(tag: string) {
     setInterest((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
@@ -167,12 +215,117 @@ export function AddLeadSheet({ cities, businessTypes, onClose, optimistic }: Pro
     <Sheet open onOpenChange={(o) => !o && !busy && onClose()}>
       <SheetContent side="bottom" className="max-h-[92svh] overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>Add a lead</SheetTitle>
+          <SheetTitle>{view === 'quick' ? 'Add contact' : 'Add a lead'}</SheetTitle>
           <SheetDescription>
-            Customer or business — capture the basics, refine later.
+            {view === 'quick'
+              ? 'Name and number — done. Add details anytime.'
+              : 'Customer or business — capture the basics, refine later.'}
           </SheetDescription>
         </SheetHeader>
 
+        {view === 'quick' && (
+          <div className="px-4 space-y-4">
+            {savedName && (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">
+                <Icon name="check_circle" size="xs" />
+                <span>
+                  Saved <strong className="font-semibold">{savedName}</strong> — next one?
+                </span>
+              </div>
+            )}
+            {dup && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 space-y-1">
+                {dup.leadId ? (
+                  <>
+                    <p>
+                      This number is already saved as{' '}
+                      <strong className="font-semibold">{dup.name}</strong>.
+                    </p>
+                    <Link
+                      href={`/leads/${dup.leadId}`}
+                      className="inline-flex items-center gap-1 font-semibold underline"
+                    >
+                      Open contact
+                      <Icon name="arrow_forward" size="xs" />
+                    </Link>
+                  </>
+                ) : (
+                  <p>
+                    This number is already registered with Beakn — ask your
+                    captain if you need it reassigned.
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="quick-name">
+                Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="quick-name"
+                ref={quickNameRef}
+                autoFocus
+                value={name}
+                maxLength={100}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setSavedName(null);
+                }}
+                placeholder="Customer's name"
+                className="h-12 text-base"
+                disabled={quickBusy}
+              />
+              {fieldErrors.name && (
+                <p className="text-xs text-destructive">{fieldErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="quick-phone">
+                Phone <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="quick-phone"
+                type="tel"
+                inputMode="numeric"
+                value={phone}
+                maxLength={10}
+                onChange={(e) => {
+                  setPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                  setSavedName(null);
+                  setDup(null);
+                }}
+                placeholder="10-digit mobile number"
+                className="h-12 text-base font-mono"
+                disabled={quickBusy}
+              />
+              {fieldErrors.phone && (
+                <p className="text-xs text-destructive">{fieldErrors.phone}</p>
+              )}
+            </div>
+            {generalError && (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {generalError}
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => {
+                setSavedName(null);
+                setDup(null);
+                setView('full');
+              }}
+              disabled={quickBusy}
+            >
+              <Icon name="tune" size="xs" />
+              Add full details
+            </Button>
+          </div>
+        )}
+
+        {view === 'full' && (
         <div className="px-4 space-y-5">
           {/* Type toggle */}
           <div className="space-y-2">
@@ -372,26 +525,56 @@ export function AddLeadSheet({ cities, businessTypes, onClose, optimistic }: Pro
             </div>
           )}
         </div>
+        )}
 
         <SheetFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={onSubmit} disabled={busy}>
-            {busy ? (
-              <>
-                <Icon name="progress_activity" size="sm" className="animate-spin" />
-                Saving…
-              </>
-            ) : (
-              'Add lead'
-            )}
-          </Button>
+          {view === 'quick' ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={quickBusy}
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={onQuickSave}
+                disabled={quickBusy || name.trim().length < 2 || phone.length !== 10}
+              >
+                {quickBusy ? (
+                  <>
+                    <Icon name="progress_activity" size="sm" className="animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  'Save contact'
+                )}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={onSubmit} disabled={busy}>
+                {busy ? (
+                  <>
+                    <Icon name="progress_activity" size="sm" className="animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  'Add lead'
+                )}
+              </Button>
+            </>
+          )}
         </SheetFooter>
       </SheetContent>
     </Sheet>

@@ -1,4 +1,3 @@
-import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { cn } from '@/lib/utils';
@@ -85,15 +84,10 @@ function MetricTile({
           {label}
           <InfoTooltip iconOnly>{tooltip}</InfoTooltip>
         </p>
-        {showTrafficLights ? (
-          metric.status === 'no_target' ? (
-            <Badge variant="outline" className="text-[10px] shrink-0">
-              No target
-            </Badge>
-          ) : (
-            <StatusDot status={metric.status} />
-          )
-        ) : null}
+        {/* HVA-278: no_target uses the gray dot (legend lives in the
+            card tooltip). The old "No target" badge ate the tile width
+            and truncated labels at 390px. */}
+        {showTrafficLights ? <StatusDot status={metric.status} /> : null}
       </div>
       <p className="text-2xl font-semibold tracking-tight tabular-nums truncate">
         {formatActual(format, metric.actual)}
@@ -114,7 +108,7 @@ function MetricTile({
 
 export function PerformanceCard({ performance }: { performance: TeamPerformance }) {
   const cardTooltip = performance.showTrafficLights
-    ? "Today's team performance across 6 metrics. Green = met or exceeded daily target. Yellow = within 70% of target. Red = below 70%. Gray = no target set. Arrows show change from yesterday."
+    ? "Today's team performance. Green = met or exceeded daily target. Yellow = within 70% of target. Red = below 70%. Gray = no target set. Arrows show change from yesterday."
     : 'Aggregated team performance across the selected range. Traffic lights are hidden for ranges. Arrows show change from the previous period of the same length.';
 
   return (
@@ -135,11 +129,18 @@ export function PerformanceCard({ performance }: { performance: TeamPerformance 
       </header>
       <div className="grid grid-cols-2 gap-3">
         <MetricTile
-          label="Revenue"
+          label="Collected"
           metric={performance.revenue}
           format="rupees"
           showTrafficLights={performance.showTrafficLights}
-          tooltip="Total amount collected from team members' inbound payments in the selected window."
+          tooltip="Cash received minus refunds on your team's requests, payment-dated in the selected window. Recorded-on-behalf still credits the assigned exec."
+        />
+        <MetricTile
+          label="Booked"
+          metric={performance.booked}
+          format="rupees"
+          showTrafficLights={false}
+          tooltip="Quotation value of orders confirmed in the selected window. Booked is sales momentum; Collected is cash reality — they are different numbers on purpose."
         />
         <MetricTile
           label="Visits"

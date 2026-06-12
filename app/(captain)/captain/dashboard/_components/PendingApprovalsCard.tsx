@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
 import type { DateFilter, PendingApprovalRow } from '@/lib/captain/dashboard-queries';
 
 // =============================================================================
@@ -54,19 +55,25 @@ export function PendingApprovalsCard({
         <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1 min-w-0 truncate">
           Pending Approvals
           <InfoTooltip iconOnly>
-            Requests your team marked Installation Complete that need your
-            approval. In single-date view: still pending now (today) or received
-            on that date (past). In range view: received during the range. Tap
-            any row to approve or reject.
+            Requests waiting for your approval right now — only requests
+            you&apos;ve accepted. This card always shows the live queue; the
+            date picker doesn&apos;t change it (HVA-168). Tap any row to
+            approve or reject.
           </InfoTooltip>
         </h2>
-        <Badge
-          variant={totalCount > 0 ? 'default' : 'secondary'}
-          className="text-xs shrink-0"
-        >
-          {totalCount}
-        </Badge>
+        <span className="inline-flex items-center gap-2 shrink-0">
+          <AsOfNowTag />
+          <Badge
+            variant={totalCount > 0 ? 'default' : 'secondary'}
+            className="text-xs"
+          >
+            {totalCount}
+          </Badge>
+        </span>
       </header>
+      <p className="text-[11px] text-muted-foreground -mt-1">
+        Requests you&apos;ve accepted, waiting on your decision.
+      </p>
 
       {/* 2026-05-26: stale-alert banner — surfaces requests sitting at
           PENDING_CAPTAIN_APPROVAL for >24h so the captain can clear

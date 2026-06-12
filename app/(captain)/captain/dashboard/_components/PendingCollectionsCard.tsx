@@ -5,6 +5,7 @@ import { Icon } from '@/components/ui/icon';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { cn } from '@/lib/utils';
 
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
 import type {
   DateFilter,
   PendingCollectionsSummary,
@@ -82,25 +83,30 @@ export function PendingCollectionsCard({
         <h2 className="text-base font-semibold tracking-tight inline-flex items-center gap-1 min-w-0 truncate">
           Pending Collections
           <InfoTooltip iconOnly>
-            Total amount owed by customers where a quotation has been submitted
-            and inbound payments don&apos;t cover the full quoted value. Aging
-            buckets are always relative to today and show how long the
-            quotation has been outstanding.
+            Money still owed: quotation value minus payments received (refunds
+            subtracted). Scope is wider than Pending Approvals — it covers
+            requests you&apos;ve accepted PLUS unaccepted requests in your
+            cities, matching the Finance page. Aging counts days since the
+            quotation was submitted, always relative to today.
           </InfoTooltip>
         </h2>
-        <Badge
-          variant={summary.outstandingRequestCount > 0 ? 'default' : 'secondary'}
-          className="text-xs shrink-0"
-        >
-          {summary.outstandingRequestCount}
-        </Badge>
+        <span className="inline-flex items-center gap-2 shrink-0">
+          <AsOfNowTag />
+          <Badge
+            variant={summary.outstandingRequestCount > 0 ? 'default' : 'secondary'}
+            className="text-xs"
+          >
+            {summary.outstandingRequestCount}
+          </Badge>
+        </span>
       </header>
 
       <p className="text-3xl font-semibold tracking-tight tabular-nums truncate">
         {formatRupees(summary.totalDueRupees)}
       </p>
       <p className="text-[11px] text-muted-foreground">
-        Days since quotation submitted (proxy for billing date).
+        Accepted + unaccepted requests in your cities · aged from quotation
+        date.
       </p>
 
       {/* 2026-05-26: stale-alert banner — outstanding requests where the

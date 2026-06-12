@@ -30,9 +30,9 @@ import { FadeRise } from '@/components/motion/motion-kit';
 //
 // Constraints applied at the parser level (also enforced by the UI's
 // calendar modal min/max attrs):
-//   - dates must be ≤ today
-//   - dates must be ≥ 30 days before today
-//   - bad/malformed params silently fall back to today
+//   - dates must be ≤ today and ≥ 365 days before today (HVA-278)
+//   - out-of-range params CLAMP to the nearest allowed date;
+//     unparseable params fall back to today
 //
 // TODO: HVA-55 SSE will replace manual refresh with live status updates.
 // =============================================================================
@@ -44,19 +44,26 @@ export const metadata: Metadata = {
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+// HVA-278: 30 → 365. The 30-day wall + silent reset-to-today was the
+// literal "I picked 31 days and it landed in today" complaint.
+const MAX_DAYS_BACK = 365;
 
-function isValidIstDateString(s: unknown): s is string {
-  if (typeof s !== 'string') return false;
-  if (!DATE_PATTERN.test(s)) return false;
-  const istToday = getIstDateString();
-  // Reject future dates (max = today IST) and dates older than 30 days.
-  if (s > istToday) return false;
-  // Use string lex compare since YYYY-MM-DD sorts lexically.
-  const [ty, tm, td] = istToday.split('-').map(Number);
-  const minDate = new Date(Date.UTC(ty, tm - 1, td - 30));
-  const minStr = `${minDate.getUTCFullYear()}-${String(minDate.getUTCMonth() + 1).padStart(2, '0')}-${String(minDate.getUTCDate()).padStart(2, '0')}`;
-  if (s < minStr) return false;
-  return true;
+function isoOffset(istDate: string, deltaDays: number): string {
+  const [y, m, d] = istDate.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Clamp an incoming date param into [today − 365, today]. Returns null
+ *  only for unparseable input. Clamping (not resetting) keeps the
+ *  user's intent — "too far back" lands on the oldest allowed day,
+ *  never silently on today. */
+function clampDateParam(s: unknown, istToday: string): string | null {
+  if (typeof s !== 'string' || !DATE_PATTERN.test(s)) return null;
+  const min = isoOffset(istToday, -MAX_DAYS_BACK);
+  if (s > istToday) return istToday;
+  if (s < min) return min;
+  return s;
 }
 
 function parseDateFilter(params: {
@@ -64,21 +71,16 @@ function parseDateFilter(params: {
   from?: string;
   to?: string;
 }): DateFilter {
-  // Range mode wins if BOTH `from` and `to` are present and valid AND
-  // from <= to. Otherwise we try single-date `date`. Otherwise today.
-  if (params.from && params.to) {
-    if (
-      isValidIstDateString(params.from) &&
-      isValidIstDateString(params.to) &&
-      params.from <= params.to
-    ) {
-      return { mode: 'range', from: params.from, to: params.to };
-    }
+  const istToday = getIstDateString();
+  const from = clampDateParam(params.from, istToday);
+  const to = clampDateParam(params.to, istToday);
+  if (from && to) {
+    return from <= to
+      ? { mode: 'range', from, to }
+      : { mode: 'range', from: to, to: from };
   }
-  if (params.date && isValidIstDateString(params.date)) {
-    return { mode: 'single', date: params.date };
-  }
-  return { mode: 'single', date: getIstDateString() };
+  const single = clampDateParam(params.date, istToday);
+  return { mode: 'single', date: single ?? istToday };
 }
 
 interface PageProps {
@@ -111,7 +113,7 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
-      <DashboardHeader filter={filter} />
+      <DashboardHeader filter={filter} maxDaysBack={365} />
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
         {/* Left column — 2/5 of desktop width (= 40%) */}

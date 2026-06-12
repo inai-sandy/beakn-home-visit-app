@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
 import { payments, quotations, requestStatusHistory } from '@/db/schema';
-import { loadTeamExecStatuses } from '@/lib/captain/dashboard-queries';
+import { loadTeamExecStatuses, loadTeamPerformance } from '@/lib/captain/dashboard-queries';
 import { loadMetrics } from '@/lib/metrics/registry';
 import { singleDayRange } from '@/lib/metrics/types';
 import { loadFinancialMetricsForDate } from '@/lib/today/metrics';
@@ -265,5 +265,67 @@ describe('F2: per-exec collections are net of refunds (was: inbound only, rows s
       singleDayRange(istToday),
     );
     expect(m.revenue).toBe(300_00);
+  });
+});
+
+describe('HVA-278: captain PerformanceCard conversion uses visited requests (the HVA-276 fix missed this path)', () => {
+  it('2 requests visited, 1 confirmed, 5 visit tasks ticked → 50%, not 20%', async () => {
+    const captain = await seedCaptain({ phone: '+919000278001' });
+    const city = await getOrCreateCity('Hyderabad');
+    const exec = await seedExecutive(captain.id, { phone: '+919100278001' });
+
+    const submitted = await getStatusStage('SUBMITTED');
+    const visited = await getStatusStage('VISIT_COMPLETED');
+    const confirmed = await getStatusStage('ORDER_CONFIRMED');
+
+    const reqs = [] as Array<{ id: string }>;
+    for (let i = 0; i < 2; i++) {
+      reqs.push(
+        await seedVisitRequest({
+          cityId: city.id,
+          assignedExecUserId: exec.id,
+          assignedCaptainUserId: captain.id,
+          statusStageCode: 'SUBMITTED',
+        }),
+      );
+      await db.insert(requestStatusHistory).values({
+        requestId: reqs[i].id,
+        fromStatusStageId: submitted.id,
+        toStatusStageId: visited.id,
+        sequenceNumber: visited.sequenceNumber,
+        transitionOrder: 1,
+        changedByUserId: exec.id,
+      });
+    }
+    await db.insert(requestStatusHistory).values({
+      requestId: reqs[0].id,
+      fromStatusStageId: visited.id,
+      toStatusStageId: confirmed.id,
+      sequenceNumber: confirmed.sequenceNumber,
+      transitionOrder: 2,
+      changedByUserId: exec.id,
+    });
+
+    // 5 ticked visit tasks — the OLD denominator. With them, the old
+    // formula reads 1/5 = 20%; the funnel truth is 1/2 = 50%.
+    const { tasks } = await import('@/db/schema');
+    await db.insert(tasks).values(
+      Array.from({ length: 5 }, (_, i) => ({
+        execUserId: exec.id,
+        taskType: 'Customer home visit' as const,
+        description: `visit task ${i}`,
+        estimatedTime: '30min',
+        taskDate: istToday,
+        status: 'completed' as const,
+      })),
+    );
+
+    const perf = await loadTeamPerformance(captain.id, {
+      mode: 'single',
+      date: istToday,
+    });
+    expect(perf.conversionPct.actual).toBe(50);
+    // Booked = the confirmed request's quotation value; none seeded → 0.
+    expect(perf.booked.actual).toBe(0);
   });
 });

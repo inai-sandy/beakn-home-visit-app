@@ -60,12 +60,16 @@ function viewLabel(filter: DateFilter): string {
 export function DashboardHeader({
   filter,
   pathname = '/captain/dashboard',
+  maxDaysBack,
 }: {
   filter: DateFilter;
   /** Where the date picker URL state should write to. Defaults to
    *  the captain dashboard; admin captain-portal view passes
    *  `/admin/portal/[captainId]/dashboard`. */
   pathname?: string;
+  /** HVA-278: forwarded to DateRangePicker. The captain dashboard
+   *  passes 365 (its server validator clamps the same window). */
+  maxDaysBack?: number;
 }) {
   const label = viewLabel(filter);
   return (
@@ -84,7 +88,7 @@ export function DashboardHeader({
           <Icon name="calendar_today" size="xs" className="mr-1.5" />
           {label}
         </span>
-        <DateRangePicker filter={filter} pathname={pathname} />
+        <DateRangePicker filter={filter} pathname={pathname} maxDaysBack={maxDaysBack} />
       </div>
     </header>
   );

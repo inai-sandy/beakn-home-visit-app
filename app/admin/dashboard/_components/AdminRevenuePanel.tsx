@@ -9,6 +9,8 @@ import type {
 } from '@/lib/admin/dashboard-queries';
 import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
 
+import { AsOfNowTag } from '@/components/dashboard/AsOfNowTag';
+
 import { formatRupees } from './format';
 
 // =============================================================================
@@ -45,14 +47,15 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
             <Row
               icon="payments"
               iconTone="text-emerald-600 bg-emerald-500/10"
-              label="Received today"
+              label="Collected"
               explainer={METRIC_DEFINITIONS.revenue.explainer}
-              value={formatRupees(revenue.receivedTodayPaise)}
+              value={formatRupees(revenue.collectedPaise)}
             />
             <Row
               icon="hourglass_bottom"
               iconTone="text-amber-600 bg-amber-500/10"
               label="Outstanding"
+              asOfNow
               explainer={METRIC_DEFINITIONS.outstanding.explainer}
               value={formatRupees(revenue.pendingOutstandingPaise)}
             />
@@ -60,6 +63,7 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
               icon="request_quote"
               iconTone="text-sky-600 bg-sky-500/10"
               label="Open quotation value"
+              asOfNow
               explainer="Total face value of every quotation on a non-cancelled request — paid or not. Snapshot, ignores the date filter."
               value={formatRupees(revenue.openQuotationPaise)}
             />
@@ -74,22 +78,23 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
               icon="inbox"
               iconTone="text-sky-600 bg-sky-500/10"
               label="Open requests"
+              asOfNow
               explainer="Non-cancelled visit requests that haven't yet been marked Order Executed Successfully. Snapshot — ignores the date filter."
               value={String(counts.openRequests)}
             />
             <Row
               icon="task_alt"
               iconTone="text-emerald-600 bg-emerald-500/10"
-              label="Completed today"
-              explainer="Distinct requests that transitioned into Order Executed Successfully today (IST). This is the fulfillment milestone — separate from the SSOT Orders metric which counts Order Confirmed (the booking event)."
-              value={String(counts.completedToday)}
+              label="Delivered"
+              explainer="Distinct requests that transitioned into Order Executed Successfully in the selected dates (IST). This is the fulfilment milestone — different from the Orders tile, which counts Order Confirmed (the booking event). The two will not match, by design."
+              value={String(counts.delivered)}
             />
             <Row
               icon="cancel"
               iconTone="text-rose-600 bg-rose-500/10"
-              label="Cancelled today"
+              label="Cancelled"
               explainer={METRIC_DEFINITIONS.cancelled_requests.explainer}
-              value={String(counts.cancelledToday)}
+              value={String(counts.cancelled)}
             />
             <Row
               icon="rule"
@@ -102,6 +107,7 @@ export function AdminRevenuePanel({ revenue, counts }: Props) {
                   Pending captain approvals
                 </Link>
               }
+              asOfNow
               explainer={METRIC_DEFINITIONS.pending_approvals.explainer}
               value={String(counts.pendingCaptainApprovals)}
               emphasise={counts.pendingCaptainApprovals > 0}
@@ -120,6 +126,7 @@ function Row({
   explainer,
   value,
   emphasise = false,
+  asOfNow = false,
 }: {
   icon: string;
   iconTone: string;
@@ -127,6 +134,9 @@ function Row({
   explainer: string;
   value: string;
   emphasise?: boolean;
+  /** HVA-279: snapshot rows wear the tag so they're never read as
+   *  belonging to the picked window. */
+  asOfNow?: boolean;
 }) {
   return (
     <li className="flex items-center justify-between gap-3">
@@ -140,6 +150,7 @@ function Row({
         <span className="text-muted-foreground truncate inline-flex items-center gap-1">
           {label}
           <InfoTooltip iconOnly>{explainer}</InfoTooltip>
+          {asOfNow && <AsOfNowTag />}
         </span>
       </span>
       <span

@@ -34,8 +34,8 @@ type CityHealth = 'healthy' | 'at_risk' | 'critical';
 
 function classifyCity(c: CityCard): CityHealth {
   if (c.execCount === 0) return 'at_risk';
-  if (c.visitsToday === 0) return 'critical';
-  if (c.nonSubmitterCount > 0 || c.visitsToday < 3) return 'at_risk';
+  if (c.visits === 0) return 'critical';
+  if (c.nonSubmitterCount > 0 || c.visits < 3) return 'at_risk';
   return 'healthy';
 }
 
@@ -194,7 +194,7 @@ function CityCardItem({ card }: { card: CityCard }) {
                 <>
                   <span className="mx-1.5">·</span>
                   <span className="text-amber-700 dark:text-amber-300 font-medium">
-                    {card.nonSubmitterCount} not started
+                    {card.nonSubmitterCount} not started today
                   </span>
                 </>
               )}
@@ -208,11 +208,11 @@ function CityCardItem({ card }: { card: CityCard }) {
             baseline, regardless of differing captain-row content above. */}
         <dl className="mt-auto grid grid-cols-3 divide-x divide-border/60 rounded-2xl bg-muted/40 py-2.5">
           <Stat
-            label="Revenue"
-            value={formatRupeesShort(card.collectionsTodayPaise)}
+            label="Collected"
+            value={formatRupeesShort(card.collectedPaise)}
           />
-          <Stat label="Visits" value={String(card.visitsToday)} />
-          <Stat label="Orders" value={String(card.ordersToday)} />
+          <Stat label="Visits" value={String(card.visits)} />
+          <Stat label="Orders" value={String(card.ordersCount)} />
         </dl>
       </Link>
     </li>

@@ -36,6 +36,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { loadMetrics } from '@/lib/metrics/registry';
+import type { DateRange } from '@/lib/metrics/types';
 
 const VISIT_TASK_TYPES = ['Customer home visit', 'Sales pitch', 'Outlet visit'] as const;
 const ORDER_BOOK_MIN_SEQ = 6;          // ORDER_CONFIRMED and beyond
@@ -49,25 +50,34 @@ const SUBMITTED_CODE = 'SUBMITTED';
 // =============================================================================
 
 export interface AdminGlobalMetrics {
-  visitsToday: number;
-  collectionsTodayPaise: number;
-  completedOrdersToday: number;
-  newRequestsToday: number;
-  /** orders ÷ visits as a %; null when there were no visits today. */
+  visits: number;
+  collectedPaise: number;
+  /** HVA-279: quotation value of orders confirmed in the window. */
+  bookedPaise: number;
+  ordersCount: number;
+  newRequests: number;
+  /** orders ÷ visited requests as a %; null when none visited. */
   conversionPct: number | null;
-  productiveMinutesToday: number;
+  productiveMinutes: number;
 }
 
 export interface AdminRevenueSnapshot {
-  receivedTodayPaise: number;
+  /** Window-driven: net cash received in the picked window. */
+  collectedPaise: number;
+  /** Snapshot as of now — ignores the window. */
   pendingOutstandingPaise: number;
+  /** Snapshot as of now — ignores the window. */
   openQuotationPaise: number;
 }
 
 export interface AdminCounts {
+  /** Snapshot as of now. */
   openRequests: number;
-  completedToday: number;
-  cancelledToday: number;
+  /** Requests entering ORDER_EXECUTED_SUCCESSFULLY in the window. */
+  delivered: number;
+  /** Requests cancelled in the window. */
+  cancelled: number;
+  /** Snapshot as of now. */
   pendingCaptainApprovals: number;
 }
 
@@ -76,11 +86,15 @@ export interface CityCard {
   cityName: string;
   isOther: boolean;
   captain: { userId: string; fullName: string } | null;
-  visitsToday: number;
-  collectionsTodayPaise: number;
-  ordersToday: number;
+  /** Window-driven. */
+  visits: number;
+  /** Window-driven. */
+  collectedPaise: number;
+  /** Window-driven. */
+  ordersCount: number;
   execCount: number;
-  /** execs in this city who didn't submit a day plan today. */
+  /** execs in this city who didn't submit a day plan TODAY — always
+   *  as-of-now regardless of the window (it's an operational alert). */
   nonSubmitterCount: number;
 }
 
@@ -107,7 +121,7 @@ export interface FirstTimeSetupStatus {
 // =============================================================================
 
 export async function loadAdminGlobalMetrics(
-  istDate: string,
+  range: DateRange,
 ): Promise<AdminGlobalMetrics> {
   // Sandeep 2026-06-03: every numeric tile now flows through the SSOT
   // loaders in `lib/metrics/*`. The shape of `AdminGlobalMetrics` is
@@ -116,11 +130,11 @@ export async function loadAdminGlobalMetrics(
   // surfaces — same orders semantic (ORDER_CONFIRMED, not the legacy
   // TERMINAL_POSITIVE_CODE), same IST-cast on every timestamptz, same
   // attribution rule (visit_request.assigned_exec_user_id).
-  const range = { fromDate: istDate, toDate: istDate };
   const m = await loadMetrics(
     [
       'visits',
       'revenue',
+      'orders_value',
       'orders_count',
       'new_requests',
       'conversion_pct',
@@ -131,12 +145,13 @@ export async function loadAdminGlobalMetrics(
   );
 
   return {
-    visitsToday: m.visits ?? 0,
-    collectionsTodayPaise: m.revenue ?? 0,
-    completedOrdersToday: m.orders_count ?? 0,
-    newRequestsToday: m.new_requests ?? 0,
+    visits: m.visits ?? 0,
+    collectedPaise: m.revenue ?? 0,
+    bookedPaise: m.orders_value ?? 0,
+    ordersCount: m.orders_count ?? 0,
+    newRequests: m.new_requests ?? 0,
     conversionPct: m.conversion_pct,
-    productiveMinutesToday: m.productive_minutes ?? 0,
+    productiveMinutes: m.productive_minutes ?? 0,
   };
 }
 
@@ -145,7 +160,7 @@ export async function loadAdminGlobalMetrics(
 // =============================================================================
 
 export async function loadAdminRevenueSnapshot(
-  istDate: string,
+  range: DateRange,
 ): Promise<AdminRevenueSnapshot> {
   // Sandeep 2026-06-03 SSOT refactor:
   //   - receivedTodayPaise → SSOT `revenue` loader (identical formula
@@ -156,7 +171,6 @@ export async function loadAdminRevenueSnapshot(
   //   - openQuotationPaise stays bespoke because it has no
   //     cross-portal twin: it's the face value of all quotations on
   //     non-cancelled requests, paid or not. Admin-only tile.
-  const range = { fromDate: istDate, toDate: istDate };
   const [{ revenue, outstanding }, quotationRows] = await Promise.all([
     loadMetrics(['revenue', 'outstanding'], {}, range),
     db
@@ -172,7 +186,7 @@ export async function loadAdminRevenueSnapshot(
   for (const r of quotationRows) openQuotationPaise += Number(r.totalPaise);
 
   return {
-    receivedTodayPaise: revenue ?? 0,
+    collectedPaise: revenue ?? 0,
     pendingOutstandingPaise: outstanding ?? 0,
     openQuotationPaise,
   };
@@ -182,7 +196,7 @@ export async function loadAdminRevenueSnapshot(
 // Counts (left column, below revenue)
 // =============================================================================
 
-export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
+export async function loadAdminCounts(range: DateRange): Promise<AdminCounts> {
   // Sandeep 2026-06-03 SSOT refactor:
   //   - cancelledToday → SSOT `cancelled_requests` loader.
   //   - pendingCaptainApprovals → SSOT `pending_approvals` loader.
@@ -192,7 +206,6 @@ export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
   //     SSOT which counts ORDER_CONFIRMED).
   //   - openRequests stays bespoke. Pipeline snapshot — no
   //     cross-portal twin.
-  const range = { fromDate: istDate, toDate: istDate };
   const [
     { cancelled_requests: cancelled, pending_approvals: approvals },
     openRow,
@@ -224,15 +237,16 @@ export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
       .where(
         and(
           eq(statusStages.code, TERMINAL_POSITIVE_CODE),
-          sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date = ${istDate}::date`,
+          sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date >= ${range.fromDate}`,
+          sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date <= ${range.toDate}`,
         ),
       ),
   ]);
 
   return {
     openRequests: openRow[0]?.cnt ?? 0,
-    completedToday: completedRow[0]?.cnt ?? 0,
-    cancelledToday: cancelled ?? 0,
+    delivered: completedRow[0]?.cnt ?? 0,
+    cancelled: cancelled ?? 0,
     pendingCaptainApprovals: approvals ?? 0,
   };
 }
@@ -241,7 +255,11 @@ export async function loadAdminCounts(istDate: string): Promise<AdminCounts> {
 // City cards (middle column)
 // =============================================================================
 
-export async function loadCityCards(istDate: string): Promise<CityCard[]> {
+export async function loadCityCards(
+  range: DateRange,
+  /** non-submitter check is ALWAYS today (operational alert). */
+  istToday: string,
+): Promise<CityCard[]> {
   // Sandeep 2026-06-03 SSOT follow-up: every per-city tile flows through
   // the SSOT loaders too — same orders semantic (ORDER_CONFIRMED), same
   // visits semantic (sales_executives.city_id → tasks by exec_user_id),
@@ -262,7 +280,6 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
   if (cityRows.length === 0) return [];
 
   const cityIds = cityRows.map((c) => c.cityId);
-  const range = { fromDate: istDate, toDate: istDate };
 
   const [perCityMetrics, execRows, planRows] = await Promise.all([
     Promise.all(
@@ -287,7 +304,7 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
       .from(dayPlans)
       .where(
         and(
-          eq(dayPlans.planDate, istDate),
+          eq(dayPlans.planDate, istToday),
           isNotNull(dayPlans.submittedAt),
         ),
       ),
@@ -319,9 +336,9 @@ export async function loadCityCards(istDate: string): Promise<CityCard[]> {
       captain: c.captainUserId
         ? { userId: c.captainUserId, fullName: c.captainFullName ?? 'Captain' }
         : null,
-      visitsToday: m?.visits ?? 0,
-      collectionsTodayPaise: m?.revenue ?? 0,
-      ordersToday: m?.orders_count ?? 0,
+      visits: m?.visits ?? 0,
+      collectedPaise: m?.revenue ?? 0,
+      ordersCount: m?.orders_count ?? 0,
       execCount: execs.size,
       nonSubmitterCount,
     };

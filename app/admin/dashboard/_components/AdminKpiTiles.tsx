@@ -6,7 +6,7 @@ import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
 import type { MetricKey } from '@/lib/metrics/types';
 import { cn } from '@/lib/utils';
 
-import { computeDelta, formatHours, type Delta } from './format';
+import { computeDelta, formatHours, formatRupeesShort, type Delta } from './format';
 
 // =============================================================================
 // HVA-117 redesign: 4-tile KPI strip
@@ -25,8 +25,10 @@ import { computeDelta, formatHours, type Delta } from './format';
 // =============================================================================
 
 interface Props {
-  today: AdminGlobalMetrics;
-  yesterday: AdminGlobalMetrics;
+  /** Metrics for the picked window (HVA-279: window-driven). */
+  window: AdminGlobalMetrics;
+  /** Previous same-length window; null when no comparison exists. */
+  compare: AdminGlobalMetrics | null;
 }
 
 interface TileSpec {
@@ -40,56 +42,62 @@ interface TileSpec {
   explainer: string;
 }
 
-export function AdminKpiTiles({ today, yesterday }: Props) {
+export function AdminKpiTiles({ window, compare }: Props) {
   const def = (k: MetricKey) => METRIC_DEFINITIONS[k].explainer;
+  const flat: Delta = { direction: 'flat', display: '', rawDelta: 0 };
   const tiles: TileSpec[] = [
+    {
+      label: 'Booked',
+      icon: 'sell',
+      iconTone: 'text-teal-600 dark:text-teal-300 bg-teal-500/10',
+      value: formatRupeesShort(window.bookedPaise),
+      delta: compare
+        ? computeDelta(window.bookedPaise, compare.bookedPaise)
+        : flat,
+      explainer: def('orders_value'),
+    },
     {
       label: 'Visits',
       icon: 'directions_walk',
       iconTone: 'text-sky-600 dark:text-sky-300 bg-sky-500/10',
-      value: String(today.visitsToday),
-      delta: computeDelta(today.visitsToday, yesterday.visitsToday),
+      value: String(window.visits),
+      delta: compare ? computeDelta(window.visits, compare.visits) : flat,
       explainer: def('visits'),
     },
     {
       label: 'Orders',
       icon: 'shopping_bag',
       iconTone: 'text-emerald-600 dark:text-emerald-300 bg-emerald-500/10',
-      value: String(today.completedOrdersToday),
-      delta: computeDelta(
-        today.completedOrdersToday,
-        yesterday.completedOrdersToday,
-      ),
+      value: String(window.ordersCount),
+      delta: compare
+        ? computeDelta(window.ordersCount, compare.ordersCount)
+        : flat,
       explainer: def('orders_count'),
     },
     {
       label: 'Conversion',
       icon: 'donut_small',
       iconTone: 'text-violet-600 dark:text-violet-300 bg-violet-500/10',
-      value:
-        today.conversionPct === null ? '—' : `${today.conversionPct}%`,
-      delta: computeDelta(
-        today.conversionPct,
-        yesterday.conversionPct,
-        'pp',
-      ),
+      value: window.conversionPct === null ? '—' : `${window.conversionPct}%`,
+      delta: compare
+        ? computeDelta(window.conversionPct, compare.conversionPct, 'pp')
+        : flat,
       explainer: def('conversion_pct'),
     },
     {
       label: 'Productive',
       icon: 'schedule',
       iconTone: 'text-amber-600 dark:text-amber-300 bg-amber-500/10',
-      value: formatHours(today.productiveMinutesToday),
-      delta: computeDelta(
-        today.productiveMinutesToday,
-        yesterday.productiveMinutesToday,
-      ),
+      value: formatHours(window.productiveMinutes),
+      delta: compare
+        ? computeDelta(window.productiveMinutes, compare.productiveMinutes)
+        : flat,
       explainer: def('productive_minutes'),
     },
   ];
 
   return (
-    <section aria-label="Today's metrics" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+    <section aria-label="Metrics for the selected dates" className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
       {tiles.map((t) => (
         <Tile key={t.label} spec={t} />
       ))}

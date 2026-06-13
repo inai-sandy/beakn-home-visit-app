@@ -137,7 +137,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     initialResult: 'noop', // bumped to 'ok' by the handler when matched
   });
 
-  if (outcome.status === 'duplicate') {
+  // HVA-280 (H2): a duplicate whose first attempt FAILED (result='error')
+  // must be reprocessed, not waved through. Otherwise a transient handler
+  // failure on the first delivery turns CartPlus's retry into a permanent
+  // no-op and the edit is lost. We only short-circuit when the prior
+  // attempt already succeeded ('ok') or is a terminal no-op ('noop',
+  // e.g. an unhandled event type).
+  const isFailedRetry =
+    outcome.status === 'duplicate' &&
+    outcome.existingResult === 'error' &&
+    Boolean(outcome.webhookEventId);
+
+  if (outcome.status === 'duplicate' && !isFailedRetry) {
     routeLog.info(
       { deliveryId, eventId: envelope.id, eventType: envelope.type },
       'webhook_idempotency_hit',
@@ -145,6 +156,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       { ok: true, result: 'noop', reason: 'duplicate' },
       { status: 200 },
+    );
+  }
+
+  if (isFailedRetry) {
+    routeLog.info(
+      {
+        deliveryId,
+        eventId: envelope.id,
+        eventType: envelope.type,
+        webhookEventId: outcome.webhookEventId,
+      },
+      'webhook_reprocessing_failed_event',
     );
   }
 

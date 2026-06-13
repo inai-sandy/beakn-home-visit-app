@@ -139,6 +139,11 @@ export const quotationLineItems = pgTable(
     // NULL for manual entries.
     portalProductId: bigint('portal_product_id', { mode: 'number' }),
     portalLineItemId: bigint('portal_line_item_id', { mode: 'number' }),
+    // HVA-280: soft-removal. When a CartPlus edit drops an item, the
+    // sync sets this instead of hard-deleting (no-deletes rule). All
+    // reads of "current" line items filter `removed_at IS NULL`; a
+    // re-added item clears it.
+    removedAt: timestamp('removed_at', { withTimezone: true }),
     ...timestamps(),
   },
   (table) => [

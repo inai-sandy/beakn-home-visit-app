@@ -152,6 +152,20 @@ export async function seedE2EUsers(
       RETURNING id, tracking_token
     `;
 
+    // HVA-281: the journey's order carries a CartPlus (portal) quotation —
+    // real quotations now come from CartPlus; a Beakn request carries only
+    // a Target. The order/collection steps run against this synced
+    // quotation (₹50,000), while the exec sets a separate Target in step 3.
+    await sql`
+      INSERT INTO quotations (
+        visit_request_id, quotation_number, total_order_value_paise,
+        submitted_by_user_id, source, portal_quotation_id, store_id, last_webhook_at
+      ) VALUES (
+        ${journey.id}, 'CP-GOLDEN-1', 5000000,
+        ${veeraId}, 'portal', 'golden-portal-1', 1, NOW()
+      )
+    `;
+
     return {
       exec: {
         id: veeraId,

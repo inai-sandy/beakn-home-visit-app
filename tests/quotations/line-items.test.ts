@@ -65,6 +65,7 @@ async function seedQuotation(args: {
     .values({
       visitRequestId: req.id,
       totalOrderValuePaise: 100000, // ₹1000 placeholder header
+      source: 'portal',
       submittedByUserId: args.execId,
     })
     .returning({ id: quotations.id });

@@ -302,7 +302,11 @@ export async function reportOrderValueTrend(
     )
     .leftJoin(
       quotations,
-      eq(quotations.visitRequestId, requestStatusHistory.requestId),
+      and(
+        eq(quotations.visitRequestId, requestStatusHistory.requestId),
+        // HVA-281: order value from CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
     )
     .where(
       and(
@@ -537,6 +541,8 @@ export async function reportQuotationsTrend(
     .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
     .where(
       and(
+        // HVA-281: CartPlus actuals only.
+        eq(quotations.source, 'portal'),
         gte(
           sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
           args.range.fromDate,
@@ -623,6 +629,8 @@ export async function reportAcceptanceTrend(
     .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
     .where(
       and(
+        // HVA-281: CartPlus actuals only.
+        eq(quotations.source, 'portal'),
         gte(
           sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
           args.range.fromDate,

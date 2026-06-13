@@ -179,7 +179,14 @@ export async function loadAllExecTargetProgress(
     })
     .from(sql`${confirmedRequestSubquery} AS confirmed`)
     .innerJoin(visitRequests, sql`${visitRequests.id} = confirmed.request_id`)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: order value comes from CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(sql`${visitRequests.assignedExecUserId} IS NOT NULL`)
     .groupBy(visitRequests.assignedExecUserId);
 
@@ -299,7 +306,14 @@ export async function loadOneExecTargetProgress(
     })
     .from(sql`${confirmedRequestSubquery} AS confirmed`)
     .innerJoin(visitRequests, sql`${visitRequests.id} = confirmed.request_id`)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: order value comes from CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(eq(visitRequests.assignedExecUserId, execUserId));
 
   // Sandeep 2026-06-03: revenue = net cash (inbound − outbound).

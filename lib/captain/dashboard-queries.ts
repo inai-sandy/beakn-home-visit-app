@@ -723,6 +723,9 @@ async function loadPendingCollectionsScoped(
       and(
         scopeWhere,
         isNull(visitRequests.cancelledAt),
+        // HVA-281: pending collections counts CartPlus actuals only —
+        // manual quotations are now targets and never owe anything.
+        eq(quotations.source, 'portal'),
         submittedConstraint,
       ),
     );

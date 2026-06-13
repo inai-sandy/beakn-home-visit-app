@@ -404,7 +404,14 @@ export async function fetchTeamContactRequests(
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .leftJoin(execAlias, eq(execAlias.id, visitRequests.assignedExecUserId))
-    .leftJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .leftJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: show the CartPlus actual; manual rows are targets.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(whereExpr)
     .orderBy(desc(visitRequests.createdAt));
 

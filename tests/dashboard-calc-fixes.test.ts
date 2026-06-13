@@ -199,6 +199,7 @@ describe('F3: IST wrap on day-close date casts (was: bare ::date used the UTC ca
     await db.insert(quotations).values({
       visitRequestId: req.id,
       totalOrderValuePaise: 500_00,
+      source: 'portal',
       submittedByUserId: exec.id,
       submittedAt: atIst(istToday, '00:30'),
     });

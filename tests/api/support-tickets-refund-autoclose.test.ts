@@ -68,6 +68,7 @@ async function seedRequestReadyForRefund(): Promise<{
   await db.insert(quotations).values({
     visitRequestId: req.id,
     totalOrderValuePaise: 500000,
+    source: 'portal',
     submittedByUserId: exec.id,
   });
   return {

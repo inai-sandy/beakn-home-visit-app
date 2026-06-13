@@ -83,6 +83,8 @@ export const loadOrdersValue: MetricLoader<number> = async (
     .where(
       and(
         scopeFilter,
+        // HVA-281: only CartPlus quotations carry a real order value.
+        eq(quotations.source, 'portal'),
         sql`EXISTS (
           SELECT 1 FROM ${requestStatusHistory} rsh
           INNER JOIN ${statusStages} ss ON ss.id = rsh.to_status_stage_id

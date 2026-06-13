@@ -144,7 +144,11 @@ async function loadCityAggregates(args: ReportArgs): Promise<CityAggRow[]> {
       )
       .leftJoin(
         quotations,
-        eq(quotations.visitRequestId, requestStatusHistory.requestId),
+        and(
+          eq(quotations.visitRequestId, requestStatusHistory.requestId),
+          // HVA-281: CartPlus actuals only.
+          eq(quotations.source, 'portal'),
+        ),
       )
       .where(
         and(

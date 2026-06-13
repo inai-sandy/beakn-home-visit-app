@@ -45,6 +45,7 @@ async function seedOrderWithItem(opts: {
     .values({
       visitRequestId: req.id,
       totalOrderValuePaise: 100000,
+      source: 'portal',
       submittedByUserId: opts.execId,
     })
     .returning({ id: quotations.id });
@@ -295,6 +296,7 @@ describe('loadAllOrders', () => {
       .values({
         visitRequestId: targetReq.id,
         totalOrderValuePaise: 1,
+        source: 'portal',
         submittedByUserId: exec.id,
       })
       .returning({ id: quotations.id });
@@ -388,6 +390,7 @@ describe('loadDispatchQueue sort + pagination', () => {
         .values({
           visitRequestId: r.id,
           totalOrderValuePaise: 1,
+          source: 'portal',
           submittedByUserId: exec.id,
         })
         .returning({ id: quotations.id });
@@ -436,6 +439,7 @@ describe('loadDispatchQueue sort + pagination', () => {
         .values({
           visitRequestId: r.id,
           totalOrderValuePaise: 1,
+          source: 'portal',
           submittedByUserId: exec.id,
         })
         .returning({ id: quotations.id });

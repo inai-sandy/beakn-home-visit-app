@@ -112,12 +112,14 @@ describe('loadCaptainSidebarCounts', () => {
       {
         visitRequestId: fullyPaid.id,
         totalOrderValuePaise: 10000,
+        source: 'portal',
         submittedByUserId: execUserId,
         submittedAt: new Date(),
       },
       {
         visitRequestId: partlyPaid.id,
         totalOrderValuePaise: 10000,
+        source: 'portal',
         submittedByUserId: execUserId,
         submittedAt: new Date(),
       },

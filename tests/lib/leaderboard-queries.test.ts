@@ -323,18 +323,21 @@ describe('loadLeaderboard', () => {
       visitRequestId: v1,
       quotationNumber: 'Q-1',
       totalOrderValuePaise: 100_000_00,
+      source: 'portal',
       submittedByUserId: execAlpha,
     });
     await db.insert(quotations).values({
       visitRequestId: v2,
       quotationNumber: 'Q-2',
       totalOrderValuePaise: 200_000_00,
+      source: 'portal',
       submittedByUserId: execAlpha,
     });
     await db.insert(quotations).values({
       visitRequestId: v3,
       quotationNumber: 'Q-3',
       totalOrderValuePaise: 50_000_00,
+      source: 'portal',
       submittedByUserId: execBeta,
     });
 
@@ -361,6 +364,7 @@ describe('loadLeaderboard', () => {
       visitRequestId: req,
       quotationNumber: 'Q-CAPTAIN-SUBMIT',
       totalOrderValuePaise: 75_000_00,
+      source: 'portal',
       submittedByUserId: captainId, // captain submitted
     });
 

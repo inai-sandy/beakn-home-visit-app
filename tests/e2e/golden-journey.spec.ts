@@ -92,19 +92,30 @@ test.describe.serial('Golden journey', () => {
     ).toBeVisible({ timeout: 15_000 });
   });
 
-  test('3. exec adds a quotation on the Order tab', async ({ page }) => {
+  test('3. exec sets a target; the CartPlus quotation is read-only', async ({
+    page,
+  }) => {
+    // HVA-281: real quotations now come from CartPlus (read-only in
+    // Beakn). The seed synced a ₹50,000 portal quotation onto this
+    // request; the exec sets a separate TARGET (a goal). Verifies both.
     const users = seededUsers();
     await loginAs(page, 'exec');
     await page.goto(`/requests/${users.journeyRequest.id}`);
 
     await page.getByRole('tab', { name: /order/i }).click();
-    await page.getByRole('button', { name: /add quotation/i }).click();
 
-    await page.locator('#quotation-amount').fill('50000');
-    await page.getByRole('button', { name: /save quotation/i }).click();
-
-    // The collection summary re-renders with the quoted value.
+    // The CartPlus actual quotation is shown read-only on the Order tab.
     await expect(page.getByText(/50,000/).first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // The exec sets a Target (distinct from the CartPlus actual).
+    await page.getByRole('button', { name: /set target/i }).click();
+    await page.locator('#target-amount').fill('60000');
+    await page.getByRole('button', { name: /save target/i }).click();
+
+    // The Target block re-renders with the saved value.
+    await expect(page.getByText(/60,000/).first()).toBeVisible({
       timeout: 15_000,
     });
   });

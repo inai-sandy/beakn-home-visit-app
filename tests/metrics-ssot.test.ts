@@ -79,6 +79,7 @@ describe('SSOT metrics — admin global vs captain team', () => {
     await db.insert(quotations).values({
       visitRequestId: req.id,
       totalOrderValuePaise: 500_00,
+      source: 'portal',
       submittedByUserId: exec.id,
     });
 

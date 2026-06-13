@@ -166,14 +166,23 @@ export default async function LeadDetailPage({ params }: PageProps) {
       statusStageCode: statusStages.code,
       statusStageName: statusStages.name,
       assignedExecName: execAlias.fullName,
+      // HVA-281: show the CartPlus actual + its order number; manual
+      // quotations are targets and don't surface here.
       totalAmountPaise: quotations.totalOrderValuePaise,
+      orderNumber: quotations.quotationNumber,
       createdAt: visitRequests.createdAt,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .leftJoin(execAlias, eq(execAlias.id, visitRequests.assignedExecUserId))
-    .leftJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .leftJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(requestWhere)
     .orderBy(desc(visitRequests.createdAt));
 
@@ -185,6 +194,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
     statusStageName: r.statusStageName,
     assignedExecName: r.assignedExecName ?? null,
     totalAmountPaise: r.totalAmountPaise ?? null,
+    orderNumber: r.orderNumber ?? null,
     createdAt: r.createdAt.toISOString(),
   }));
 

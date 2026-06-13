@@ -194,7 +194,11 @@ async function loadExecAggregates(args: ReportArgs): Promise<ExecAggRow[]> {
         )
         .leftJoin(
           quotations,
-          eq(quotations.visitRequestId, requestStatusHistory.requestId),
+          and(
+            eq(quotations.visitRequestId, requestStatusHistory.requestId),
+            // HVA-281: CartPlus actuals only.
+            eq(quotations.source, 'portal'),
+          ),
         )
         .where(
           and(
@@ -225,6 +229,8 @@ async function loadExecAggregates(args: ReportArgs): Promise<ExecAggRow[]> {
         )
         .where(
           and(
+            // HVA-281: CartPlus actuals only.
+            eq(quotations.source, 'portal'),
             inArray(visitRequests.assignedExecUserId, execIds),
             gte(
               sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,

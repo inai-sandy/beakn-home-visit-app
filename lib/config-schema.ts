@@ -286,6 +286,8 @@ export const CONFIG_SCHEMA = {
       'customer_rejection_marked',
       'quotation_created',
       'quotation_updated',
+      // HVA-281: exec set/changed the request's TARGET value.
+      'request_target_updated',
       // HVA-234 (HVA-231 Phase 1.0) — line items on a quotation.
       // line_item_added emits on insert; line_item_updated on edit;
       // line_item_priority_changed on focused priority + target date flip.

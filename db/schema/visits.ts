@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -128,6 +129,12 @@ export const visitRequests = pgTable(
 
     trackingToken: varchar('tracking_token', { length: 32 }).notNull(),
     source: varchar('source', { length: 32 }).notNull().default('web'),
+
+    // HVA-281: the exec's TARGET value for this request — a goal, in paise,
+    // optional. Distinct from the ACTUAL quotation (value + line items),
+    // owned by CartPlus on the `quotations` row. Target never enters
+    // finance math; the CartPlus actual does.
+    targetValuePaise: bigint('target_value_paise', { mode: 'number' }),
 
     // HVA-79: customer opt-in for WhatsApp notifications. Captured on the
     // /request form (default-on checkbox). The notification engine's

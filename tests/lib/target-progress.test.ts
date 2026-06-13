@@ -89,6 +89,7 @@ describe('loadAllExecTargetProgress', () => {
       visitRequestId: req.id,
       quotationNumber: `Q-${Math.random().toString(36).slice(2, 9)}`,
       totalOrderValuePaise: args.orderValuePaise,
+      source: 'portal',
       submittedByUserId: args.execUserId,
     });
 

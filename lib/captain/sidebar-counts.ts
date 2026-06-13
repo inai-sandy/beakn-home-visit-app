@@ -118,6 +118,8 @@ export async function loadCaptainSidebarCounts(
         and(
           visibility,
           isNull(visitRequests.cancelledAt),
+          // HVA-281: outstanding counts CartPlus actuals only.
+          eq(quotations.source, 'portal'),
           sql`${quotations.totalOrderValuePaise} > COALESCE((
             SELECT
               SUM(CASE WHEN ${payments.direction} = 'inbound' THEN ${payments.amountPaise} ELSE 0 END)

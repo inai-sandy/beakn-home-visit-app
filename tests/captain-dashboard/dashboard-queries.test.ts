@@ -431,6 +431,7 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
       await db.insert(quotations).values({
         visitRequestId: r.id,
         totalOrderValuePaise: 10_000_00,
+        source: 'portal',
         submittedByUserId: exec.id,
         submittedAt,
       });
@@ -498,6 +499,7 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
       await db.insert(quotations).values({
         visitRequestId: r.id,
         totalOrderValuePaise: opts.valuePaise,
+        source: 'portal',
         submittedByUserId: opts.execId ?? me.id,
         submittedAt: new Date(),
       });
@@ -550,6 +552,7 @@ describe('Test #4 — loadPendingCollections buckets by quotation age', () => {
     await db.insert(quotations).values({
       visitRequestId: r.id,
       totalOrderValuePaise: 5_000_00,
+      source: 'portal',
       submittedByUserId: exec.id,
     });
     await db.insert(payments).values({
@@ -788,6 +791,7 @@ describe('Test #4b (HVA-80 ext) — pending collections range scope', () => {
       await db.insert(quotations).values({
         visitRequestId: r.id,
         totalOrderValuePaise: 10_000_00,
+        source: 'portal',
         submittedByUserId: exec.id,
         submittedAt: new Date(now - ageDays * 24 * 60 * 60 * 1000),
       });

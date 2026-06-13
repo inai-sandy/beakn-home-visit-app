@@ -46,6 +46,8 @@ async function seedQuotation(
     totalOrderValuePaise: totalPaise,
     submittedAt: new Date(),
     submittedByUserId,
+    // HVA-281: finance counts CartPlus (portal) quotations only.
+    source: 'portal',
   });
 }
 

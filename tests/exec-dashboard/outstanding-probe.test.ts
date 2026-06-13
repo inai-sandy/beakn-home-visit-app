@@ -40,6 +40,7 @@ describe('outstanding with exec scope', () => {
       visitRequestId: req.id,
       totalOrderValuePaise: 5_000_000,
       submittedByUserId: exec.id,
+      source: 'portal', // HVA-281: finance counts CartPlus quotations only
     });
     await db.insert(payments).values({
       visitRequestId: req.id,

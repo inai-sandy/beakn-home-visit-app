@@ -275,7 +275,14 @@ export async function loadFinanceSnapshot(
       pipelineCount: sql<number>`COUNT(*) FILTER (WHERE ${statusStages.sequenceNumber} < ${ORDER_BOOK_MIN_SEQ})::int`,
     })
     .from(visitRequests)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: finance counts CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .where(where);
 
@@ -330,7 +337,14 @@ export async function loadFinanceSnapshot(
       ), '0')`,
     })
     .from(visitRequests)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: finance counts CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(where);
 
   let outstandingPaise = 0;
@@ -410,7 +424,14 @@ export async function loadFinanceAgingBuckets(
       ), '0')`,
     })
     .from(visitRequests)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: finance counts CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .where(
       and(
         isNull(visitRequests.cancelledAt),
@@ -540,7 +561,14 @@ export async function loadFinanceOrderList(
   const [{ total }] = await db
     .select({ total: sql<number>`COUNT(*)::int` })
     .from(visitRequests)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: finance counts CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .where(baseWhere);
 
@@ -573,7 +601,14 @@ export async function loadFinanceOrderList(
       ), '0')`,
     })
     .from(visitRequests)
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: finance counts CartPlus actuals only.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .leftJoin(execUser, eq(execUser.id, visitRequests.assignedExecUserId))

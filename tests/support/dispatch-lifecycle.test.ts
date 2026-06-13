@@ -85,6 +85,7 @@ async function seedOrderWithItem(opts: {
     .values({
       visitRequestId: req.id,
       totalOrderValuePaise: 100000,
+      source: 'portal',
       submittedByUserId: opts.execId,
     })
     .returning({ id: quotations.id });
@@ -259,6 +260,7 @@ describe('loadOrderDetail', () => {
       .values({
         visitRequestId: req.id,
         totalOrderValuePaise: 100000,
+        source: 'portal',
         submittedByUserId: exec.id,
       })
       .returning({ id: quotations.id });

@@ -26,6 +26,8 @@ export interface ContactRequestRow {
   statusStageName: string;
   assignedExecName: string | null;
   totalAmountPaise: number | null;
+  /** HVA-281: CartPlus order number for this request's actual quotation. */
+  orderNumber: string | null;
   createdAt: string; // ISO
 }
 
@@ -143,6 +145,11 @@ export function ContactRequestsSection({ lead, requests }: Props) {
                       <span className="text-muted-foreground font-mono">
                         {rupees(r.totalAmountPaise)}
                       </span>
+                    )}
+                    {r.orderNumber && (
+                      <Badge variant="outline" className="text-[10px]">
+                        #{r.orderNumber}
+                      </Badge>
                     )}
                   </div>
                 </Link>

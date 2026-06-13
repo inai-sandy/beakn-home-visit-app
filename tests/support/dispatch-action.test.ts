@@ -109,6 +109,7 @@ async function seedOrderWithItem(opts: {
     .values({
       visitRequestId: req.id,
       totalOrderValuePaise: 100000,
+      source: 'portal',
       submittedByUserId: opts.execId,
     })
     .returning({ id: quotations.id });

@@ -41,6 +41,8 @@ export const loadQuotationsCount: MetricLoader<number> = async (
           sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
           range.toDate,
         ),
+        // HVA-281: only CartPlus quotations are real; manual rows are targets.
+        eq(quotations.source, 'portal'),
         scopeFilter,
       ),
     );
@@ -70,6 +72,8 @@ export const loadQuotationsValue: MetricLoader<number> = async (
           sql`(${quotations.submittedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
           range.toDate,
         ),
+        // HVA-281: only CartPlus quotations are real; manual rows are targets.
+        eq(quotations.source, 'portal'),
         scopeFilter,
       ),
     );

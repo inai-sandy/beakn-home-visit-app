@@ -179,7 +179,8 @@ export async function loadAdminRevenueSnapshot(
       })
       .from(quotations)
       .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
-      .where(isNull(visitRequests.cancelledAt)),
+      // HVA-281: only CartPlus quotations count; manual rows are targets.
+      .where(and(isNull(visitRequests.cancelledAt), eq(quotations.source, 'portal'))),
   ]);
 
   let openQuotationPaise = 0;

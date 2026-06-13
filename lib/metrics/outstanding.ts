@@ -53,6 +53,7 @@ export const loadOutstanding: MetricLoader<number> = async (
             SELECT MAX(total_order_value_paise)
             FROM quotations
             WHERE quotations.visit_request_id = ${visitRequests}.id
+              AND quotations.source = 'portal'
           ), 0)
           -
           COALESCE((

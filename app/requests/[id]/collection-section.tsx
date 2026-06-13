@@ -2,7 +2,7 @@ import { asc, eq } from "drizzle-orm";
 
 import { Badge } from "@/components/ui/badge";
 import { db } from "@/db/client";
-import { payments, quotations, users } from "@/db/schema";
+import { payments, quotations, users, visitRequests } from "@/db/schema";
 import { type Role, USER_ROLES } from "@/lib/auth/roles";
 import { computeCollectionSummary } from "@/lib/collection-summary";
 import { formatInrFromPaise } from "@/lib/money";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { loadLineItems } from "./_actions/lineItems";
 import { LineItemsSection } from "./line-items-section";
 import { PaymentsBlock } from "./payments-block";
-import { QuotationEditButton } from "./quotation-edit-button";
+import { TargetEditButton } from "./target-edit-button";
 
 // =============================================================================
 // HVA-70: Collection section on /requests/[id]
@@ -59,11 +59,21 @@ export async function CollectionSection({
   const isAssignedExec =
     role === USER_ROLES.SALES_EXECUTIVE && assignedExecUserId === userId;
 
-  const canEditQuotation =
+  // HVA-281: execs/captains/admin set the TARGET; the quotation is now
+  // read-only (it comes from CartPlus). Same authz gate, repurposed.
+  const canEditTarget =
     !cancelledAt && (isAdmin || isCaptainOfCity || isAssignedExec);
-  const canRecordPayment = canEditQuotation;
+  const canRecordPayment = canEditTarget;
   const canRefund = !cancelledAt && (isAdmin || isCaptainOfCity);
   const canVoid = isAdmin || isCaptainOfCity;
+
+  // HVA-281: the exec's target lives on the request.
+  const [requestRow] = await db
+    .select({ targetValuePaise: visitRequests.targetValuePaise })
+    .from(visitRequests)
+    .where(eq(visitRequests.id, requestId))
+    .limit(1);
+  const targetValuePaise = requestRow?.targetValuePaise ?? null;
 
   const [quotationRow] = await db
     .select({
@@ -71,6 +81,7 @@ export async function CollectionSection({
       quotationNumber: quotations.quotationNumber,
       totalOrderValuePaise: quotations.totalOrderValuePaise,
       notes: quotations.notes,
+      source: quotations.source,
       submittedAt: quotations.submittedAt,
       submittedByName: users.fullName,
       updatedAt: quotations.updatedAt,
@@ -81,22 +92,16 @@ export async function CollectionSection({
     .where(eq(quotations.visitRequestId, requestId))
     .limit(1);
 
-  // Separate query for the "updated by" name so we don't need two joins
-  // on the same users table (drizzle alias dance). Empty when first-write.
-  let updatedByName: string | null = null;
-  if (quotationRow?.updatedByUserId) {
-    const [u] = await db
-      .select({ fullName: users.fullName })
-      .from(users)
-      .where(eq(users.id, quotationRow.updatedByUserId))
-      .limit(1);
-    updatedByName = u?.fullName ?? null;
-  }
+  // HVA-281: only a CartPlus (portal) quotation is the real "Quotation".
+  // A leftover manual row (test data / orphaned route) is ignored here and
+  // never feeds finance — its value, if any, lived as the target.
+  const portalQuotation =
+    quotationRow && quotationRow.source === "portal" ? quotationRow : null;
 
-  // HVA-234: load line items for this quotation. Only when a quotation
-  // exists — line items can't exist without a parent quotation row.
-  const lineItems = quotationRow
-    ? await loadLineItems(quotationRow.id)
+  // HVA-234: load line items for the CartPlus quotation. loadLineItems
+  // already excludes items removed by a CartPlus edit (HVA-280).
+  const lineItems = portalQuotation
+    ? await loadLineItems(portalQuotation.id)
     : [];
 
   const paymentRows = await db
@@ -123,7 +128,7 @@ export async function CollectionSection({
   // Summary — voided rows excluded from totals. Shared with the tests
   // via lib/collection-summary.ts so the math stays a single source.
   const summary = computeCollectionSummary(
-    quotationRow ? Number(quotationRow.totalOrderValuePaise) : 0,
+    portalQuotation ? Number(portalQuotation.totalOrderValuePaise) : 0,
     paymentRows.map((p) => ({
       direction: p.direction,
       amountPaise: Number(p.amountPaise),
@@ -143,73 +148,71 @@ export async function CollectionSection({
         )}
       </header>
 
-      {/* ---------- Quotation block ---------- */}
+      {/* ---------- Target block (HVA-281) ----------
+          The exec's goal for this request. A plain number, not finance. */}
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold tracking-tight uppercase text-muted-foreground">
-            Quotation
+            Target value
           </h3>
-          {canEditQuotation && (
-            <QuotationEditButton
+          {canEditTarget && (
+            <TargetEditButton
               requestId={requestId}
-              existing={
-                quotationRow
-                  ? {
-                      totalOrderValuePaise: Number(
-                        quotationRow.totalOrderValuePaise,
-                      ),
-                      quotationNumber: quotationRow.quotationNumber,
-                      notes: quotationRow.notes,
-                    }
-                  : null
-              }
+              existingPaise={targetValuePaise}
             />
           )}
         </div>
-        {quotationRow ? (
+        {targetValuePaise !== null ? (
+          <div className="rounded-2xl border bg-muted/30 p-4">
+            <p className="text-2xl font-semibold tracking-tight font-mono">
+              {formatInrFromPaise(Number(targetValuePaise))}
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              The exec&apos;s goal. The actual quotation comes from CartPlus.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No target set yet.</p>
+        )}
+      </div>
+
+      {/* ---------- Quotation block (HVA-281) — read-only, from CartPlus ---------- */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold tracking-tight uppercase text-muted-foreground">
+          Quotation <span className="normal-case font-normal">· from CartPlus</span>
+        </h3>
+        {portalQuotation ? (
           <div className="rounded-2xl border bg-muted/30 p-4 space-y-2">
             <div className="flex items-baseline justify-between gap-3 flex-wrap">
               <p className="text-2xl font-semibold tracking-tight font-mono">
-                {formatInrFromPaise(Number(quotationRow.totalOrderValuePaise))}
+                {formatInrFromPaise(Number(portalQuotation.totalOrderValuePaise))}
               </p>
-              {quotationRow.quotationNumber && (
+              {portalQuotation.quotationNumber && (
                 <Badge variant="outline" className="text-[10px]">
-                  #{quotationRow.quotationNumber}
+                  #{portalQuotation.quotationNumber}
                 </Badge>
               )}
             </div>
-            {quotationRow.notes && (
-              <p className="text-xs whitespace-pre-wrap text-foreground/80">
-                {quotationRow.notes}
-              </p>
-            )}
             <p className="text-[11px] text-muted-foreground">
-              Submitted {formatIstDateTime(quotationRow.submittedAt) ?? "—"}
-              {quotationRow.submittedByName
-                ? ` · ${quotationRow.submittedByName}`
-                : ""}
-              {updatedByName && quotationRow.updatedAt
-                ? ` · revised ${formatIstDateTime(quotationRow.updatedAt) ?? ""} by ${updatedByName}`
+              Synced from CartPlus
+              {portalQuotation.updatedAt
+                ? ` · updated ${formatIstDateTime(portalQuotation.updatedAt) ?? ""}`
                 : ""}
             </p>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No quotation recorded yet.
+            No CartPlus quotation linked yet.
           </p>
         )}
       </div>
 
-      {/* ---------- Line items block (HVA-234) ----------
-          Renders below the quotation headline. Visible when a quotation
-          exists; the section internally hides itself if items list is
-          empty AND user can't edit. Edit gate matches the quotation
-          edit gate (same authz applies). */}
-      {quotationRow && (
+      {/* ---------- Line items block (HVA-234) — CartPlus items, read-only ---------- */}
+      {portalQuotation && (
         <LineItemsSection
-          quotationId={quotationRow.id}
+          quotationId={portalQuotation.id}
           items={lineItems}
-          canEdit={canEditQuotation}
+          canEdit={false}
         />
       )}
 

@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, eq, max } from 'drizzle-orm';
+import { and, asc, eq, isNull, max } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 
 import { db } from '@/db/client';
@@ -397,7 +397,13 @@ export async function loadLineItems(
       targetDispatchDate: quotationLineItems.targetDispatchDate,
     })
     .from(quotationLineItems)
-    .where(eq(quotationLineItems.quotationId, quotationId))
+    .where(
+      and(
+        eq(quotationLineItems.quotationId, quotationId),
+        // HVA-280: hide items a CartPlus edit removed from the order.
+        isNull(quotationLineItems.removedAt),
+      ),
+    )
     .orderBy(asc(quotationLineItems.position));
   // bigint values come back as numbers because we set `mode: 'number'`.
   // Cast for stability; date column is text-shaped via Drizzle's `date()`.

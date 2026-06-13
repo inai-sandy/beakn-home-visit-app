@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -130,6 +130,9 @@ export async function loadDispatchQueue(
 
   const conditions = [
     gte(statusStages.sequenceNumber, ORDER_CONFIRMED_SEQ),
+    // HVA-280: items a CartPlus edit removed from the order must not
+    // appear as available to dispatch.
+    isNull(quotationLineItems.removedAt),
   ];
 
   if (mode === 'pending') {

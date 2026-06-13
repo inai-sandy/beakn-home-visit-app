@@ -36,6 +36,14 @@ export interface RecordOptions {
 export interface RecordOutcome {
   status: 'inserted' | 'duplicate';
   webhookEventId: string | null;
+  /**
+   * HVA-280: on a duplicate, the stored result of the row we collided
+   * with. Lets the receiver REPROCESS a previously-failed event instead
+   * of blindly returning "noop" — a transient handler failure on the
+   * first delivery must not make CartPlus's retry a permanent no-op.
+   * Null for inserts (or if the existing row couldn't be re-read).
+   */
+  existingResult?: 'ok' | 'noop' | 'error' | null;
 }
 
 export async function recordCartplusEvent(
@@ -71,7 +79,30 @@ export async function recordCartplusEvent(
         ? (err as { code?: string }).code
         : undefined;
     if (sqlState === '23505' || codeFromTopLevel === '23505') {
-      return { status: 'duplicate', webhookEventId: null };
+      // Re-read the row we collided with so the receiver can decide
+      // whether to reprocess (prior result='error') or short-circuit
+      // (prior result='ok'). Best-effort: if the read fails, fall back
+      // to the old "noop" behaviour.
+      try {
+        const [existing] = await db
+          .select({ id: webhookEvents.id, result: webhookEvents.result })
+          .from(webhookEvents)
+          .where(
+            and(
+              eq(webhookEvents.provider, CARTPLUS_PROVIDER),
+              eq(webhookEvents.providerEventId, opts.providerEventId),
+            ),
+          )
+          .limit(1);
+        return {
+          status: 'duplicate',
+          webhookEventId: existing?.id ?? null,
+          existingResult:
+            (existing?.result as 'ok' | 'noop' | 'error' | undefined) ?? null,
+        };
+      } catch {
+        return { status: 'duplicate', webhookEventId: null, existingResult: null };
+      }
     }
     throw err;
   }

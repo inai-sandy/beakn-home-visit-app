@@ -53,6 +53,8 @@ export async function handleCartplusOrderCancelled(
 
   try {
     const result = await db.transaction(async (tx) => {
+      // HVA-280 (H3): lock the quotation row so a cancellation can't race
+      // a concurrent status_changed edit of the same order.
       const [quote] = await tx
         .select({
           id: quotations.id,
@@ -60,7 +62,8 @@ export async function handleCartplusOrderCancelled(
         })
         .from(quotations)
         .where(eq(quotations.portalQuotationId, portalQuotationId))
-        .limit(1);
+        .limit(1)
+        .for('update');
       if (!quote) {
         return { matched: false };
       }

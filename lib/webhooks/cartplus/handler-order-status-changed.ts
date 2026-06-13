@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -57,11 +57,15 @@ export async function handleCartplusOrderStatusChanged(
 
   try {
     const result = await db.transaction(async (tx) => {
+      // HVA-280 (H3): lock the quotation row for the duration of the tx so
+      // two edits to the same CartPlus order can't interleave their header
+      // + line-item updates. Concurrent edits now serialize by arrival.
       const [existing] = await tx
         .select({ id: quotations.id })
         .from(quotations)
         .where(eq(quotations.portalQuotationId, portalQuotationId))
-        .limit(1);
+        .limit(1)
+        .for('update');
 
       if (!existing) {
         return { matched: false };
@@ -157,6 +161,8 @@ async function upsertLineItems(
           lineTotalPaise: Math.round(item.line_total * 100),
           notes: item.notes ?? null,
           portalProductId: item.product_id,
+          // HVA-280 (H1): a re-added item un-removes itself.
+          removedAt: null,
           updatedAt: new Date(),
         })
         .where(eq(quotationLineItems.id, match.id));
@@ -176,9 +182,26 @@ async function upsertLineItems(
       });
     }
   }
-  // Note: we deliberately DO NOT delete line items that disappeared from
-  // CartPlus. Quotations are append-only in HVA semantics (HVA-150 line);
-  // a partial cancellation should come through as order.cancelled instead.
+
+  // HVA-280 (H1): items the customer REMOVED from the CartPlus order are
+  // no longer in the payload — soft-remove them (no-deletes rule) so the
+  // live quotation matches CartPlus exactly. A later re-add clears the
+  // flag in the update branch above. Hard delete would break dispatch FK
+  // references, so we mark instead.
+  const incomingPortalIds = new Set(items.map((i) => i.id));
+  const toRemoveIds = existing
+    .filter(
+      (row) =>
+        row.portalLineItemId !== null &&
+        !incomingPortalIds.has(row.portalLineItemId),
+    )
+    .map((row) => row.id);
+  if (toRemoveIds.length > 0) {
+    await tx
+      .update(quotationLineItems)
+      .set({ removedAt: new Date(), updatedAt: new Date() })
+      .where(inArray(quotationLineItems.id, toRemoveIds));
+  }
 }
 
 async function markEvent(
@@ -195,6 +218,3 @@ async function markEvent(
     // best-effort
   }
 }
-
-// Reference imports the linter would otherwise drop
-void and;

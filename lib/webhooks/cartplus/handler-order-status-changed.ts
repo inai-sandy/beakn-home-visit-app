@@ -4,6 +4,7 @@ import { db } from '@/db/client';
 import {
   quotationLineItems,
   quotations,
+  visitRequests,
   webhookEvents,
 } from '@/db/schema';
 import { log } from '@/lib/logger';
@@ -61,7 +62,7 @@ export async function handleCartplusOrderStatusChanged(
       // two edits to the same CartPlus order can't interleave their header
       // + line-item updates. Concurrent edits now serialize by arrival.
       const [existing] = await tx
-        .select({ id: quotations.id })
+        .select({ id: quotations.id, requestId: quotations.visitRequestId })
         .from(quotations)
         .where(eq(quotations.portalQuotationId, portalQuotationId))
         .limit(1)
@@ -86,7 +87,38 @@ export async function handleCartplusOrderStatusChanged(
       // Upsert line items by portal_line_item_id
       await upsertLineItems(tx, existing.id, order.items);
 
-      return { matched: true, quotationId: existing.id };
+      // HVA-282: a CartPlus update on a CANCELLED request means the order
+      // was reactivated in CartPlus — un-cancel the Beakn request so it's
+      // live again (status is left where it stood; cancellation just
+      // tracked via cancelled_at). A genuine cancellation arrives as the
+      // separate order.cancelled event, so we guard on the order status
+      // not itself being cancelled.
+      const orderStatus = (order.status ?? '').toLowerCase();
+      const orderSaysCancelled =
+        orderStatus === 'cancelled' || orderStatus === 'canceled';
+      let reactivated = false;
+      if (!orderSaysCancelled) {
+        const [req] = await tx
+          .select({ cancelledAt: visitRequests.cancelledAt })
+          .from(visitRequests)
+          .where(eq(visitRequests.id, existing.requestId))
+          .limit(1);
+        if (req?.cancelledAt) {
+          await tx
+            .update(visitRequests)
+            .set({
+              cancelledAt: null,
+              cancellationActor: null,
+              cancellationReason: null,
+              cancellationReasonCode: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(visitRequests.id, existing.requestId));
+          reactivated = true;
+        }
+      }
+
+      return { matched: true, quotationId: existing.id, reactivated };
     });
 
     if (!result.matched) {
@@ -109,6 +141,7 @@ export async function handleCartplusOrderStatusChanged(
         eventId: envelope.id,
         portalQuotationId,
         quotationId: result.quotationId,
+        reactivated: result.reactivated,
       },
       'order_status_changed_handled',
     );

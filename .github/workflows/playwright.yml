@@ -27,6 +27,11 @@ env:
 #              suite still runs, just split four ways (~9 min → ~2.5 min)
 #   - e2e    : playwright browsers + build + run-e2e
 # Wall-clock ≈ max(lanes) ≈ ~4–5 min. All three are required checks.
+#
+# HVA-291: the repo went public (Actions now free/unlimited), so the lanes
+# stay parallel — the goal is wall-clock, not minute-count. Caching added to
+# start each lane warm: pnpm store (setup-node), the Next build cache
+# (.next/cache in checks + e2e), and the Playwright Chromium download.
 
 jobs:
   checks:
@@ -43,6 +48,16 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # HVA-291: warm the Next.js incremental build cache so `next build`
+      # isn't cold every run. Keyed on lockfile + source; falls back to the
+      # newest lockfile-matched cache when sources changed.
+      - name: Cache Next build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: nextcache-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('**/*.[jt]s', '**/*.[jt]sx') }}
+          restore-keys: |
+            nextcache-${{ hashFiles('pnpm-lock.yaml') }}-
       - name: tsc
         run: pnpm tsc --noEmit
       - name: Next build
@@ -90,8 +105,24 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # HVA-291: cache the downloaded Chromium build so we skip the ~100MB
+      # re-download each run. --with-deps still runs (cheap; installs the
+      # apt system libs the cached browser needs).
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium
+      # HVA-291: warm the Next build cache (same as the checks lane).
+      - name: Cache Next build
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.next/cache
+          key: nextcache-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('**/*.[jt]s', '**/*.[jt]sx') }}
+          restore-keys: |
+            nextcache-${{ hashFiles('pnpm-lock.yaml') }}-
       - name: Next build
         env:
           DATABASE_URL: postgres://build:build@localhost:5432/build

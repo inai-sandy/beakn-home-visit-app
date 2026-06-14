@@ -3,9 +3,11 @@
 import { alias } from 'drizzle-orm/pg-core';
 import { and, eq, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
+import { formatInTimeZone } from 'date-fns-tz';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
+import { TIMEZONE } from '@/lib/date';
 import {
   dayPlans,
   requestStatusHistory,
@@ -223,7 +225,11 @@ export async function scheduleVisitAction(
   // Day-plan lookup: tasks link to the exec's day_plan when one exists
   // for the scheduled date; otherwise we leave day_plan_id NULL and let
   // the exec's Start-My-Day flow re-link on that date.
-  const scheduledDateIso = target.toISOString().slice(0, 10);
+  // HVA-292 fix: the auto-task date + day-plan lookup must use the IST
+  // calendar date of the picked moment, not the UTC date. A visit picked
+  // for 00:00–05:30 IST resolves to the previous UTC day, which used to
+  // file the task (and look up the day plan) one day early.
+  const scheduledDateIso = formatInTimeZone(target, TIMEZONE, 'yyyy-MM-dd');
   const [planRow] = await db
     .select({ id: dayPlans.id })
     .from(dayPlans)

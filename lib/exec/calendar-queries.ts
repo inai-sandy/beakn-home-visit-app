@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { leads, statusStages, tasks, visitRequests } from '@/db/schema';
@@ -62,11 +62,24 @@ export async function loadCalendarEvents(
     )
     .orderBy(asc(visitRequests.visitScheduledAt));
 
+  // HVA-292 fix: a postponed task keeps its ORIGINAL task_date but carries
+  // the new date in postponed_to_date (postponeTaskAction never moves
+  // task_date). The calendar must place it on its EFFECTIVE date — the
+  // postponed-to date when postponed, else task_date — both for the range
+  // filter and the rendered day. Otherwise a postponed task vanishes from
+  // the day you moved it to and lingers on the old day.
+  const effectiveDate = sql`CASE
+    WHEN ${tasks.status} = 'postponed' AND ${tasks.postponedToDate} IS NOT NULL
+      THEN ${tasks.postponedToDate}
+    ELSE ${tasks.taskDate}
+  END`;
+
   const taskRows = await db
     .select({
       id: tasks.id,
       description: tasks.description,
       taskDate: tasks.taskDate,
+      postponedToDate: tasks.postponedToDate,
       status: tasks.status,
       linkRequestId: tasks.linkRequestId,
       linkLeadId: tasks.linkLeadId,
@@ -81,11 +94,11 @@ export async function loadCalendarEvents(
     .where(
       and(
         eq(tasks.execUserId, execUserId),
-        gte(tasks.taskDate, fromIso),
-        lte(tasks.taskDate, toIso),
+        gte(effectiveDate, fromIso),
+        lte(effectiveDate, toIso),
       ),
     )
-    .orderBy(asc(tasks.taskDate));
+    .orderBy(asc(effectiveDate));
 
   // 2026-05-26 dedupe fix: scheduleVisitAction writes BOTH a visit_scheduled_at
   // AND an auto-task linked to the same request. Without dedupe, the calendar
@@ -113,18 +126,23 @@ export async function loadCalendarEvents(
       const title = linkedName
         ? `${linkedName} — ${t.description}`
         : t.description;
+      // Effective day = postponed-to date when postponed, else task_date.
+      const effDate =
+        t.status === 'postponed' && t.postponedToDate
+          ? t.postponedToDate
+          : t.taskDate;
       const href = t.linkRequestId
         ? `/requests/${t.linkRequestId}`
         : t.linkLeadId
           ? `/leads/${t.linkLeadId}`
-          : `/tasks?date=${t.taskDate}`;
+          : `/tasks?date=${effDate}`;
       return {
         id: t.id,
         kind: 'task',
         title,
         // Anchor tasks at 09:00 IST so they cluster at the start of the day
         // in Day view without the SQL needing a time column on tasks.
-        at: new Date(`${t.taskDate}T09:00:00+05:30`),
+        at: new Date(`${effDate}T09:00:00+05:30`),
         stageCode: t.status,
         href,
       };

@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { getActiveCartplusSecret } from '@/lib/admin/cartplus';
@@ -189,6 +190,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         envelope,
         outcome.webhookEventId,
       );
+      // HVA-282: webhooks mutate quotations/requests; refresh the cached
+      // surfaces (dashboards, finance, contact lists) so CartPlus changes
+      // appear immediately, not just on the force-dynamic request page.
+      if (handlerOutcome.status !== 'error') revalidatePath('/', 'layout');
       return NextResponse.json(
         {
           ok: handlerOutcome.status !== 'error',
@@ -205,6 +210,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         envelope,
         outcome.webhookEventId,
       );
+      if (handlerOutcome.status !== 'error') revalidatePath('/', 'layout');
       return NextResponse.json(
         {
           ok: handlerOutcome.status !== 'error',
@@ -220,6 +226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         envelope,
         outcome.webhookEventId,
       );
+      if (handlerOutcome.status !== 'error') revalidatePath('/', 'layout');
       return NextResponse.json(
         {
           ok: handlerOutcome.status !== 'error',

@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
 import { db } from '@/db/client';
@@ -7,6 +7,7 @@ import {
   leads,
   quotationLineItems,
   quotations,
+  requestStatusHistory,
   statusStages,
   users,
   visitRequests,
@@ -108,7 +109,7 @@ export async function handleCartplusOrderCreated(
     const result = await db.transaction(async (tx) => {
       // Stage lookup (cached miss is rare in production)
       const [stage] = await tx
-        .select({ id: statusStages.id })
+        .select({ id: statusStages.id, seq: statusStages.sequenceNumber })
         .from(statusStages)
         .where(eq(statusStages.code, QUOTATION_GIVEN_CODE))
         .limit(1);
@@ -127,43 +128,114 @@ export async function handleCartplusOrderCreated(
         capturedByUserId: capturerUserId,
       });
 
-      // 4b. Visit request
-      const trackingToken = nanoid(TOKEN_LEN);
-      const [requestRow] = await tx
-        .insert(visitRequests)
-        .values({
-          customerName: order.customer.name,
-          customerPhone: order.customer.phone,
-          customerEmail: order.customer.email ?? null,
-          address: PORTAL_ADDRESS_PLACEHOLDER,
-          cityId: cityResult.cityId,
-          bhk: 'Others',
-          interest: [],
-          trackingToken,
-          source: 'portal',
-          contactId,
-          statusStageId: stage.id,
-          assignedExecUserId: execResult.userId,
-          // assigned_captain_user_id resolved by captain ownership of city
-          // — captains tie to cities via cities.captain_user_id. Pull it.
-          assignedCaptainUserId: cityResult.captainUserId,
-          assignedAt: execResult.userId ? new Date() : null,
-        })
-        .returning({ id: visitRequests.id });
-
-      // 4c. Quotation
+      const now = new Date();
       const totalPaise = Math.round(order.total_amount * 100);
+
+      // 4b. HVA-282: try to MERGE this order into the customer's newest
+      //     open request that has no quotation yet (the one they raised /
+      //     are being worked), so their existing tracking link reflects
+      //     this order. Candidates: same contact, not cancelled, at or
+      //     before QUOTATION_GIVEN, and with NO quotation row. A second
+      //     order for the same customer finds none (the first order
+      //     claimed it — it now has a quotation) and falls through to a
+      //     brand-new request, which is exactly the desired behaviour.
+      const [mergeTarget] = await tx
+        .select({
+          id: visitRequests.id,
+          currentStageId: visitRequests.statusStageId,
+          currentSeq: statusStages.sequenceNumber,
+        })
+        .from(visitRequests)
+        .innerJoin(
+          statusStages,
+          eq(statusStages.id, visitRequests.statusStageId),
+        )
+        .where(
+          and(
+            eq(visitRequests.contactId, contactId),
+            isNull(visitRequests.cancelledAt),
+            lte(statusStages.sequenceNumber, stage.seq),
+            sql`NOT EXISTS (SELECT 1 FROM ${quotations} q WHERE q.visit_request_id = ${visitRequests.id})`,
+          ),
+        )
+        .orderBy(desc(visitRequests.createdAt))
+        .limit(1);
+
+      let requestId: string;
+      let merged: boolean;
+
+      if (mergeTarget) {
+        requestId = mergeTarget.id;
+        merged = true;
+        // Advance to QUOTATION_GIVEN only if the request is behind it —
+        // never move a request backward. A proper history row keeps the
+        // customer /track timeline + transition-based metrics correct.
+        // The existing request's exec assignment is left untouched.
+        if (mergeTarget.currentSeq < stage.seq) {
+          const [orderRow] = await tx
+            .select({
+              maxOrder: sql<number>`COALESCE(MAX(${requestStatusHistory.transitionOrder}), 0)`,
+            })
+            .from(requestStatusHistory)
+            .where(eq(requestStatusHistory.requestId, requestId));
+          await tx.insert(requestStatusHistory).values({
+            requestId,
+            fromStatusStageId: mergeTarget.currentStageId,
+            toStatusStageId: stage.id,
+            sequenceNumber: stage.seq,
+            transitionOrder: Number(orderRow?.maxOrder ?? 0) + 1,
+            changedByUserId: execResult.userId ?? capturerUserId,
+            reason: 'CartPlus order received',
+            changedAt: now,
+          });
+          await tx
+            .update(visitRequests)
+            .set({ statusStageId: stage.id, updatedAt: now })
+            .where(eq(visitRequests.id, requestId));
+        }
+      } else {
+        // 4b'. No merge target — create a brand-new request (original
+        //      behaviour). The customer is sent a fresh tracking link for
+        //      it via WhatsApp once the Meta template is live (HVA-282
+        //      follow-up — the send is wired separately).
+        merged = false;
+        const trackingToken = nanoid(TOKEN_LEN);
+        const [requestRow] = await tx
+          .insert(visitRequests)
+          .values({
+            customerName: order.customer.name,
+            customerPhone: order.customer.phone,
+            customerEmail: order.customer.email ?? null,
+            address: PORTAL_ADDRESS_PLACEHOLDER,
+            cityId: cityResult.cityId,
+            bhk: 'Others',
+            interest: [],
+            trackingToken,
+            source: 'portal',
+            contactId,
+            statusStageId: stage.id,
+            assignedExecUserId: execResult.userId,
+            // assigned_captain_user_id resolved by captain ownership of city
+            // — captains tie to cities via cities.captain_user_id. Pull it.
+            assignedCaptainUserId: cityResult.captainUserId,
+            assignedAt: execResult.userId ? new Date() : null,
+          })
+          .returning({ id: visitRequests.id });
+        requestId = requestRow.id;
+      }
+
+      // 4c. Quotation — both branches: the request had no quotation row.
       const [quotationRow] = await tx
         .insert(quotations)
         .values({
-          visitRequestId: requestRow.id,
+          visitRequestId: requestId,
           quotationNumber: order.order_number,
           totalOrderValuePaise: totalPaise,
           submittedByUserId: execResult.userId ?? capturerUserId,
           source: 'portal',
           portalQuotationId: String(order.id),
           rawPayload: envelope as unknown as Record<string, unknown>,
-          lastWebhookAt: new Date(),
+          lastWebhookAt: now,
           storeId: storeId,
         })
         .returning({ id: quotations.id });
@@ -185,7 +257,7 @@ export async function handleCartplusOrderCreated(
         });
       }
 
-      return { requestId: requestRow.id };
+      return { requestId, merged };
     });
 
     // 7. Notifications — fire-and-forget so DB commit is the source of truth
@@ -217,6 +289,7 @@ export async function handleCartplusOrderCreated(
         webhookEventId,
         eventId: envelope.id,
         requestId: result.requestId,
+        merged: result.merged,
         execResolved: Boolean(execResult.userId),
         cityFallback: cityResult.fallback,
       },

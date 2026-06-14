@@ -1,4 +1,4 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt, lt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
@@ -272,6 +272,31 @@ export default async function TrackPage({ params }: PageProps) {
     .where(gt(statusStages.sequenceNumber, reqRow.currentStageSeq))
     .orderBy(asc(statusStages.sequenceNumber));
 
+  // HVA-288: stages bypassed before the current one (no history row). A
+  // CartPlus online order lands straight at Quotation Given, so the
+  // home-visit stages never happened — show them greyed/"skipped" so the
+  // customer still sees the full journey. recordedSeqs is rollback-safe
+  // (any stage actually visited is never marked skipped); for a normal
+  // request that went through every step this set is empty → unchanged.
+  const recordedSeqs = new Set(cleanHistoryRows.map((h) => h.sequenceNumber));
+  const skippedStages = (
+    await db
+      .select({
+        id: statusStages.id,
+        name: statusStages.name,
+        sequenceNumber: statusStages.sequenceNumber,
+      })
+      .from(statusStages)
+      .where(
+        and(
+          eq(statusStages.isActive, true),
+          gt(statusStages.sequenceNumber, 1),
+          lt(statusStages.sequenceNumber, reqRow.currentStageSeq),
+        ),
+      )
+      .orderBy(asc(statusStages.sequenceNumber))
+  ).filter((s) => !recordedSeqs.has(s.sequenceNumber));
+
   // 3. Customer support phone from config. Empty → placeholder + log.
   let supportPhoneRaw: string;
   try {
@@ -494,6 +519,17 @@ export default async function TrackPage({ params }: PageProps) {
               variant={reqRow.currentStageSeq === 1 ? "current" : "past"}
               isFirst
             />
+
+            {/* HVA-288: stages a CartPlus online order bypassed (no visit). */}
+            {skippedStages.map((s) => (
+              <TimelineDot
+                key={`skipped-${s.id}`}
+                stageName={s.name}
+                when={null}
+                variant="skipped"
+                note={portalQuote ? "Skipped · online order" : "Skipped"}
+              />
+            ))}
 
             {/* HVA-141 + HVA-140: merged chronological timeline. History
                 rows carry the rollback/current/past variants; reassign
@@ -731,11 +767,14 @@ interface TimelineDotProps {
     | "future"
     | "cancelled"
     | "rollback"
-    | "reassign";
+    | "reassign"
+    | "skipped";
   isFirst?: boolean;
   /** HVA-142: shown only for the cancelled variant when a customer-safe
    * reason is available; null otherwise. */
   reasonText?: string | null;
+  /** HVA-288: short tag for the skipped variant, e.g. "online order". */
+  note?: string | null;
 }
 
 function TimelineDot({
@@ -744,6 +783,7 @@ function TimelineDot({
   variant,
   isFirst,
   reasonText,
+  note,
 }: TimelineDotProps) {
   const relative = when
     ? formatDistanceToNow(when, { addSuffix: true })
@@ -770,6 +810,8 @@ function TimelineDot({
           // routine handoff, not an interruption.
           variant === "reassign" &&
             "bg-background border-muted-foreground/40",
+          // HVA-288: bypassed stage (online order) — faint, hollow.
+          variant === "skipped" && "bg-background border-muted",
         )}
       >
         {variant === "current" && (
@@ -790,12 +832,19 @@ function TimelineDot({
             variant === "cancelled" && "font-semibold text-destructive",
             variant === "rollback" && "font-medium text-muted-foreground",
             variant === "reassign" && "font-medium text-muted-foreground",
+            variant === "skipped" &&
+              "text-muted-foreground line-through decoration-muted-foreground/40",
           )}
         >
           {stageName}
         </p>
         {relative && (
           <p className="text-xs text-muted-foreground">{relative}</p>
+        )}
+        {variant === "skipped" && (
+          <p className="text-xs text-muted-foreground">
+            {note ?? "Skipped"}
+          </p>
         )}
         {variant === "cancelled" && reasonText && (
           <p className="text-xs text-muted-foreground">

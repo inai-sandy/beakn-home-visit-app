@@ -327,6 +327,35 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const isTerminal = futureStages.length === 0;
   const nextStage = futureStages[0] ?? null;
 
+  // HVA-288: bypassed earlier stages — active stages between Submitted
+  // (seq 1) and the current stage that have NO history row. A CartPlus
+  // online order is created straight at Quotation Given, so the home-visit
+  // stages never happened; render them greyed/"skipped" so the full ladder
+  // still shows. recordedSeqs is the set of every seq that appears in
+  // history (rollback-safe: a stage actually visited is never "skipped").
+  // For normal/merged requests every prior stage has history → empty set.
+  const recordedSeqs = new Set(historyRows.map((h) => h.sequenceNumber));
+  const priorStages = await db
+    .select({
+      id: statusStages.id,
+      name: statusStages.name,
+      sequenceNumber: statusStages.sequenceNumber,
+    })
+    .from(statusStages)
+    .where(
+      and(
+        eq(statusStages.isActive, true),
+        gt(statusStages.sequenceNumber, 1),
+        lt(statusStages.sequenceNumber, reqRow.currentStageSeq),
+      ),
+    )
+    .orderBy(asc(statusStages.sequenceNumber));
+  const skippedStages = priorStages.filter(
+    (s) => !recordedSeqs.has(s.sequenceNumber),
+  );
+  const skippedNote =
+    quotationMeta?.source === "portal" ? "Skipped · online order" : "Skipped";
+
   // HVA-223: per-transition flags from status_transitions catalog.
   // Replaces the hardcoded `nextStatus.code === 'VISIT_SCHEDULED'`
   // check in AdvanceStatusButton — admin can now mark any transition
@@ -844,6 +873,18 @@ export default async function RequestDetailPage({ params }: PageProps) {
               reason={null}
               variant={historyRows.length === 0 ? "current" : "past"}
             />
+            {/* HVA-288: stages a CartPlus online order bypassed. */}
+            {skippedStages.map((s) => (
+              <TimelineRow
+                key={s.id}
+                stageName={s.name}
+                when={null}
+                changedByName={null}
+                reason={null}
+                variant="skipped"
+                note={skippedNote}
+              />
+            ))}
             {historyRows.map((h) => {
               const isCurrent = h.transitionOrder === maxTransitionOrder;
               return (
@@ -1086,7 +1127,9 @@ interface TimelineRowProps {
   when: Date | null;
   changedByName: string | null;
   reason: string | null;
-  variant: "past" | "current" | "future";
+  variant: "past" | "current" | "future" | "skipped";
+  // HVA-288: short tag for the skipped variant, e.g. "Skipped · online order".
+  note?: string | null;
 }
 
 function TimelineRow({
@@ -1095,6 +1138,7 @@ function TimelineRow({
   changedByName,
   reason,
   variant,
+  note,
 }: TimelineRowProps) {
   // HVA-66: timeline timestamps in IST too (was UTC-ish via raw format()).
   const absolute = when ? formatIstDateTime(when) : null;
@@ -1109,6 +1153,7 @@ function TimelineRow({
         variant === "current" && "border-l-primary bg-primary/5",
         variant === "past" && "border-l-primary/40",
         variant === "future" && "border-l-muted text-muted-foreground/70",
+        variant === "skipped" && "border-l-muted text-muted-foreground/60",
       )}
     >
       <div className="flex items-center gap-2 flex-wrap">
@@ -1116,6 +1161,7 @@ function TimelineRow({
           className={cn(
             "text-sm font-semibold tracking-tight",
             variant === "future" && "font-medium",
+            variant === "skipped" && "font-medium line-through decoration-muted-foreground/40",
           )}
         >
           {stageName}
@@ -1125,6 +1171,11 @@ function TimelineRow({
         )}
         {variant === "future" && (
           <span className="text-[10px] uppercase tracking-wide">Pending</span>
+        )}
+        {variant === "skipped" && (
+          <span className="text-[10px] uppercase tracking-wide">
+            {note ?? "Skipped"}
+          </span>
         )}
       </div>
       {absolute && (

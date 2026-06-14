@@ -9,14 +9,43 @@ import {
   loadTeamPerformance,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
+import { loadMetrics } from '@/lib/metrics/registry';
+import type { DateRange, MetricKey } from '@/lib/metrics/types';
+import {
+  getCurrentMonthWindow,
+  loadAllExecTargetProgress,
+  loadMonthlyTargetPaise,
+} from '@/lib/exec/target-progress';
+import { financialYearLabel, financialYearToDate } from '@/lib/date';
 import { getIstDateString } from '@/lib/today/time';
+
+import { DashboardTabNav } from '@/components/dashboard/DashboardTabNav';
 
 import { DashboardHeader } from './_components/DashboardHeader';
 import { ExecStatusList } from './_components/ExecStatusList';
+import { OverallView } from './_components/OverallView';
 import { PendingApprovalsCard } from './_components/PendingApprovalsCard';
 import { PendingCollectionsCard } from './_components/PendingCollectionsCard';
 import { PerformanceCard } from './_components/PerformanceCard';
 import { FadeRise } from '@/components/motion/motion-kit';
+
+const CAPTAIN_TABS = [
+  { value: 'today', label: 'Today' },
+  { value: 'overall', label: 'Overall' },
+];
+
+const CAPTAIN_OVERALL_KEYS = [
+  'revenue',
+  'orders_value',
+  'orders_count',
+  'conversion_pct',
+  'quotations_count',
+  'quotations_value',
+  'visits',
+  'new_requests',
+  'cancelled_requests',
+  'outstanding',
+] as const satisfies readonly MetricKey[];
 
 // =============================================================================
 // HVA-80: Captain Dashboard — two-column desktop / stacked mobile
@@ -84,7 +113,12 @@ function parseDateFilter(params: {
 }
 
 interface PageProps {
-  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    from?: string;
+    to?: string;
+    view?: string;
+  }>;
 }
 
 export default async function CaptainDashboardPage({ searchParams }: PageProps) {
@@ -97,6 +131,66 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
   }
 
   const raw = await searchParams;
+  const istToday = getIstDateString();
+  const view = raw.view === 'overall' ? 'overall' : 'today';
+  const tabNav = (
+    <div className="flex justify-center">
+      <DashboardTabNav
+        tabs={CAPTAIN_TABS}
+        active={view}
+        preserveParams={['from', 'to', 'date']}
+      />
+    </div>
+  );
+
+  // ---- Overall tab: FY team picture + per-exec target finish line ----
+  if (view === 'overall') {
+    const from = clampDateParam(raw.from, istToday);
+    const to = clampDateParam(raw.to, istToday);
+    let overallFilter: DateFilter;
+    let overallRange: DateRange;
+    if (from && to) {
+      const [lo, hi] = from <= to ? [from, to] : [to, from];
+      overallFilter = { mode: 'range', from: lo, to: hi };
+      overallRange = { fromDate: lo, toDate: hi };
+    } else {
+      const fy = financialYearToDate(istToday);
+      overallFilter = { mode: 'range', from: fy.fromDate, to: fy.toDate };
+      overallRange = fy;
+    }
+    const isTodayRange =
+      overallRange.fromDate === istToday && overallRange.toDate === istToday;
+    const rangeLabel =
+      from && to
+        ? `${overallRange.fromDate} → ${overallRange.toDate}`
+        : `${financialYearLabel(istToday)} · to date`;
+    const monthWindow = getCurrentMonthWindow();
+
+    const [overallValues, execProgress] = await Promise.all([
+      loadMetrics(CAPTAIN_OVERALL_KEYS, { captainUserId: user.id }, overallRange),
+      loadMonthlyTargetPaise().then((target) =>
+        loadAllExecTargetProgress(monthWindow, target, {
+          captainUserId: user.id,
+        }),
+      ),
+    ]);
+
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
+        {tabNav}
+        <OverallView
+          filter={overallFilter}
+          rangeLabel={rangeLabel}
+          isTodayRange={isTodayRange}
+          values={overallValues}
+          execProgress={execProgress}
+          monthLabel={monthWindow.monthLabel}
+        />
+      </div>
+    );
+  }
+
+  // ---- Today tab: the operational team view (unchanged) ----
   const filter = parseDateFilter(raw);
 
   const [
@@ -113,6 +207,7 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
+      {tabNav}
       <DashboardHeader filter={filter} maxDaysBack={365} />
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">

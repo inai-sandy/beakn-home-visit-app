@@ -78,6 +78,9 @@ export const dayPlans = pgTable(
 
     // Day-close fields (§10.7). Null until the exec closes the day.
     closedAt: timestamp('closed_at', { withTimezone: true }),
+    // HVA-293: true when sealed by the 23:55 IST auto-close cron rather
+    // than the exec closing manually.
+    autoClosed: boolean('auto_closed').notNull().default(false),
     amountCollectedPaise: bigint('amount_collected_paise', { mode: 'number' }),
     quotationsSubmittedToday: integer('quotations_submitted_today'),
 

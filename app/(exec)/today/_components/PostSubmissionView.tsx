@@ -4,6 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import { PostSubmissionTasksList } from './PostSubmissionTasksList';
+import { RecentOpenTasksAccordion } from './RecentOpenTasksAccordion';
+
+import type { ExecTaskRow } from '@/lib/exec/tasks-page-queries';
 
 // =============================================================================
 // HVA-60 C: PostSubmissionView — composed page once day_plans row exists
@@ -45,6 +48,8 @@ export interface PostSubmissionViewProps {
   linkableRequests: Array<{ id: string; customerName: string; customerPhone: string }>;
   linkableLeads?: Array<{ id: string; name: string; phone: string }>;
   isCloseButtonVisible: boolean;
+  /** HVA-292: last-7-days open tasks not yet in today's plan. */
+  recentOpenTasks?: ExecTaskRow[];
 }
 
 export function PostSubmissionView({
@@ -55,6 +60,7 @@ export function PostSubmissionView({
   linkableRequests,
   linkableLeads = [],
   isCloseButtonVisible,
+  recentOpenTasks = [],
 }: PostSubmissionViewProps) {
   const closed = dayPlan.closedAt !== null;
 
@@ -97,6 +103,15 @@ export function PostSubmissionView({
           linkableLeads={linkableLeads}
           isCloseButtonVisible={isCloseButtonVisible}
         />
+
+        {/* HVA-292: carry-over work still reachable after the day starts.
+            Hidden once the day is closed (moving to today needs an open
+            plan). */}
+        {!closed && recentOpenTasks.length > 0 && (
+          <div className="mt-5">
+            <RecentOpenTasksAccordion tasks={recentOpenTasks} />
+          </div>
+        )}
       </div>
     </main>
   );

@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/pg-core';
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -87,10 +87,10 @@ export async function loadTeamCalendarEvents(
       : fullExecIds;
   const execIds = filteredExecIds;
 
-  const fromDate = new Date(`${fromIso}T00:00:00.000Z`);
-  const toDate = new Date(`${toIso}T23:59:59.999Z`);
-
   const execUser = alias(users, 'event_exec_user');
+
+  // HVA-292: match visits by IST calendar date, not UTC day bounds.
+  const visitIstDate = sql`(${visitRequests.visitScheduledAt} AT TIME ZONE 'Asia/Kolkata')::date`;
 
   const visitRows = await db
     .select({
@@ -109,17 +109,26 @@ export async function loadTeamCalendarEvents(
         inArray(visitRequests.assignedExecUserId, execIds),
         isNull(visitRequests.cancelledAt),
         isNotNull(visitRequests.visitScheduledAt),
-        gte(visitRequests.visitScheduledAt, fromDate),
-        lte(visitRequests.visitScheduledAt, toDate),
+        gte(visitIstDate, fromIso),
+        lte(visitIstDate, toIso),
       ),
     )
     .orderBy(asc(visitRequests.visitScheduledAt));
+
+  // HVA-292 fix: place a postponed task on its postponed-to date (its
+  // task_date never moves on postpone). Mirrors the exec calendar fix.
+  const effectiveDate = sql`CASE
+    WHEN ${tasks.status} = 'postponed' AND ${tasks.postponedToDate} IS NOT NULL
+      THEN ${tasks.postponedToDate}
+    ELSE ${tasks.taskDate}
+  END`;
 
   const taskRows = await db
     .select({
       id: tasks.id,
       description: tasks.description,
       taskDate: tasks.taskDate,
+      postponedToDate: tasks.postponedToDate,
       status: tasks.status,
       linkRequestId: tasks.linkRequestId,
       linkLeadId: tasks.linkLeadId,
@@ -133,11 +142,11 @@ export async function loadTeamCalendarEvents(
     .where(
       and(
         inArray(tasks.execUserId, execIds),
-        gte(tasks.taskDate, fromIso),
-        lte(tasks.taskDate, toIso),
+        gte(effectiveDate, fromIso),
+        lte(effectiveDate, toIso),
       ),
     )
-    .orderBy(asc(tasks.taskDate));
+    .orderBy(asc(effectiveDate));
 
   // Dedupe — same rule as the exec calendar.
   const taskRequestIds = new Set(
@@ -169,11 +178,15 @@ export async function loadTeamCalendarEvents(
         : t.linkLeadId
           ? `/captain/contacts/${t.linkLeadId}`
           : `/captain/team`;
+      const effDate =
+        t.status === 'postponed' && t.postponedToDate
+          ? t.postponedToDate
+          : t.taskDate;
       return {
         id: t.id,
         kind: 'task',
         title,
-        at: new Date(`${t.taskDate}T09:00:00+05:30`),
+        at: new Date(`${effDate}T09:00:00+05:30`),
         stageCode: t.status,
         href,
         execName: execNameById.get(t.execUserId) ?? null,

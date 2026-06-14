@@ -149,14 +149,20 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         comparisonLabel={resolved.comparisonLabel}
       />
 
-      <AdminKpiTiles window={windowMetrics} compare={compareMetrics} />
+      <AdminKpiTiles
+        window={windowMetrics}
+        compare={compareMetrics}
+        range={window}
+      />
+
+      {/* HVA-292: Revenue & pipeline promoted to a full-width row near the
+          top (was a cramped half-width card at the bottom where its labels
+          truncated). */}
+      <AdminRevenuePanel revenue={revenue} counts={counts} />
 
       <AdminCityGrid cards={cityCards} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <AdminRevenuePanel revenue={revenue} counts={counts} />
-        <AdminAlertsFeed alerts={alerts} />
-      </div>
+      <AdminAlertsFeed alerts={alerts} />
     </main>
   );
 }

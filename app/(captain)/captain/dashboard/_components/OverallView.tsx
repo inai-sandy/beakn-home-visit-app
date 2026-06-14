@@ -4,7 +4,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { DateRangePicker } from "@/components/dashboard/DateRangePicker";
 import { MetricTileGrid } from "@/components/dashboard/MetricTileGrid";
 
@@ -77,7 +76,7 @@ export function OverallView({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-24">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">Overall — team</p>
@@ -122,13 +121,13 @@ export function OverallView({
           className="rounded-2xl border bg-card px-4"
         >
           <AccordionTrigger className="text-sm font-semibold">
-            <InfoTooltip label={`Target finish line · ${monthLabel}`}>
-              Each exec&apos;s revenue collected this month against their
-              monthly revenue target. The bar fills toward 100%; execs are
-              ranked by who is closest to crossing.
-            </InfoTooltip>
+            Target finish line · {monthLabel}
           </AccordionTrigger>
           <AccordionContent>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Each exec&apos;s revenue collected this month vs their monthly
+              revenue target — ranked by who&apos;s closest to crossing 100%.
+            </p>
             {ranked.length === 0 ? (
               <p className="py-2 text-sm text-muted-foreground">
                 No executives on your team yet.

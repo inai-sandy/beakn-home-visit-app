@@ -1,6 +1,7 @@
 'use server';
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { formatInTimeZone } from 'date-fns-tz';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -9,11 +10,14 @@ import {
   cities,
   requestRescheduleHistory,
   statusStages,
+  tasks,
   visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { TIMEZONE } from '@/lib/date';
+import { VISIT_TASK_TYPES } from '@/lib/metrics/constants';
 import { dispatchNotification } from '@/lib/notifications/engine';
 
 // =============================================================================
@@ -223,6 +227,26 @@ async function commonReschedule(
           updatedAt: now,
         })
         .where(eq(visitRequests.id, args.requestId));
+
+      // HVA-292: move the linked open visit task to the new date so the
+      // exec's plan + the calendar follow the reschedule. Without this the
+      // calendar kept showing the visit on the old day (the stale task
+      // dedupes away the new-date visit event). IST calendar date of the
+      // picked moment.
+      const newTaskDate = formatInTimeZone(args.toAt, TIMEZONE, 'yyyy-MM-dd');
+      await tx
+        .update(tasks)
+        .set({ taskDate: newTaskDate, updatedAt: now })
+        .where(
+          and(
+            eq(tasks.linkRequestId, args.requestId),
+            eq(tasks.status, 'pending'),
+            inArray(
+              tasks.taskType,
+              VISIT_TASK_TYPES as unknown as readonly (typeof VISIT_TASK_TYPES)[number][],
+            ),
+          ),
+        );
 
       await tx.insert(requestRescheduleHistory).values({
         requestId: args.requestId,

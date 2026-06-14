@@ -87,10 +87,10 @@ export async function loadTeamCalendarEvents(
       : fullExecIds;
   const execIds = filteredExecIds;
 
-  const fromDate = new Date(`${fromIso}T00:00:00.000Z`);
-  const toDate = new Date(`${toIso}T23:59:59.999Z`);
-
   const execUser = alias(users, 'event_exec_user');
+
+  // HVA-292: match visits by IST calendar date, not UTC day bounds.
+  const visitIstDate = sql`(${visitRequests.visitScheduledAt} AT TIME ZONE 'Asia/Kolkata')::date`;
 
   const visitRows = await db
     .select({
@@ -109,8 +109,8 @@ export async function loadTeamCalendarEvents(
         inArray(visitRequests.assignedExecUserId, execIds),
         isNull(visitRequests.cancelledAt),
         isNotNull(visitRequests.visitScheduledAt),
-        gte(visitRequests.visitScheduledAt, fromDate),
-        lte(visitRequests.visitScheduledAt, toDate),
+        gte(visitIstDate, fromIso),
+        lte(visitIstDate, toIso),
       ),
     )
     .orderBy(asc(visitRequests.visitScheduledAt));

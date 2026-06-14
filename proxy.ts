@@ -70,6 +70,12 @@ const NO_AUTH_PREFIXES = [
   // Body validates Turnstile + tracking_token; session gate would
   // otherwise 307 the customer's POST to /login.
   '/api/customer/',
+  // HVA-292: customer tracking-link actions (reschedule / cancel). The
+  // tracking token in the URL is the credential — the route handlers look
+  // the request up by token and validate it. Without this prefix the
+  // session gate 307-redirects the logged-out customer's POST to /login,
+  // which surfaced as "Could not reschedule".
+  '/api/track/',
   // HVA-169: cron endpoints carry their own bearer auth (CRON_SECRET);
   // the session-based proxy gate would otherwise 307-redirect the host
   // crontab's curl invocation to /login and silently no-op the job.

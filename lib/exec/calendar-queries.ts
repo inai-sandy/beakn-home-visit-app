@@ -39,8 +39,10 @@ export async function loadCalendarEvents(
   fromIso: string,
   toIso: string,
 ): Promise<CalendarEvent[]> {
-  const fromDate = new Date(`${fromIso}T00:00:00.000Z`);
-  const toDate = new Date(`${toIso}T23:59:59.999Z`);
+  // HVA-292: match visits by their IST calendar date, not UTC day bounds —
+  // otherwise a visit within a few hours of IST midnight buckets onto the
+  // wrong day.
+  const visitIstDate = sql`(${visitRequests.visitScheduledAt} AT TIME ZONE 'Asia/Kolkata')::date`;
 
   const visitRows = await db
     .select({
@@ -56,8 +58,8 @@ export async function loadCalendarEvents(
         eq(visitRequests.assignedExecUserId, execUserId),
         isNull(visitRequests.cancelledAt),
         isNotNull(visitRequests.visitScheduledAt),
-        gte(visitRequests.visitScheduledAt, fromDate),
-        lte(visitRequests.visitScheduledAt, toDate),
+        gte(visitIstDate, fromIso),
+        lte(visitIstDate, toIso),
       ),
     )
     .orderBy(asc(visitRequests.visitScheduledAt));

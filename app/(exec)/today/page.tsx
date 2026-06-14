@@ -175,6 +175,14 @@ export default async function TodayPage() {
   const isCloseButtonVisible =
     plan.closedAt === null && isAtOrAfterIstTime(new Date(), dayCloseTargetTime);
 
+  // HVA-292: also surface last-7-days open tasks AFTER the day is started
+  // (not just on the start screen) so a carried-over task can still be
+  // pulled into today. Exclude anything already in today's plan.
+  const todayTaskIds = new Set(taskRows.map((t) => t.id));
+  const recentOpenTasks = (await loadExecLastWeekOpenTasks(user.id)).filter(
+    (t) => !todayTaskIds.has(t.id),
+  );
+
   return (
     <PostSubmissionView
       dayPlan={{
@@ -213,6 +221,7 @@ export default async function TodayPage() {
       linkableRequests={linkableRequests}
       linkableLeads={linkableLeads}
       isCloseButtonVisible={isCloseButtonVisible}
+      recentOpenTasks={recentOpenTasks}
     />
   );
 }

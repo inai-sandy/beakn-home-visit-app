@@ -149,7 +149,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         comparisonLabel={resolved.comparisonLabel}
       />
 
-      <AdminKpiTiles window={windowMetrics} compare={compareMetrics} />
+      <AdminKpiTiles
+        window={windowMetrics}
+        compare={compareMetrics}
+        range={window}
+      />
 
       {/* HVA-292: Revenue & pipeline promoted to a full-width row near the
           top (was a cramped half-width card at the bottom where its labels

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { POST } from '@/app/api/webhooks/cartplus/route';
@@ -216,6 +216,35 @@ describe('HVA-282: order merges into the existing request', () => {
     expect(q).toBeDefined();
     const [req] = await db.select({ source: visitRequests.source }).from(visitRequests).where(eq(visitRequests.id, q!.rid));
     expect(req!.source).toBe('portal');
+
+    // HVA-287: the brand-new request must get an initial status-history
+    // row anchoring it at QUOTATION_GIVEN, else the timeline renders empty.
+    const qg = await getStatusStage('QUOTATION_GIVEN');
+    const hist = await db
+      .select({ to: requestStatusHistory.toStatusStageId, order: requestStatusHistory.transitionOrder })
+      .from(requestStatusHistory)
+      .where(eq(requestStatusHistory.requestId, q!.rid));
+    expect(hist).toHaveLength(1);
+    expect(hist[0]!.to).toBe(qg.id);
+    expect(hist[0]!.order).toBe(1);
+  });
+
+  it('HVA-287: a brand-new order arriving already confirmed yields two ordered history rows', async () => {
+    await seedMappedCityAndExec(9304, 5304);
+    const phone = `+9194${uniq()}0000`;
+    await fire(envelope({ eventId: 'evt_m4', storeId: 9304, portalExecId: 5304, portalOrderId: 8305, phone, total: 1500, status: 'confirmed' }));
+
+    const [q] = await db.select({ rid: quotations.visitRequestId }).from(quotations).where(eq(quotations.portalQuotationId, '8305'));
+    const qg = await getStatusStage('QUOTATION_GIVEN');
+    const oc = await getStatusStage('ORDER_CONFIRMED');
+    const hist = await db
+      .select({ to: requestStatusHistory.toStatusStageId, order: requestStatusHistory.transitionOrder })
+      .from(requestStatusHistory)
+      .where(eq(requestStatusHistory.requestId, q!.rid))
+      .orderBy(asc(requestStatusHistory.transitionOrder));
+    expect(hist).toHaveLength(2);
+    expect(hist[0]!.to).toBe(qg.id);
+    expect(hist[1]!.to).toBe(oc.id);
   });
 });
 

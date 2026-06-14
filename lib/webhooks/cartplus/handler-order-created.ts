@@ -223,6 +223,24 @@ export async function handleCartplusOrderCreated(
           })
           .returning({ id: visitRequests.id });
         requestId = requestRow.id;
+
+        // HVA-287: anchor the new request's status timeline. A CartPlus
+        // order is created directly at QUOTATION_GIVEN, so without an
+        // initial history row the /requests + /track timeline has nothing
+        // to mark as the current stage and renders an empty ladder. The
+        // order originates here (no home-visit stages), so from = null.
+        // apply-status (below) composes on top: a 'confirmed' order then
+        // adds row #2 → ORDER_CONFIRMED.
+        await tx.insert(requestStatusHistory).values({
+          requestId,
+          fromStatusStageId: null,
+          toStatusStageId: stage.id,
+          sequenceNumber: stage.seq,
+          transitionOrder: 1,
+          changedByUserId: execResult.userId ?? capturerUserId,
+          reason: 'CartPlus order received',
+          changedAt: now,
+        });
       }
 
       // 4c. Quotation — both branches: the request had no quotation row.

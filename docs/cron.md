@@ -16,6 +16,7 @@ re-install them after a host rebuild.
 | --- | --- | --- | --- | --- |
 | `0 16 * * *` | 21:30 | `/api/cron/day-close-reminder` | HVA-155 Part C | WhatsApp every exec who started a day plan today but hasn't closed it. Fires the `cron.day_close_reminder` event → `exec_day_close_reminder` template. |
 | `1 16 * * *` | 21:31 | `/api/cron/roll-over-tasks` | HVA-169 | Stamp `rolled_over_at` on pending tasks whose `task_date` < today IST. |
+| `25 18 * * *` | 23:55 | `/api/cron/auto-close-day` | HVA-293 | Auto-close any day plan still open (`plan_date <= today IST`), setting `auto_closed = true`. Unupdated tasks stay `pending` — next-day roll-over picks them up. |
 
 Add new rows above as new cron-fired endpoints ship.
 
@@ -42,6 +43,8 @@ Add new rows above as new cron-fired endpoints ship.
    0 16 * * * curl -sS -X GET -H "Authorization: Bearer $(grep ^CRON_SECRET /opt/beakn-home-visit-app/.env.local | cut -d= -f2-)" https://visits.beakn.in/api/cron/day-close-reminder >> /var/log/beakn-cron.log 2>&1
    # HVA-169 — pending-task roll-over (21:31 IST = 16:01 UTC)
    1 16 * * * curl -sS -X GET -H "Authorization: Bearer $(grep ^CRON_SECRET /opt/beakn-home-visit-app/.env.local | cut -d= -f2-)" https://visits.beakn.in/api/cron/roll-over-tasks >> /var/log/beakn-cron.log 2>&1
+   # HVA-293 — auto-close day plans (23:55 IST = 18:25 UTC)
+   25 18 * * * curl -sS -X GET -H "Authorization: Bearer $(grep ^CRON_SECRET /opt/beakn-home-visit-app/.env.local | cut -d= -f2-)" https://visits.beakn.in/api/cron/auto-close-day >> /var/log/beakn-cron.log 2>&1
    ```
 
    The `$(grep ...)` substitution reads the live secret from the env file so

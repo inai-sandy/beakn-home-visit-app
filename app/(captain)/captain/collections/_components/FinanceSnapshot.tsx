@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Icon } from '@/components/ui/icon';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { cn } from '@/lib/utils';
 
 import type { FinanceSnapshot as FinanceSnapshotData } from '@/lib/captain/finance-queries';
@@ -31,6 +32,8 @@ interface TileProps {
   icon: string;
   tone: Tone;
   href: string;
+  /** HVA-290: plain-English explainer rendered by the ⓘ button. */
+  explainer: string;
   /** Outstanding flips tone to amber on negative values (credit owed). */
   negativeIsAmber?: boolean;
 }
@@ -42,6 +45,7 @@ function Tile({
   icon,
   tone,
   href,
+  explainer,
   negativeIsAmber,
 }: TileProps) {
   const effectiveTone: Tone =
@@ -61,34 +65,41 @@ function Tile({
     rose: 'text-rose-600',
   }[effectiveTone];
 
+  // HVA-290: the ⓘ button can't nest inside the <Link> (button-in-anchor),
+  // so it sits as an absolutely-positioned sibling above the tile.
   return (
-    <Link
-      href={href}
-      className={cn(
-        'rounded-3xl border p-4 sm:p-5 shadow-sm space-y-1.5',
-        'transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        toneCls,
-      )}
-      aria-label={`Open ${label} detail`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-          {label}
+    <div className="relative">
+      <Link
+        href={href}
+        className={cn(
+          'block rounded-3xl border p-4 shadow-sm space-y-1',
+          'transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          toneCls,
+        )}
+        aria-label={`Open ${label} detail`}
+      >
+        <div className="flex items-center justify-between gap-2 pr-6">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <Icon name={icon} size="sm" className={cn('shrink-0', iconCls)} />
+        </div>
+        <p className="text-xl font-semibold tracking-tight tabular-nums">
+          {formatRupees(amountPaise)}
         </p>
-        <Icon name={icon} size="sm" className={cn('shrink-0', iconCls)} />
+        <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+          {subline}
+          <Icon
+            name="arrow_forward"
+            size="xs"
+            className="text-muted-foreground/60"
+          />
+        </p>
+      </Link>
+      <div className="absolute right-2.5 top-2.5">
+        <InfoTooltip iconOnly>{explainer}</InfoTooltip>
       </div>
-      <p className="text-2xl sm:text-3xl font-semibold tracking-tight tabular-nums">
-        {formatRupees(amountPaise)}
-      </p>
-      <p className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
-        {subline}
-        <Icon
-          name="arrow_forward"
-          size="xs"
-          className="text-muted-foreground/60"
-        />
-      </p>
-    </Link>
+    </div>
   );
 }
 
@@ -134,6 +145,7 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
         icon="receipt_long"
         tone="primary"
         href={`${basePath}/order-book`}
+        explainer="Total quotation value of all confirmed orders (reached Order Confirmed and not cancelled). This is the booked business, not cash received."
       />
       <Tile
         label="Quotation Pipeline"
@@ -142,6 +154,7 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
         icon="description"
         tone="sky"
         href={`${basePath}/pipeline`}
+        explainer="Quotation value of requests that have a quotation but haven't been confirmed yet (still at Quotation Given). Potential business awaiting the customer's go-ahead."
       />
       <Tile
         label="Received"
@@ -154,6 +167,7 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
         icon="account_balance_wallet"
         tone="emerald"
         href={`${basePath}/received`}
+        explainer="Net cash actually collected: inbound payments minus refunds (voided payments excluded). The percentage is received ÷ total quoted value."
       />
       <Tile
         label="Outstanding"
@@ -166,6 +180,7 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
         icon="hourglass_top"
         tone="rose"
         href={`${basePath}/outstanding`}
+        explainer="Money still owed: for each non-cancelled order, quotation total minus net payments, summed where positive. As of now — not bounded by any date range."
       />
       {hasCredits && (
         <Tile
@@ -175,6 +190,7 @@ export function FinanceSnapshot({ snapshot, basePath }: Props) {
           icon="sync_alt"
           tone="amber"
           href={`${basePath}/credits-owed`}
+          explainer="Refund liability: where a customer has paid more than their order total (e.g. after a downward revision), summed across customers. Money we owe back."
         />
       )}
     </section>

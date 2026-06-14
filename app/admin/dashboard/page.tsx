@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { DashboardHeader } from '@/app/(captain)/captain/dashboard/_components/DashboardHeader';
 import { getServerSession } from '@/lib/auth-server';
 import {
   loadAdminAlerts,
@@ -15,7 +14,11 @@ import {
   resolveDateFilter,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
+import { getCurrentMonthWindow } from '@/lib/exec/target-progress';
+import { financialYearToDate } from '@/lib/date';
 import { getIstDateString } from '@/lib/today/time';
+
+import { DashboardTabNav } from '@/components/dashboard/DashboardTabNav';
 
 import { AdminAlertsFeed } from './_components/AdminAlertsFeed';
 import { AdminCityGrid } from './_components/AdminCityGrid';
@@ -56,40 +59,38 @@ export const metadata: Metadata = {
   title: 'Command Center — Beakn admin',
 };
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_DAYS_BACK = 365;
+// HVA-290: admin uses three fixed-preset tabs (no free calendar) — the
+// tab IS the range. The label under the tabs reflects the active window.
+const ADMIN_TABS = [
+  { value: 'today', label: 'Today' },
+  { value: 'month', label: 'This month' },
+  { value: 'overall', label: 'Overall' },
+];
 
-function isoOffset(istDate: string, deltaDays: number): string {
-  const [y, m, d] = istDate.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d + deltaDays));
-  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
-}
-
-function clampDateParam(s: unknown, istToday: string): string | null {
-  if (typeof s !== 'string' || !DATE_PATTERN.test(s)) return null;
-  const min = isoOffset(istToday, -MAX_DAYS_BACK);
-  if (s > istToday) return istToday;
-  if (s < min) return min;
-  return s;
-}
-
-function parseDateFilter(
-  params: { date?: string; from?: string; to?: string },
+/** Derive the date filter + a label from the active admin tab. */
+function filterForView(
+  view: string,
   istToday: string,
-): DateFilter {
-  const from = clampDateParam(params.from, istToday);
-  const to = clampDateParam(params.to, istToday);
-  if (from && to) {
-    return from <= to
-      ? { mode: 'range', from, to }
-      : { mode: 'range', from: to, to: from };
+): { filter: DateFilter; label: string } {
+  if (view === 'month') {
+    const m = getCurrentMonthWindow();
+    return {
+      filter: { mode: 'range', from: m.monthStart, to: istToday },
+      label: `${m.monthLabel} · to date`,
+    };
   }
-  const single = clampDateParam(params.date, istToday);
-  return { mode: 'single', date: single ?? istToday };
+  if (view === 'overall') {
+    const fy = financialYearToDate(istToday);
+    return {
+      filter: { mode: 'range', from: fy.fromDate, to: fy.toDate },
+      label: 'Financial year · to date',
+    };
+  }
+  return { filter: { mode: 'single', date: istToday }, label: 'Today' };
 }
 
 interface PageProps {
-  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ view?: string }>;
 }
 
 export default async function AdminDashboardPage({ searchParams }: PageProps) {
@@ -100,7 +101,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   const raw = await searchParams;
   const istToday = getIstDateString();
-  const filter = parseDateFilter(raw, istToday);
+  const view =
+    raw.view === 'month' || raw.view === 'overall' ? raw.view : 'today';
+  const { filter, label: rangeLabel } = filterForView(view, istToday);
   const resolved = resolveDateFilter(filter);
   const window = { fromDate: resolved.target.from, toDate: resolved.target.to };
   const compareWindow = resolved.compare
@@ -132,12 +135,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 space-y-5 max-w-[1600px] mx-auto">
-      <DashboardHeader
-        filter={filter}
-        pathname="/admin/dashboard"
-        maxDaysBack={365}
-        subtitle="Org-wide numbers for the dates you pick."
-      />
+      <div className="flex flex-col items-center gap-2">
+        <DashboardTabNav tabs={ADMIN_TABS} active={view} />
+        <p className="text-xs text-muted-foreground">{rangeLabel}</p>
+      </div>
 
       <FirstTimeSetupBanner status={setupStatus} />
 

@@ -10,7 +10,7 @@ import {
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
 import { loadMetrics } from '@/lib/metrics/registry';
-import type { DateRange, MetricKey } from '@/lib/metrics/types';
+import type { DateRange } from '@/lib/metrics/types';
 import {
   getCurrentMonthWindow,
   loadAllExecTargetProgress,
@@ -23,7 +23,10 @@ import { DashboardTabNav } from '@/components/dashboard/DashboardTabNav';
 
 import { DashboardHeader } from './_components/DashboardHeader';
 import { ExecStatusList } from './_components/ExecStatusList';
-import { OverallView } from './_components/OverallView';
+import {
+  CAPTAIN_OVERALL_METRIC_KEYS,
+  OverallView,
+} from './_components/OverallView';
 import { PendingApprovalsCard } from './_components/PendingApprovalsCard';
 import { PendingCollectionsCard } from './_components/PendingCollectionsCard';
 import { PerformanceCard } from './_components/PerformanceCard';
@@ -33,19 +36,6 @@ const CAPTAIN_TABS = [
   { value: 'today', label: 'Today' },
   { value: 'overall', label: 'Overall' },
 ];
-
-const CAPTAIN_OVERALL_KEYS = [
-  'revenue',
-  'orders_value',
-  'orders_count',
-  'conversion_pct',
-  'quotations_count',
-  'quotations_value',
-  'visits',
-  'new_requests',
-  'cancelled_requests',
-  'outstanding',
-] as const satisfies readonly MetricKey[];
 
 // =============================================================================
 // HVA-80: Captain Dashboard — two-column desktop / stacked mobile
@@ -167,7 +157,11 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
     const monthWindow = getCurrentMonthWindow();
 
     const [overallValues, execProgress] = await Promise.all([
-      loadMetrics(CAPTAIN_OVERALL_KEYS, { captainUserId: user.id }, overallRange),
+      loadMetrics(
+        CAPTAIN_OVERALL_METRIC_KEYS,
+        { captainUserId: user.id },
+        overallRange,
+      ),
       loadMonthlyTargetPaise().then((target) =>
         loadAllExecTargetProgress(monthWindow, target, {
           captainUserId: user.id,

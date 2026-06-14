@@ -7,34 +7,37 @@ import {
   loadTeamPerformance,
   type DateFilter,
 } from '@/lib/captain/dashboard-queries';
+import { loadMetrics } from '@/lib/metrics/registry';
+import type { DateRange } from '@/lib/metrics/types';
+import {
+  getCurrentMonthWindow,
+  loadAllExecTargetProgress,
+  loadMonthlyTargetPaise,
+} from '@/lib/exec/target-progress';
+import { financialYearLabel, financialYearToDate } from '@/lib/date';
 import { getIstDateString } from '@/lib/today/time';
 
+import { DashboardTabNav } from '@/components/dashboard/DashboardTabNav';
 import { DashboardHeader } from '@/app/(captain)/captain/dashboard/_components/DashboardHeader';
 import { ExecStatusList } from '@/app/(captain)/captain/dashboard/_components/ExecStatusList';
+import {
+  CAPTAIN_OVERALL_METRIC_KEYS,
+  OverallView,
+} from '@/app/(captain)/captain/dashboard/_components/OverallView';
 import { PendingApprovalsCard } from '@/app/(captain)/captain/dashboard/_components/PendingApprovalsCard';
 import { PendingCollectionsCard } from '@/app/(captain)/captain/dashboard/_components/PendingCollectionsCard';
 import { PerformanceCard } from '@/app/(captain)/captain/dashboard/_components/PerformanceCard';
 
 // =============================================================================
-// /admin/portal/[captainId]/dashboard — read-only captain dashboard
+// /admin/portal/[captainId]/dashboard — EXACT captain dashboard replica
 // =============================================================================
 //
-// Sandeep 2026-06-03: the admin city tile opens the captain's portal.
-// This page is the entry point — it renders the same dashboard the
-// captain sees on /captain/dashboard, but routed via the URL-supplied
-// captainId so super_admin can view any captain's portal without
-// logging out.
-//
-// The captain layout (app/(captain)/layout.tsx) gates this same
-// dashboard by `cities.captain_user_id`. Here we trust the URL
-// captainId verbatim because the parent layout (`layout.tsx` next
-// door) already validated:
-//   1. session belongs to a super_admin
-//   2. the captainId resolves to a user with role='captain'
-//
-// Date picker URL state and component contracts are identical to
-// /captain/dashboard. Components accept a basePath prop that retargets
-// any internal navigation back into the admin portal namespace.
+// Sandeep 2026-06-14: the admin city tile must open the FULL captain
+// portal, not a shrunk panel. This page renders the same Today | Overall
+// tabbed dashboard the captain sees on /captain/dashboard, scoped to the
+// URL-supplied captainId, reusing the captain's own components + loaders
+// so the two can't drift. The parent layout already validated that the
+// session is a super_admin and that captainId is a real captain.
 // =============================================================================
 
 export const dynamic = 'force-dynamic';
@@ -44,44 +47,50 @@ export const metadata: Metadata = {
 };
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_DAYS_BACK = 400;
 
-function isValidIstDateString(s: unknown): s is string {
-  if (typeof s !== 'string') return false;
-  if (!DATE_PATTERN.test(s)) return false;
-  const istToday = getIstDateString();
-  if (s > istToday) return false;
-  const [ty, tm, td] = istToday.split('-').map(Number);
-  const minDate = new Date(Date.UTC(ty, tm - 1, td - 30));
-  const minStr = `${minDate.getUTCFullYear()}-${String(
-    minDate.getUTCMonth() + 1,
-  ).padStart(2, '0')}-${String(minDate.getUTCDate()).padStart(2, '0')}`;
-  if (s < minStr) return false;
-  return true;
+const PORTAL_TABS = [
+  { value: 'today', label: 'Today' },
+  { value: 'overall', label: 'Overall' },
+];
+
+function isoOffset(istDate: string, deltaDays: number): string {
+  const [y, m, d] = istDate.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
 }
 
-function parseDateFilter(params: {
-  date?: string;
-  from?: string;
-  to?: string;
-}): DateFilter {
-  if (params.from && params.to) {
-    if (
-      isValidIstDateString(params.from) &&
-      isValidIstDateString(params.to) &&
-      params.from <= params.to
-    ) {
-      return { mode: 'range', from: params.from, to: params.to };
-    }
+function clampDateParam(s: unknown, istToday: string): string | null {
+  if (typeof s !== 'string' || !DATE_PATTERN.test(s)) return null;
+  const min = isoOffset(istToday, -MAX_DAYS_BACK);
+  if (s > istToday) return istToday;
+  if (s < min) return min;
+  return s;
+}
+
+function parseDateFilter(
+  params: { date?: string; from?: string; to?: string },
+  istToday: string,
+): DateFilter {
+  const from = clampDateParam(params.from, istToday);
+  const to = clampDateParam(params.to, istToday);
+  if (from && to) {
+    return from <= to
+      ? { mode: 'range', from, to }
+      : { mode: 'range', from: to, to: from };
   }
-  if (params.date && isValidIstDateString(params.date)) {
-    return { mode: 'single', date: params.date };
-  }
-  return { mode: 'single', date: getIstDateString() };
+  const single = clampDateParam(params.date, istToday);
+  return { mode: 'single', date: single ?? istToday };
 }
 
 interface PageProps {
   params: Promise<{ captainId: string }>;
-  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    from?: string;
+    to?: string;
+    view?: string;
+  }>;
 }
 
 export default async function AdminCaptainPortalDashboard({
@@ -90,8 +99,74 @@ export default async function AdminCaptainPortalDashboard({
 }: PageProps) {
   const { captainId } = await params;
   const raw = await searchParams;
-  const filter = parseDateFilter(raw);
+  const istToday = getIstDateString();
   const basePath = `/admin/portal/${captainId}`;
+  const dashPath = `${basePath}/dashboard`;
+  const view = raw.view === 'overall' ? 'overall' : 'today';
+  const tabNav = (
+    <div className="flex justify-center">
+      <DashboardTabNav
+        tabs={PORTAL_TABS}
+        active={view}
+        preserveParams={['from', 'to', 'date']}
+      />
+    </div>
+  );
+
+  // ---- Overall tab: FY team picture + per-exec target finish line ----
+  if (view === 'overall') {
+    const from = clampDateParam(raw.from, istToday);
+    const to = clampDateParam(raw.to, istToday);
+    let overallFilter: DateFilter;
+    let overallRange: DateRange;
+    if (from && to) {
+      const [lo, hi] = from <= to ? [from, to] : [to, from];
+      overallFilter = { mode: 'range', from: lo, to: hi };
+      overallRange = { fromDate: lo, toDate: hi };
+    } else {
+      const fy = financialYearToDate(istToday);
+      overallFilter = { mode: 'range', from: fy.fromDate, to: fy.toDate };
+      overallRange = fy;
+    }
+    const isTodayRange =
+      overallRange.fromDate === istToday && overallRange.toDate === istToday;
+    const rangeLabel =
+      from && to
+        ? `${overallRange.fromDate} → ${overallRange.toDate}`
+        : `${financialYearLabel(istToday)} · to date`;
+    const monthWindow = getCurrentMonthWindow();
+
+    const [overallValues, execProgress] = await Promise.all([
+      loadMetrics(
+        CAPTAIN_OVERALL_METRIC_KEYS,
+        { captainUserId: captainId },
+        overallRange,
+      ),
+      loadMonthlyTargetPaise().then((target) =>
+        loadAllExecTargetProgress(monthWindow, target, {
+          captainUserId: captainId,
+        }),
+      ),
+    ]);
+
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
+        {tabNav}
+        <OverallView
+          filter={overallFilter}
+          rangeLabel={rangeLabel}
+          isTodayRange={isTodayRange}
+          values={overallValues}
+          execProgress={execProgress}
+          monthLabel={monthWindow.monthLabel}
+          pathname={dashPath}
+        />
+      </div>
+    );
+  }
+
+  // ---- Today tab: the operational team view ----
+  const filter = parseDateFilter(raw, istToday);
 
   const [performance, approvals, collections, execs] = await Promise.all([
     loadTeamPerformance(captainId, filter),
@@ -102,10 +177,10 @@ export default async function AdminCaptainPortalDashboard({
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
-      <DashboardHeader filter={filter} pathname={`${basePath}/dashboard`} />
+      {tabNav}
+      <DashboardHeader filter={filter} pathname={dashPath} maxDaysBack={365} />
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-        {/* Left column — 2/5 of desktop width (= 40%) */}
         <div className="md:col-span-2 space-y-5">
           <PerformanceCard performance={performance} />
           <PendingApprovalsCard
@@ -122,7 +197,6 @@ export default async function AdminCaptainPortalDashboard({
           />
         </div>
 
-        {/* Right column — 3/5 of desktop width (= 60%) */}
         <div className="md:col-span-3">
           <ExecStatusList execs={execs} filter={filter} />
         </div>

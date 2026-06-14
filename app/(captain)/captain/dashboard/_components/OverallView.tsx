@@ -43,6 +43,13 @@ const GROUPS: { key: string; title: string; metrics: readonly MetricKey[] }[] = 
   },
 ];
 
+/** Flat list of every metric the captain Overall tab needs loaded, derived
+ *  from the groups so the page's loadMetrics call can't drift from what's
+ *  rendered. Shared by /captain/dashboard and the admin portal replica. */
+export const CAPTAIN_OVERALL_METRIC_KEYS: readonly MetricKey[] = GROUPS.flatMap(
+  (g) => g.metrics,
+);
+
 interface Props {
   filter: DateFilter;
   rangeLabel: string;
@@ -50,6 +57,9 @@ interface Props {
   values: Partial<Record<MetricKey, number | null>>;
   execProgress: ExecTargetProgress[];
   monthLabel: string;
+  /** Route the date picker pushes into. Defaults to the captain's own
+   *  dashboard; the admin portal replica passes its captainId path. */
+  pathname?: string;
 }
 
 export function OverallView({
@@ -59,6 +69,7 @@ export function OverallView({
   values,
   execProgress,
   monthLabel,
+  pathname = "/captain/dashboard",
 }: Props) {
   // Rank execs by how close they are to their target (highest first).
   const ranked = [...execProgress].sort(
@@ -74,7 +85,7 @@ export function OverallView({
         </div>
         <DateRangePicker
           filter={filter}
-          pathname="/captain/dashboard"
+          pathname={pathname}
           maxDaysBack={400}
           extraParams={{ view: "overall" }}
         />

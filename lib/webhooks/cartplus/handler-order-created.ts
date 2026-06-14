@@ -16,6 +16,7 @@ import {
 import { log } from '@/lib/logger';
 import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 
+import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { cartplusOrderEventDataSchema } from './order-payload';
 
@@ -257,7 +258,17 @@ export async function handleCartplusOrderCreated(
         });
       }
 
-      return { requestId, merged };
+      // 4e. HVA-285: apply the CartPlus order status to the Beakn stage —
+      // an order that arrives already 'confirmed' lands at ORDER_CONFIRMED;
+      // 'pending' stays at QUOTATION_GIVEN; 'cancelled' cancels.
+      const statusResult = await applyCartplusOrderStatus(
+        tx,
+        requestId,
+        order.status,
+        execResult.userId ?? capturerUserId,
+      );
+
+      return { requestId, merged, statusResult };
     });
 
     // 7. Notifications — fire-and-forget so DB commit is the source of truth
@@ -290,6 +301,7 @@ export async function handleCartplusOrderCreated(
         eventId: envelope.id,
         requestId: result.requestId,
         merged: result.merged,
+        statusResult: result.statusResult,
         execResolved: Boolean(execResult.userId),
         cityFallback: cityResult.fallback,
       },

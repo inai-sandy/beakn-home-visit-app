@@ -4,11 +4,11 @@ import { db } from '@/db/client';
 import {
   quotationLineItems,
   quotations,
-  visitRequests,
   webhookEvents,
 } from '@/db/schema';
 import { log } from '@/lib/logger';
 
+import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { cartplusOrderEventDataSchema } from './order-payload';
 
@@ -87,38 +87,21 @@ export async function handleCartplusOrderStatusChanged(
       // Upsert line items by portal_line_item_id
       await upsertLineItems(tx, existing.id, order.items);
 
-      // HVA-282: a CartPlus update on a CANCELLED request means the order
-      // was reactivated in CartPlus — un-cancel the Beakn request so it's
-      // live again (status is left where it stood; cancellation just
-      // tracked via cancelled_at). A genuine cancellation arrives as the
-      // separate order.cancelled event, so we guard on the order status
-      // not itself being cancelled.
-      const orderStatus = (order.status ?? '').toLowerCase();
-      const orderSaysCancelled =
-        orderStatus === 'cancelled' || orderStatus === 'canceled';
-      let reactivated = false;
-      if (!orderSaysCancelled) {
-        const [req] = await tx
-          .select({ cancelledAt: visitRequests.cancelledAt })
-          .from(visitRequests)
-          .where(eq(visitRequests.id, existing.requestId))
-          .limit(1);
-        if (req?.cancelledAt) {
-          await tx
-            .update(visitRequests)
-            .set({
-              cancelledAt: null,
-              cancellationActor: null,
-              cancellationReason: null,
-              cancellationReasonCode: null,
-              updatedAt: new Date(),
-            })
-            .where(eq(visitRequests.id, existing.requestId));
-          reactivated = true;
-        }
-      }
+      // HVA-285: map the CartPlus order status onto the Beakn stage —
+      // pending → QUOTATION_GIVEN, confirmed → ORDER_CONFIRMED, cancelled →
+      // cancel; forward-only, and a pending/confirmed un-cancels first.
+      const statusResult = await applyCartplusOrderStatus(
+        tx,
+        existing.requestId,
+        order.status,
+        null,
+      );
 
-      return { matched: true, quotationId: existing.id, reactivated };
+      return {
+        matched: true,
+        quotationId: existing.id,
+        statusResult,
+      };
     });
 
     if (!result.matched) {
@@ -141,7 +124,7 @@ export async function handleCartplusOrderStatusChanged(
         eventId: envelope.id,
         portalQuotationId,
         quotationId: result.quotationId,
-        reactivated: result.reactivated,
+        statusResult: result.statusResult,
       },
       'order_status_changed_handled',
     );

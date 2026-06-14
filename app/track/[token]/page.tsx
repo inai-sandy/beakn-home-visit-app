@@ -1,4 +1,4 @@
-import { asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { formatDistanceToNow } from "date-fns";
 import type { Metadata } from "next";
@@ -11,6 +11,8 @@ import { RescheduleRequestButton } from "@/components/track/RescheduleRequestBut
 import { Icon } from "@/components/ui/icon";
 import { db } from "@/db/client";
 import {
+  payments,
+  quotations,
   requestExecAssignments,
   requestStatusHistory,
   statusStages,
@@ -18,6 +20,7 @@ import {
   visitRequests,
 } from "@/db/schema";
 import { getCustomerFacingReason } from "@/lib/cancellation-reasons";
+import { computeCollectionSummary } from "@/lib/collection-summary";
 import { getConfig } from "@/lib/config";
 import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
 import type { ResourceRow } from "@/lib/content/types";
@@ -26,7 +29,11 @@ import { loadActiveCategories } from "@/lib/support-tickets/category-queries";
 import { loadTicketsForRequest } from "@/lib/support-tickets/queries";
 import { cn } from "@/lib/utils";
 
+import { loadLineItems } from "@/app/requests/[id]/_actions/lineItems";
+import { OrderTab } from "./_components/OrderTab";
+import { PaymentsTab } from "./_components/PaymentsTab";
 import { SupportTicketsSection } from "./_components/SupportTicketsSection";
+import { TrackTabs } from "./_components/TrackTabs";
 
 // =============================================================================
 // HVA-36: /track/[token] — public customer tracking page (premium)
@@ -302,6 +309,54 @@ export default async function TrackPage({ params }: PageProps) {
     loadActiveCategories(),
   ]);
 
+  // HVA-286: Order + Payments tab data. The customer sees the CartPlus
+  // (portal) quotation only; payments are shown customer-safe (no staff /
+  // reference / notes), voided rows hidden.
+  const [portalQuote] = await db
+    .select({
+      id: quotations.id,
+      totalOrderValuePaise: quotations.totalOrderValuePaise,
+    })
+    .from(quotations)
+    .where(
+      and(
+        eq(quotations.visitRequestId, reqRow.requestId),
+        eq(quotations.source, "portal"),
+      ),
+    )
+    .limit(1);
+  const orderValuePaise = portalQuote
+    ? Number(portalQuote.totalOrderValuePaise)
+    : null;
+  const orderItems = portalQuote ? await loadLineItems(portalQuote.id) : [];
+  const paymentRows = await db
+    .select({
+      direction: payments.direction,
+      amountPaise: payments.amountPaise,
+      paymentDate: payments.paymentDate,
+      mode: payments.mode,
+      voidedAt: payments.voidedAt,
+    })
+    .from(payments)
+    .where(eq(payments.visitRequestId, reqRow.requestId))
+    .orderBy(asc(payments.paymentDate), asc(payments.createdAt));
+  const paymentSummary = computeCollectionSummary(
+    orderValuePaise ?? 0,
+    paymentRows.map((p) => ({
+      direction: p.direction,
+      amountPaise: Number(p.amountPaise),
+      voidedAt: p.voidedAt,
+    })),
+  );
+  const customerPayments = paymentRows
+    .filter((p) => p.voidedAt === null)
+    .map((p) => ({
+      date: p.paymentDate,
+      amountPaise: Number(p.amountPaise),
+      mode: p.mode,
+      direction: p.direction,
+    }));
+
   return (
     <main className="min-h-svh bg-background">
       {/* HVA-254: Cloudflare Turnstile script for the support-ticket
@@ -337,6 +392,19 @@ export default async function TrackPage({ params }: PageProps) {
           </p>
         </section>
 
+        <TrackTabs
+          order={
+            <OrderTab items={orderItems} orderValuePaise={orderValuePaise} />
+          }
+          payments={
+            <PaymentsTab
+              summary={paymentSummary}
+              payments={customerPayments}
+              hasQuotation={orderValuePaise !== null}
+            />
+          }
+          status={
+            <>
         {/* Status centerpiece.
             HVA-142: when the request is cancelled, the centerpiece flips
             to a destructive variant that names the closure plainly +
@@ -555,6 +623,9 @@ export default async function TrackPage({ params }: PageProps) {
             )}
           </section>
         )}
+            </>
+          }
+        />
 
         {/* Footer — WhatsApp support */}
         <footer className="pt-6 border-t text-center text-sm text-muted-foreground space-y-1">

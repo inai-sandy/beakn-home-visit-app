@@ -205,7 +205,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: handlerOutcome.status === 'error' ? 500 : 200 },
       );
     }
-    if (envelope.type === 'order.status_changed') {
+    // HVA-283: CartPlus fires `order.updated` for edits (price/qty/item
+    // add+remove) and `order.status_changed` for status flips. Both carry
+    // the full order payload and must refresh the quotation the same way,
+    // so they share one handler.
+    if (
+      envelope.type === 'order.status_changed' ||
+      envelope.type === 'order.updated'
+    ) {
       const handlerOutcome = await handleCartplusOrderStatusChanged(
         envelope,
         outcome.webhookEventId,

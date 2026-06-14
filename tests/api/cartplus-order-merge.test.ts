@@ -247,3 +247,26 @@ describe('HVA-282: reactivation — a CartPlus update on a cancelled request un-
     expect(qv!.paise).toBe(180000);
   });
 });
+
+describe('HVA-283: order.updated (CartPlus edit event) refreshes the quotation', () => {
+  it('order.updated with a new total updates the quotation value', async () => {
+    await seedMappedCityAndExec(9501, 5501);
+    const phone = `+9194${uniq()}0000`;
+
+    await fire(envelope({ eventId: 'evt_u1', storeId: 9501, portalExecId: 5501, portalOrderId: 8501, phone, total: 1000 }));
+    const [created] = await db.select({ paise: quotations.totalOrderValuePaise }).from(quotations).where(eq(quotations.portalQuotationId, '8501'));
+    expect(created!.paise).toBe(100000);
+
+    // Edit arrives as order.updated (CartPlus's edit event), not status_changed.
+    const res = await fire(
+      envelope({ eventId: 'evt_u2', type: 'order.updated', storeId: 9501, portalExecId: 5501, portalOrderId: 8501, phone, total: 2500 }),
+      'order.updated',
+    );
+    const json = (await res.json()) as { result?: string };
+    expect(res.status).toBe(200);
+    expect(json.result).toBe('ok'); // handled, not 'noop'
+
+    const [updated] = await db.select({ paise: quotations.totalOrderValuePaise }).from(quotations).where(eq(quotations.portalQuotationId, '8501'));
+    expect(updated!.paise).toBe(250000);
+  });
+});

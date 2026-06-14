@@ -139,15 +139,15 @@ function Row({
   asOfNow?: boolean;
 }) {
   return (
-    <li className="flex items-center justify-between gap-3">
-      <span className="inline-flex items-center gap-2.5 min-w-0">
+    <li className="flex items-start justify-between gap-3">
+      <span className="inline-flex items-start gap-2.5 min-w-0">
         <span
           className={`inline-flex h-7 w-7 items-center justify-center rounded-lg shrink-0 ${iconTone}`}
           aria-hidden
         >
           <Icon name={icon} size="xs" />
         </span>
-        <span className="text-muted-foreground truncate inline-flex items-center gap-1">
+        <span className="text-muted-foreground inline-flex flex-wrap items-center gap-x-1 gap-y-0.5">
           {label}
           <InfoTooltip iconOnly>{explainer}</InfoTooltip>
           {asOfNow && <AsOfNowTag />}

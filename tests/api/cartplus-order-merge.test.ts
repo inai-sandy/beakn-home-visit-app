@@ -9,6 +9,7 @@ import {
   notificationRules,
   quotations,
   requestStatusHistory,
+  statusStages,
   users,
   visitRequests,
   webhookSecrets,
@@ -94,7 +95,7 @@ function envelope(opts: {
       order: {
         id: opts.portalOrderId,
         order_number: `CP-${opts.portalOrderId}`,
-        status: opts.status ?? 'confirmed',
+        status: opts.status ?? 'pending',
         payment_status: 'paid',
         fulfillment_status: 'pending',
         currency: 'INR',
@@ -245,5 +246,84 @@ describe('HVA-282: reactivation — a CartPlus update on a cancelled request un-
     expect(afterReactivate!.c).toBeNull();
     const [qv] = await db.select({ paise: quotations.totalOrderValuePaise }).from(quotations).where(eq(quotations.portalQuotationId, '8401'));
     expect(qv!.paise).toBe(180000);
+  });
+});
+
+describe('HVA-283: order.updated (CartPlus edit event) refreshes the quotation', () => {
+  it('order.updated with a new total updates the quotation value', async () => {
+    await seedMappedCityAndExec(9501, 5501);
+    const phone = `+9194${uniq()}0000`;
+
+    await fire(envelope({ eventId: 'evt_u1', storeId: 9501, portalExecId: 5501, portalOrderId: 8501, phone, total: 1000 }));
+    const [created] = await db.select({ paise: quotations.totalOrderValuePaise }).from(quotations).where(eq(quotations.portalQuotationId, '8501'));
+    expect(created!.paise).toBe(100000);
+
+    // Edit arrives as order.updated (CartPlus's edit event), not status_changed.
+    const res = await fire(
+      envelope({ eventId: 'evt_u2', type: 'order.updated', storeId: 9501, portalExecId: 5501, portalOrderId: 8501, phone, total: 2500 }),
+      'order.updated',
+    );
+    const json = (await res.json()) as { result?: string };
+    expect(res.status).toBe(200);
+    expect(json.result).toBe('ok'); // handled, not 'noop'
+
+    const [updated] = await db.select({ paise: quotations.totalOrderValuePaise }).from(quotations).where(eq(quotations.portalQuotationId, '8501'));
+    expect(updated!.paise).toBe(250000);
+  });
+});
+
+describe('HVA-285: CartPlus order status → Beakn stage', () => {
+  async function stageCodeOf(portalQuotationId: string): Promise<string> {
+    const [row] = await db
+      .select({ code: statusStages.code })
+      .from(quotations)
+      .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
+      .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+      .where(eq(quotations.portalQuotationId, portalQuotationId));
+    return row!.code;
+  }
+
+  it("pending stays at QUOTATION_GIVEN", async () => {
+    await seedMappedCityAndExec(9601, 5601);
+    await fire(envelope({ eventId: 'evt_s1', status: 'pending', storeId: 9601, portalExecId: 5601, portalOrderId: 8601, phone: `+9193${uniq()}0000`, total: 1000 }));
+    expect(await stageCodeOf('8601')).toBe('QUOTATION_GIVEN');
+  });
+
+  it("confirmed on a later status_changed advances to ORDER_CONFIRMED with a history row", async () => {
+    await seedMappedCityAndExec(9602, 5602);
+    const phone = `+9192${uniq()}0000`;
+    await fire(envelope({ eventId: 'evt_s2a', status: 'pending', storeId: 9602, portalExecId: 5602, portalOrderId: 8602, phone, total: 1000 }));
+    expect(await stageCodeOf('8602')).toBe('QUOTATION_GIVEN');
+
+    await fire(
+      envelope({ eventId: 'evt_s2b', type: 'order.status_changed', status: 'confirmed', storeId: 9602, portalExecId: 5602, portalOrderId: 8602, phone, total: 1000 }),
+      'order.status_changed',
+    );
+    expect(await stageCodeOf('8602')).toBe('ORDER_CONFIRMED');
+
+    // A real ORDER_CONFIRMED transition exists (drives /track + Booked).
+    const oc = await getStatusStage('ORDER_CONFIRMED');
+    const [{ rid }] = await db.select({ rid: quotations.visitRequestId }).from(quotations).where(eq(quotations.portalQuotationId, '8602'));
+    const hist = await db.select({ to: requestStatusHistory.toStatusStageId }).from(requestStatusHistory).where(eq(requestStatusHistory.requestId, rid));
+    expect(hist.some((h) => h.to === oc.id)).toBe(true);
+  });
+
+  it("an order arriving already 'confirmed' is created at ORDER_CONFIRMED", async () => {
+    await seedMappedCityAndExec(9603, 5603);
+    await fire(envelope({ eventId: 'evt_s3', status: 'confirmed', storeId: 9603, portalExecId: 5603, portalOrderId: 8603, phone: `+9191${uniq()}0000`, total: 1000 }));
+    expect(await stageCodeOf('8603')).toBe('ORDER_CONFIRMED');
+  });
+
+  it("forward-only: a 'pending' after 'confirmed' does NOT move the request back", async () => {
+    await seedMappedCityAndExec(9604, 5604);
+    const phone = `+9190${uniq()}0000`;
+    await fire(envelope({ eventId: 'evt_s4a', status: 'confirmed', storeId: 9604, portalExecId: 5604, portalOrderId: 8604, phone, total: 1000 }));
+    expect(await stageCodeOf('8604')).toBe('ORDER_CONFIRMED');
+
+    await fire(
+      envelope({ eventId: 'evt_s4b', type: 'order.status_changed', status: 'pending', storeId: 9604, portalExecId: 5604, portalOrderId: 8604, phone, total: 1000 }),
+      'order.status_changed',
+    );
+    expect(await stageCodeOf('8604')).toBe('ORDER_CONFIRMED'); // unchanged, not reverted
   });
 });

@@ -68,7 +68,7 @@ export function OverallView({
   const hasWarnings = warnings.soft > 0 || warnings.hard > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-24">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">Overall</p>

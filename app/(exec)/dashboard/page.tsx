@@ -21,6 +21,8 @@ import {
 } from '@/lib/exec/dashboard-queries';
 import { loadVisitedRequestsCount } from '@/lib/metrics/conversion';
 import { loadMetrics } from '@/lib/metrics/registry';
+import type { DateRange, MetricKey } from '@/lib/metrics/types';
+import { financialYearLabel, financialYearToDate } from '@/lib/date';
 import {
   getCurrentMonthWindow,
   loadMonthlyTargetPaise,
@@ -34,11 +36,33 @@ import { ExecTargetCard } from '@/components/targets/ExecTargetCard';
 import { loadStreakForExec } from '@/lib/leaderboard/streak';
 import { loadActiveWarningCounts } from '@/lib/warnings/queries';
 
+import { DashboardTabNav } from '@/components/dashboard/DashboardTabNav';
+
 import { ExecDashboardHeader } from './_components/ExecDashboardHeader';
 import { NextUpCard } from './_components/NextUpCard';
+import { OverallView } from './_components/OverallView';
 import { PendingOnMeCard } from './_components/PendingOnMeCard';
 import { TasksAccordion } from './_components/TasksAccordion';
 import { WindowTiles } from './_components/WindowTiles';
+
+const EXEC_TABS = [
+  { value: 'today', label: 'Today' },
+  { value: 'overall', label: 'Overall' },
+];
+
+const OVERALL_METRIC_KEYS = [
+  'revenue',
+  'orders_value',
+  'orders_count',
+  'conversion_pct',
+  'quotations_count',
+  'quotations_value',
+  'visits',
+  'new_requests',
+  'productive_minutes',
+  'cancelled_requests',
+  'outstanding',
+] as const satisfies readonly MetricKey[];
 
 // =============================================================================
 // HVA-277: /dashboard — redesigned exec analytical surface
@@ -116,7 +140,12 @@ function parseDateFilter(
 }
 
 interface PageProps {
-  searchParams: Promise<{ date?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    from?: string;
+    to?: string;
+    view?: string;
+  }>;
 }
 
 function groupOutcomeOptions(
@@ -141,6 +170,67 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
 
   const raw = await searchParams;
   const istToday = getIstDateString();
+  const view = raw.view === 'overall' ? 'overall' : 'today';
+  const tabNav = (
+    <div className="flex justify-center">
+      <DashboardTabNav
+        tabs={EXEC_TABS}
+        active={view}
+        preserveParams={['from', 'to', 'date']}
+      />
+    </div>
+  );
+
+  // ---- Overall tab: financial-year-to-date analytics ----
+  if (view === 'overall') {
+    const from = clampDateParam(raw.from, istToday);
+    const to = clampDateParam(raw.to, istToday);
+    let overallFilter: DateFilter;
+    let overallRange: DateRange;
+    if (from && to) {
+      const [lo, hi] = from <= to ? [from, to] : [to, from];
+      overallFilter = { mode: 'range', from: lo, to: hi };
+      overallRange = { fromDate: lo, toDate: hi };
+    } else {
+      const fy = financialYearToDate(istToday);
+      overallFilter = { mode: 'range', from: fy.fromDate, to: fy.toDate };
+      overallRange = fy;
+    }
+    const isTodayRange =
+      overallRange.fromDate === istToday && overallRange.toDate === istToday;
+    const rangeLabel =
+      from && to
+        ? `${overallRange.fromDate} → ${overallRange.toDate}`
+        : `${financialYearLabel(istToday)} · to date`;
+
+    const [overallValues, overallWarnings, overallTarget] = await Promise.all([
+      loadMetrics(OVERALL_METRIC_KEYS, { execUserId: user.id }, overallRange),
+      loadActiveWarningCounts(user.id),
+      loadMonthlyTargetPaise().then((target) =>
+        loadOneExecTargetProgress(user.id, getCurrentMonthWindow(), target),
+      ),
+    ]);
+
+    return (
+      <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+        {tabNav}
+        <OverallView
+          filter={overallFilter}
+          rangeLabel={rangeLabel}
+          isTodayRange={isTodayRange}
+          values={overallValues}
+          target={overallTarget}
+          monthWindow={getCurrentMonthWindow()}
+          warnings={{
+            soft: overallWarnings.softActive,
+            hard: overallWarnings.hardActive,
+          }}
+        />
+      </main>
+    );
+  }
+
+  // ---- Today tab: the operational view (unchanged) ----
   const filter = parseDateFilter(raw, istToday);
   const range =
     filter.mode === 'range'
@@ -246,6 +336,7 @@ export default async function ExecDashboardPage({ searchParams }: PageProps) {
 
   return (
     <main className="mx-auto max-w-2xl px-4 sm:px-6 py-6 space-y-6">
+      {tabNav}
       <ExecDashboardHeader filter={filter} />
       <WindowTiles
         collectedPaise={windowMetrics.revenue ?? 0}

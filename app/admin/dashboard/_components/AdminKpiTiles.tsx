@@ -9,7 +9,7 @@ import { METRIC_DEFINITIONS } from '@/lib/metrics/registry';
 import type { MetricKey } from '@/lib/metrics/types';
 import { cn } from '@/lib/utils';
 
-import { computeDelta, formatHours, formatRupeesShort, type Delta } from './format';
+import { computeDelta, formatRupeesShort, type Delta } from './format';
 
 // =============================================================================
 // HVA-117 redesign: 4-tile KPI strip
@@ -97,15 +97,15 @@ export function AdminKpiTiles({ window, compare, range }: Props) {
       metric: 'conversion',
     },
     {
-      label: 'Productive',
-      icon: 'schedule',
+      label: 'New requests',
+      icon: 'inbox',
       iconTone: 'text-amber-600 dark:text-amber-300 bg-amber-500/10',
-      value: formatHours(window.productiveMinutes),
+      value: String(window.newRequests),
       delta: compare
-        ? computeDelta(window.productiveMinutes, compare.productiveMinutes)
+        ? computeDelta(window.newRequests, compare.newRequests)
         : flat,
-      explainer: def('productive_minutes'),
-      metric: 'productive',
+      explainer: def('new_requests'),
+      metric: 'newrequests',
     },
   ];
 

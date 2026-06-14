@@ -1,4 +1,15 @@
-import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  type AnyColumn,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -35,14 +46,14 @@ export type DrilldownMetric =
   | 'orders'
   | 'visits'
   | 'conversion'
-  | 'productive';
+  | 'newrequests';
 
 export const DRILLDOWN_METRICS: readonly DrilldownMetric[] = [
   'booked',
   'orders',
   'visits',
   'conversion',
-  'productive',
+  'newrequests',
 ];
 
 export interface DrilldownRow {
@@ -75,9 +86,9 @@ export const DRILLDOWN_META: Record<DrilldownMetric, DrilldownMeta> = {
     title: 'Conversion — visited requests',
     columns: ['Customer', 'Exec · City', 'Visit completed', 'Converted?'],
   },
-  productive: {
-    title: 'Productive — completed tasks',
-    columns: ['Task', 'Executive', 'Date', 'Time'],
+  newrequests: {
+    title: 'New requests',
+    columns: ['Customer', 'Exec · City', 'Created', 'Stage'],
   },
 };
 
@@ -94,19 +105,8 @@ export interface DrilldownResult {
   total: number;
 }
 
-const istDate = (col: typeof requestStatusHistory.changedAt) =>
+const istDate = (col: AnyColumn) =>
   sql`(${col} AT TIME ZONE 'Asia/Kolkata')::date`;
-
-const minutesExpr = sql<number>`CASE COALESCE(${tasks.actualTime}, ${tasks.estimatedTime})
-  WHEN '15min' THEN 15 WHEN '30min' THEN 30 WHEN '1hr' THEN 60
-  WHEN '2hr' THEN 120 WHEN '3hr+' THEN 180 ELSE 0 END`;
-
-function minutesLabel(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
 
 // --- Confirmed orders (booked + orders share this) -------------------------
 
@@ -234,22 +234,17 @@ async function loadVisitedRequests(i: DrilldownInput): Promise<DrilldownResult> 
   };
 }
 
-// --- Completed tasks (visits + productive) ---------------------------------
+// --- Completed visit tasks -------------------------------------------------
 
-async function loadCompletedTasks(
-  i: DrilldownInput,
-  opts: { visitTypesOnly: boolean; showTime: boolean },
-): Promise<DrilldownResult> {
+async function loadVisitTasks(i: DrilldownInput): Promise<DrilldownResult> {
   const filters = and(
     eq(tasks.status, 'completed'),
     gte(tasks.taskDate, i.fromDate),
     lte(tasks.taskDate, i.toDate),
-    opts.visitTypesOnly
-      ? inArray(
-          tasks.taskType,
-          VISIT_TASK_TYPES as unknown as readonly (typeof VISIT_TASK_TYPES)[number][],
-        )
-      : undefined,
+    inArray(
+      tasks.taskType,
+      VISIT_TASK_TYPES as unknown as readonly (typeof VISIT_TASK_TYPES)[number][],
+    ),
     i.search ? ilike(tasks.description, `%${i.search}%`) : undefined,
   );
 
@@ -265,7 +260,6 @@ async function loadCompletedTasks(
       execName: users.fullName,
       taskType: tasks.taskType,
       taskDate: tasks.taskDate,
-      minutes: minutesExpr,
     })
     .from(tasks)
     .leftJoin(users, eq(users.id, tasks.execUserId))
@@ -281,7 +275,60 @@ async function loadCompletedTasks(
       title: r.description,
       subtitle: r.execName ?? 'Unassigned',
       date: r.taskDate,
-      value: opts.showTime ? minutesLabel(Number(r.minutes)) : r.taskType,
+      value: r.taskType,
+    })),
+  };
+}
+
+// --- New requests (intake) -------------------------------------------------
+//
+// Mirrors lib/metrics/requests.ts:loadNewRequests — visit_requests whose
+// created_at (IST) falls in the window, including any later cancelled
+// (intake volume). One row per request; current stage shown as the value.
+
+async function loadNewRequests(i: DrilldownInput): Promise<DrilldownResult> {
+  const createdInWindow = and(
+    gte(istDate(visitRequests.createdAt), i.fromDate),
+    lte(istDate(visitRequests.createdAt), i.toDate),
+  );
+  const searchFilter = i.search
+    ? or(
+        ilike(visitRequests.customerName, `%${i.search}%`),
+        ilike(visitRequests.customerPhone, `%${i.search}%`),
+      )
+    : undefined;
+
+  const [countRow] = await db
+    .select({ n: sql<number>`COUNT(*)::int` })
+    .from(visitRequests)
+    .where(and(createdInWindow, searchFilter));
+
+  const rows = await db
+    .select({
+      id: visitRequests.id,
+      customer: visitRequests.customerName,
+      execName: users.fullName,
+      cityName: cities.name,
+      stage: statusStages.name,
+      created: sql<string>`${istDate(visitRequests.createdAt)}`,
+    })
+    .from(visitRequests)
+    .leftJoin(users, eq(users.id, visitRequests.assignedExecUserId))
+    .leftJoin(cities, eq(cities.id, visitRequests.cityId))
+    .leftJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .where(and(createdInWindow, searchFilter))
+    .orderBy(desc(istDate(visitRequests.createdAt)))
+    .limit(i.pageSize)
+    .offset((i.page - 1) * i.pageSize);
+
+  return {
+    total: countRow?.n ?? 0,
+    rows: rows.map((r) => ({
+      id: r.id,
+      title: r.customer,
+      subtitle: `${r.execName ?? 'Unassigned'} · ${r.cityName ?? '—'}`,
+      date: r.created,
+      value: r.stage ?? '—',
     })),
   };
 }
@@ -297,8 +344,8 @@ export async function loadKpiDrilldown(
     case 'conversion':
       return loadVisitedRequests(input);
     case 'visits':
-      return loadCompletedTasks(input, { visitTypesOnly: true, showTime: false });
-    case 'productive':
-      return loadCompletedTasks(input, { visitTypesOnly: false, showTime: true });
+      return loadVisitTasks(input);
+    case 'newrequests':
+      return loadNewRequests(input);
   }
 }

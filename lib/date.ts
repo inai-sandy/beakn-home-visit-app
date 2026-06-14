@@ -143,3 +143,45 @@ export function parseDate(input: string): Date {
 
   throw new Error(`parseDate: cannot parse "${input}"`);
 }
+
+// =============================================================================
+// HVA-289: financial-year helpers (FY = Apr 1 → Mar 31)
+// =============================================================================
+//
+// The Beakn financial year runs April 1 → March 31. Every dashboard
+// "Overall" view scopes to the current financial year to date. These are
+// pure IST `YYYY-MM-DD` string operations — they take the IST date string
+// (from getIstDateString()) so they share the same clock as the metric
+// loaders, no Date/timezone round-trips. FY2026 = Apr 1 2026 → Mar 31 2027.
+// =============================================================================
+
+/** Calendar year the financial year containing `istDate` started in.
+ *  Jan–Mar belong to the FY that started the previous April. */
+export function financialYearStartYear(istDate: string): number {
+  const [year, month] = istDate.split('-').map(Number);
+  return month >= 4 ? year : year - 1;
+}
+
+/** Inclusive `YYYY-MM-DD` bounds of the financial year containing `istDate`. */
+export function financialYearBounds(istDate: string): {
+  start: string;
+  end: string;
+} {
+  const sy = financialYearStartYear(istDate);
+  return { start: `${sy}-04-01`, end: `${sy + 1}-03-31` };
+}
+
+/** Financial-year-to-date window: FY start → the given day (inclusive).
+ *  This is the default range for every "Overall" dashboard tab. */
+export function financialYearToDate(istToday: string): {
+  fromDate: string;
+  toDate: string;
+} {
+  return { fromDate: financialYearBounds(istToday).start, toDate: istToday };
+}
+
+/** Human label for the financial year containing `istDate`, e.g. "FY 2026–27". */
+export function financialYearLabel(istDate: string): string {
+  const sy = financialYearStartYear(istDate);
+  return `FY ${sy}–${String(sy + 1).slice(2)}`;
+}

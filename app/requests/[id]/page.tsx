@@ -18,6 +18,7 @@ import { db } from "@/db/client";
 import {
   cities,
   quotations,
+  requestRescheduleHistory,
   requestStatusHistory,
   salesExecutives,
   statusStages,
@@ -326,6 +327,23 @@ export default async function RequestDetailPage({ params }: PageProps) {
 
   const isTerminal = futureStages.length === 0;
   const nextStage = futureStages[0] ?? null;
+
+  // HVA-294: reschedule events. The VISIT_SCHEDULED status-history reason is
+  // frozen at the ORIGINAL date — reschedules only update visit_scheduled_at
+  // + request_reschedule_history. Surface them in the timeline so the rep
+  // sees the CURRENT date (the customer's /track already shows these).
+  const rescheduleRows = await db
+    .select({
+      id: requestRescheduleHistory.id,
+      toAt: requestRescheduleHistory.toVisitScheduledAt,
+      changedAt: requestRescheduleHistory.rescheduledAt,
+      byName: users.fullName,
+      reason: requestRescheduleHistory.reason,
+    })
+    .from(requestRescheduleHistory)
+    .leftJoin(users, eq(users.id, requestRescheduleHistory.rescheduledByUserId))
+    .where(eq(requestRescheduleHistory.requestId, requestUuid))
+    .orderBy(asc(requestRescheduleHistory.rescheduledAt));
 
   // HVA-288: bypassed earlier stages — active stages between Submitted
   // (seq 1) and the current stage that have NO history row. A CartPlus
@@ -898,6 +916,18 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 />
               );
             })}
+            {/* HVA-294: reschedule events — show the CURRENT visit date so the
+                rep isn't misled by the frozen "Visit Scheduled" reason. */}
+            {rescheduleRows.map((r) => (
+              <TimelineRow
+                key={`resched-${r.id}`}
+                stageName="Visit rescheduled"
+                when={r.changedAt}
+                changedByName={r.byName ?? "Customer"}
+                reason={`Now ${formatIstDateTime(r.toAt)}${r.reason ? ` — ${r.reason}` : ""}`}
+                variant="past"
+              />
+            ))}
             {futureStages.map((s) => (
               <TimelineRow
                 key={s.id}

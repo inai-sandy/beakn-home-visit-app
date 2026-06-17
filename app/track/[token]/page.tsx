@@ -341,6 +341,10 @@ export default async function TrackPage({ params }: PageProps) {
     .select({
       id: quotations.id,
       totalOrderValuePaise: quotations.totalOrderValuePaise,
+      subtotalPaise: quotations.subtotalPaise,
+      discountPaise: quotations.discountPaise,
+      deliveryPaise: quotations.deliveryPaise,
+      taxPaise: quotations.taxPaise,
     })
     .from(quotations)
     .where(
@@ -352,6 +356,15 @@ export default async function TrackPage({ params }: PageProps) {
     .limit(1);
   const orderValuePaise = portalQuote
     ? Number(portalQuote.totalOrderValuePaise)
+    : null;
+  // HVA-296: CartPlus money breakdown for the customer Order tab.
+  const orderBreakdown = portalQuote
+    ? {
+        subtotalPaise: portalQuote.subtotalPaise,
+        discountPaise: portalQuote.discountPaise,
+        deliveryPaise: portalQuote.deliveryPaise,
+        taxPaise: portalQuote.taxPaise,
+      }
     : null;
   const orderItems = portalQuote ? await loadLineItems(portalQuote.id) : [];
   const paymentRows = await db
@@ -419,7 +432,11 @@ export default async function TrackPage({ params }: PageProps) {
 
         <TrackTabs
           order={
-            <OrderTab items={orderItems} orderValuePaise={orderValuePaise} />
+            <OrderTab
+              items={orderItems}
+              orderValuePaise={orderValuePaise}
+              breakdown={orderBreakdown}
+            />
           }
           payments={
             <PaymentsTab

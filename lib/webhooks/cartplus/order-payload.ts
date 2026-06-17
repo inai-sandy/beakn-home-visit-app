@@ -59,6 +59,14 @@ export const cartplusOrderSchema = z.object({
   fulfillment_status: z.string(),
   currency: z.string(),
   total_amount: rupeeAmount,
+  // HVA-296: CartPlus now sends the full money breakdown in data.order
+  // (previously only in the changes diff). Optional — older payloads or a
+  // partner that omits them still validate; total_amount stays the
+  // authoritative grand total (= subtotal − discount + delivery + tax).
+  subtotal: rupeeAmount.optional(),
+  discount_amount: rupeeAmount.optional(),
+  delivery_amount: rupeeAmount.optional(),
+  tax_amount: rupeeAmount.optional(),
   placed_at: z.string().nullable(),
   items: z.array(cartplusOrderItemSchema).min(1),
   created_by: cartplusOrderCreatedBySchema,
@@ -72,3 +80,26 @@ export const cartplusOrderEventDataSchema = z.object({
 export type CartplusOrder = z.infer<typeof cartplusOrderSchema>;
 export type CartplusOrderItem = z.infer<typeof cartplusOrderItemSchema>;
 export type CartplusOrderCustomer = z.infer<typeof cartplusOrderCustomerSchema>;
+
+// HVA-296: paise breakdown for the quotation row. null when the partner
+// didn't send a field (distinct from a real ₹0). total stays separate
+// (always present) — this is just the component breakdown.
+export interface CartplusBreakdownPaise {
+  subtotalPaise: number | null;
+  discountPaise: number | null;
+  deliveryPaise: number | null;
+  taxPaise: number | null;
+}
+
+export function cartplusBreakdownPaise(
+  order: CartplusOrder,
+): CartplusBreakdownPaise {
+  const toPaise = (v: number | null | undefined) =>
+    v == null ? null : Math.round(v * 100);
+  return {
+    subtotalPaise: toPaise(order.subtotal),
+    discountPaise: toPaise(order.discount_amount),
+    deliveryPaise: toPaise(order.delivery_amount),
+    taxPaise: toPaise(order.tax_amount),
+  };
+}

@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
-import { cartplusOrderEventDataSchema } from './order-payload';
+import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // =============================================================================
 // HVA-251 (HVA-230 Phase 2.B): handler for `order.status_changed`
@@ -78,6 +78,8 @@ export async function handleCartplusOrderStatusChanged(
         .set({
           quotationNumber: order.order_number,
           totalOrderValuePaise: Math.round(order.total_amount * 100),
+          // HVA-296: refresh the money breakdown on every edit too.
+          ...cartplusBreakdownPaise(order),
           rawPayload: envelope as unknown as Record<string, unknown>,
           lastWebhookAt: new Date(),
           updatedAt: new Date(),

@@ -65,6 +65,13 @@ export const quotations = pgTable(
     // without a formal external number.
     quotationNumber: varchar('quotation_number', { length: 100 }),
     totalOrderValuePaise: bigint('total_order_value_paise', { mode: 'number' }).notNull(),
+    // HVA-296: CartPlus money breakdown. Null when not supplied (manual
+    // quotations, older portal payloads). total_order_value_paise stays the
+    // authoritative grand total = subtotal − discount + delivery + tax.
+    subtotalPaise: bigint('subtotal_paise', { mode: 'number' }),
+    discountPaise: bigint('discount_paise', { mode: 'number' }),
+    deliveryPaise: bigint('delivery_paise', { mode: 'number' }),
+    taxPaise: bigint('tax_paise', { mode: 'number' }),
     // HVA-70: free-text notes alongside the headline total.
     notes: text('notes'),
     submittedByUserId: uuid('submitted_by_user_id')

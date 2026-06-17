@@ -18,7 +18,7 @@ import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
-import { cartplusOrderEventDataSchema } from './order-payload';
+import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // drizzle's tx callback signature — same pattern as lib/status-transition.ts
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -250,6 +250,8 @@ export async function handleCartplusOrderCreated(
           visitRequestId: requestId,
           quotationNumber: order.order_number,
           totalOrderValuePaise: totalPaise,
+          // HVA-296: store the CartPlus money breakdown.
+          ...cartplusBreakdownPaise(order),
           submittedByUserId: execResult.userId ?? capturerUserId,
           source: 'portal',
           portalQuotationId: String(order.id),

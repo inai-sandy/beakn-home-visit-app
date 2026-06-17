@@ -80,6 +80,10 @@ export async function CollectionSection({
       id: quotations.id,
       quotationNumber: quotations.quotationNumber,
       totalOrderValuePaise: quotations.totalOrderValuePaise,
+      subtotalPaise: quotations.subtotalPaise,
+      discountPaise: quotations.discountPaise,
+      deliveryPaise: quotations.deliveryPaise,
+      taxPaise: quotations.taxPaise,
       notes: quotations.notes,
       source: quotations.source,
       submittedAt: quotations.submittedAt,
@@ -193,6 +197,52 @@ export async function CollectionSection({
                 </Badge>
               )}
             </div>
+            {/* HVA-296: CartPlus money breakdown when supplied. */}
+            {(portalQuotation.subtotalPaise != null ||
+              portalQuotation.discountPaise ||
+              portalQuotation.deliveryPaise ||
+              portalQuotation.taxPaise) && (
+              <dl className="space-y-1 border-t pt-2 text-xs">
+                {portalQuotation.subtotalPaise != null && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Subtotal</dt>
+                    <dd className="font-mono">
+                      {formatInrFromPaise(Number(portalQuotation.subtotalPaise))}
+                    </dd>
+                  </div>
+                )}
+                {portalQuotation.discountPaise ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Discount</dt>
+                    <dd className="font-mono text-emerald-700 dark:text-emerald-300">
+                      − {formatInrFromPaise(Number(portalQuotation.discountPaise))}
+                    </dd>
+                  </div>
+                ) : null}
+                {portalQuotation.deliveryPaise ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Delivery</dt>
+                    <dd className="font-mono">
+                      + {formatInrFromPaise(Number(portalQuotation.deliveryPaise))}
+                    </dd>
+                  </div>
+                ) : null}
+                {portalQuotation.taxPaise ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Tax</dt>
+                    <dd className="font-mono">
+                      + {formatInrFromPaise(Number(portalQuotation.taxPaise))}
+                    </dd>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-3 border-t pt-1 font-medium">
+                  <dt>Total</dt>
+                  <dd className="font-mono">
+                    {formatInrFromPaise(Number(portalQuotation.totalOrderValuePaise))}
+                  </dd>
+                </div>
+              </dl>
+            )}
             <p className="text-[11px] text-muted-foreground">
               Synced from CartPlus
               {portalQuotation.updatedAt

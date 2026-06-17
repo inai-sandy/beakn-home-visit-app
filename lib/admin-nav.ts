@@ -64,6 +64,8 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     label: 'Operations',
     items: [
       { label: 'Dashboard', icon: 'dashboard', href: '/admin/dashboard' },
+      // HVA-297: org-wide finance dashboard.
+      { label: 'Finance', icon: 'account_balance', href: '/admin/finance' },
       {
         label: 'All Requests',
         icon: 'list_alt',

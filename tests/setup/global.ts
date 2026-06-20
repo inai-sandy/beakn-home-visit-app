@@ -98,6 +98,33 @@ export async function setup(): Promise<() => Promise<void>> {
   globalThis.__TEST_PG_CONTAINER__ = container;
 
   const url = container.getConnectionUri();
+  // `beakn_test` is the MIGRATED TEMPLATE database. We migrate it once here,
+  // then each vitest worker fork clones it into its own `beakn_test_w<id>`
+  // database (CREATE DATABASE … TEMPLATE beakn_test) so the suite can run in
+  // parallel without workers racing each other's TRUNCATEs on a shared DB.
+  //
+  // Two pieces of connection info are handed to the worker forks via env vars
+  // (forks inherit the parent process env at spawn time, exactly as the old
+  // single-DB DATABASE_URL did):
+  //   - TEST_PG_ADMIN_URL  → a URL pointing at the `postgres` maintenance DB,
+  //     used to run CREATE/DROP DATABASE (you cannot CREATE DATABASE while
+  //     connected to the template or the target).
+  //   - TEST_PG_TEMPLATE_DB → the template DB name to clone from.
+  // The actual per-worker DATABASE_URL is set in tests/setup/per-worker-db.ts
+  // BEFORE the first db.* access.
+  const adminUrl = new URL(url);
+  adminUrl.pathname = '/postgres';
+  process.env.TEST_PG_ADMIN_URL = adminUrl.toString();
+  process.env.TEST_PG_TEMPLATE_DB = 'beakn_test';
+  // Raise the db/client.ts pool connect_timeout for the test run. Under parallel
+  // execution every worker fork opens its first pooled connection at startup
+  // while the DB is still busy cloning per-worker databases; the default 10s can
+  // be exceeded on a loaded host, surfacing as CONNECT_TIMEOUT. 60s gives ample
+  // headroom without masking a genuinely-down DB.
+  process.env.PG_CONNECT_TIMEOUT = process.env.PG_CONNECT_TIMEOUT ?? '60';
+  // DATABASE_URL is set here too as a sane fallback (e.g. for any code path
+  // that reads it before the per-worker hook runs), but per-worker-db.ts
+  // overwrites it with the worker-specific DB before any db.* call.
   process.env.DATABASE_URL = url;
   // Better-Auth requires this at module load. Length matches the prod
   // shape (32-byte hex) but is throwaway — the value is meaningless
@@ -120,7 +147,54 @@ export async function setup(): Promise<() => Promise<void>> {
 
   await applyMigrations(url);
 
+  // applyMigrations() closes its own pool, so `beakn_test` should now have no
+  // active sessions. Postgres refuses `CREATE DATABASE … TEMPLATE beakn_test`
+  // if anything is connected to the template, so as a belt-and-suspenders we
+  // terminate any stray backends on it before the workers start cloning.
+  {
+    const admin = postgres(adminUrl.toString(), { max: 1, onnotice: () => {} });
+    try {
+      await admin.unsafe(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE datname = 'beakn_test' AND pid <> pg_backend_pid();`,
+      );
+    } catch {
+      // best-effort
+    } finally {
+      await admin.end({ timeout: 5 });
+    }
+  }
+
   return async () => {
+    // Best-effort cleanup of per-worker clone databases. Teardown errors must
+    // never fail the run.
+    try {
+      const admin = postgres(adminUrl.toString(), {
+        max: 1,
+        onnotice: () => {},
+      });
+      try {
+        const rows = await admin<{ datname: string }[]>`
+          SELECT datname FROM pg_database WHERE datname LIKE 'beakn_test_w%'
+        `;
+        for (const { datname } of rows) {
+          try {
+            await admin.unsafe(
+              `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+               WHERE datname = '${datname}' AND pid <> pg_backend_pid();`,
+            );
+            await admin.unsafe(`DROP DATABASE IF EXISTS "${datname}";`);
+          } catch {
+            // ignore individual drop failures
+          }
+        }
+      } finally {
+        await admin.end({ timeout: 5 });
+      }
+    } catch {
+      // ignore — teardown must never fail the run
+    }
+
     if (globalThis.__TEST_PG_CONTAINER__) {
       await globalThis.__TEST_PG_CONTAINER__.stop({ timeout: 5_000 });
       globalThis.__TEST_PG_CONTAINER__ = undefined;

@@ -18,12 +18,17 @@ function initDb(): ReturnType<typeof drizzle<typeof schema>> {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is not set');
   }
+  // connect_timeout is overridable via PG_CONNECT_TIMEOUT (seconds). Prod keeps
+  // the default 10s; the parallel test harness raises it (tests/setup/global.ts)
+  // so the first connection of each worker pool tolerates the brief DB-busy
+  // window while many worker DBs are being cloned/connected at startup.
+  const connectTimeout = Number(process.env.PG_CONNECT_TIMEOUT) || 10;
   const client =
     globalThis.__beakn_pg__ ??
     postgres(process.env.DATABASE_URL, {
       max: 10,
       idle_timeout: 30,
-      connect_timeout: 10,
+      connect_timeout: connectTimeout,
     });
   globalThis.__beakn_pg__ = client;
   const instance = drizzle(client, { schema, casing: 'snake_case' });

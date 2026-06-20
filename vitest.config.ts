@@ -1,3 +1,4 @@
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
@@ -6,17 +7,24 @@ import { defineConfig } from 'vitest/config';
 // HVA-101: vitest configuration
 // =============================================================================
 //
-// Single-fork pool: the test harness shares one Postgres container across
-// the whole run and clears state via TRUNCATE in afterEach. Running tests
-// in parallel would race those truncates against each other's writes.
-// fork-pool with maxForks=1 is the simplest way to enforce serial test
-// execution without sacrificing test-file isolation (each spec file still
-// gets its own module graph).
+// PARALLEL node tests via per-worker databases:
+//   globalSetup boots ONE Postgres container and migrates `beakn_test` as a
+//   TEMPLATE. Each worker fork (tests/setup/per-worker-db.ts) clones that
+//   template into its own `beakn_test_w<id>` DB and points DATABASE_URL at it,
+//   so TRUNCATE-based isolation no longer races across files. This replaces
+//   the old serial `singleFork: true` + `fileParallelism: false` setup.
+//
+//   maxForks is capped so total Postgres connections stay well under
+//   max_connections=100: each worker's postgres-js pool is max 10, so
+//   6 workers × 10 = 60, comfortably under 90.
 //
 // Coverage: V8 provider, scoped to the three files this ship aims to
 // cover. Repo-wide coverage will trend up issue by issue (HVA-109 is the
 // next ship that broadens it).
 // =============================================================================
+
+// Postgres max_connections=100; keep workers × ~10 conns well under 90.
+const NODE_MAX_FORKS = Math.max(2, Math.min(os.cpus().length - 2, 6));
 
 export default defineConfig({
   resolve: {
@@ -40,15 +48,19 @@ export default defineConfig({
           name: 'node',
           globals: false,
           environment: 'node',
+          // Parallel forks, one Postgres DB per worker (see per-worker-db.ts).
           pool: 'forks',
-          // @ts-expect-error vitest 4.1 type/runtime mismatch — poolOptions
-          // is honored at runtime but not in the InlineConfig signature.
-          poolOptions: {
-            forks: { singleFork: true },
-          },
-          fileParallelism: false,
+          // @ts-expect-error vitest 4.1 type/runtime mismatch — maxForks/
+          // minForks are honored at runtime for the forks pool but are not on
+          // the per-project ProjectConfig signature (same shape as the old
+          // poolOptions mismatch this replaced).
+          maxForks: NODE_MAX_FORKS,
+          minForks: 1,
           globalSetup: ['./tests/setup/global.ts'],
-          setupFiles: ['./tests/setup/per-file.ts'],
+          // per-worker-db.ts MUST run before per-file.ts: it clones this
+          // worker's DB and sets DATABASE_URL before any db.* access (the
+          // afterEach truncate in per-file.ts touches the DB).
+          setupFiles: ['./tests/setup/per-worker-db.ts', './tests/setup/per-file.ts'],
           include: ['tests/**/*.test.ts'],
           // HVA-138-FIX2: hard-exclude component tests from the node
           // project. Vitest's default extension match catches .tsx

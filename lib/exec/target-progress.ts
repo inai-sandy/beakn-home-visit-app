@@ -175,7 +175,7 @@ export async function loadAllExecTargetProgress(
   const orderRows = await db
     .select({
       execUserId: visitRequests.assignedExecUserId,
-      totalPaise: sql<number>`COALESCE(SUM(${quotations.totalOrderValuePaise})::bigint, 0)::int`,
+      totalPaise: sql<number>`COALESCE(SUM(${quotations.totalOrderValuePaise}), 0)::bigint`,
     })
     .from(sql`${confirmedRequestSubquery} AS confirmed`)
     .innerJoin(visitRequests, sql`${visitRequests.id} = confirmed.request_id`)
@@ -201,7 +201,7 @@ export async function loadAllExecTargetProgress(
         CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
              WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
              ELSE 0 END
-      )::bigint, 0)::int`,
+      ), 0)::bigint`,
     })
     .from(payments)
     .innerJoin(
@@ -218,13 +218,14 @@ export async function loadAllExecTargetProgress(
     )
     .groupBy(visitRequests.assignedExecUserId);
 
+  // ::bigint sums come back from postgres-js as strings — coerce to number.
   const ordersByExec = new Map<string, number>();
   for (const r of orderRows) {
-    if (r.execUserId) ordersByExec.set(r.execUserId, r.totalPaise ?? 0);
+    if (r.execUserId) ordersByExec.set(r.execUserId, Number(r.totalPaise ?? 0));
   }
   const revByExec = new Map<string, number>();
   for (const r of revRows) {
-    if (r.execUserId) revByExec.set(r.execUserId, r.totalPaise ?? 0);
+    if (r.execUserId) revByExec.set(r.execUserId, Number(r.totalPaise ?? 0));
   }
 
   // Step 4: per-exec city name lookup. BUG 8 (2026-06-03): each exec
@@ -302,7 +303,7 @@ export async function loadOneExecTargetProgress(
   )`;
   const [orderRow] = await db
     .select({
-      totalPaise: sql<number>`COALESCE(SUM(${quotations.totalOrderValuePaise})::bigint, 0)::int`,
+      totalPaise: sql<number>`COALESCE(SUM(${quotations.totalOrderValuePaise}), 0)::bigint`,
     })
     .from(sql`${confirmedRequestSubquery} AS confirmed`)
     .innerJoin(visitRequests, sql`${visitRequests.id} = confirmed.request_id`)
@@ -323,7 +324,7 @@ export async function loadOneExecTargetProgress(
         CASE WHEN ${payments.direction} = 'inbound'  THEN  ${payments.amountPaise}
              WHEN ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
              ELSE 0 END
-      )::bigint, 0)::int`,
+      ), 0)::bigint`,
     })
     .from(payments)
     .innerJoin(
@@ -347,8 +348,8 @@ export async function loadOneExecTargetProgress(
 
   if (!identityRow) return null;
 
-  const ordersPaise = orderRow?.totalPaise ?? 0;
-  const revenuePaise = revRow?.totalPaise ?? 0;
+  const ordersPaise = Number(orderRow?.totalPaise ?? 0);
+  const revenuePaise = Number(revRow?.totalPaise ?? 0);
   const safeTarget = Math.max(1, targetPaise);
   const ordersRatio = ordersPaise / safeTarget;
   const revenueRatio = revenuePaise / safeTarget;

@@ -213,6 +213,39 @@ describe('loadAllExecTargetProgress', () => {
     expect(rows.find((r) => r.execUserId === captainId)).toBeUndefined();
   });
 
+  // F1 — HVA-281 regression: the orders/revenue SUMs used to cast through
+  // `::int` (32-bit, max 2,147,483,647 paise ≈ ₹2.15cr). A single big-ticket
+  // portal order above that ceiling made Postgres throw "integer out of
+  // range" instead of returning a number. The fix sums as `::bigint` and
+  // coerces to a JS number afterward. ₹5cr (500,000,000,00 paise) safely
+  // exceeds the old 32-bit ceiling but is nowhere near
+  // Number.MAX_SAFE_INTEGER, so no floating-point precision is lost.
+  it('REGRESSION: an order value above the 32-bit int ceiling (₹2.15cr) does not throw or truncate', async () => {
+    const bigOrderPaise = 5_000_000_000; // ₹5,00,00,000 — exceeds 2,147,483,647
+    await seedConfirmedOrder({
+      execUserId: execAlpha,
+      orderValuePaise: bigOrderPaise,
+    });
+
+    // Bulk (all-execs) path.
+    const rows = await loadAllExecTargetProgress(
+      getCurrentMonthWindow(),
+      TARGET_PAISE,
+      { captainUserId: captainId },
+    );
+    const alpha = rows.find((r) => r.execUserId === execAlpha);
+    expect(alpha).toBeDefined();
+    expect(alpha?.ordersPaise).toBe(bigOrderPaise);
+
+    // Narrow (single-exec) path.
+    const progress = await loadOneExecTargetProgress(
+      execAlpha,
+      getCurrentMonthWindow(),
+      TARGET_PAISE,
+    );
+    expect(progress?.ordersPaise).toBe(bigOrderPaise);
+  });
+
   it('returns a row for every active exec, including zero-activity', async () => {
     // No data seeded for execAlpha — they should still appear in the
     // results with zeros so the captain/admin arena shows a complete

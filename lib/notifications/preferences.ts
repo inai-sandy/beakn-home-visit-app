@@ -49,6 +49,14 @@ export async function loadUserNotificationPreferences(
   userId: string,
   role: Role,
 ): Promise<UserNotificationPreferenceRow[]> {
+  // Directly-invokable POST endpoint; a user may only read their own
+  // preferences. The sole caller (/profile/notifications) passes its own
+  // session id, so anything else is an attempt to read another user's.
+  const session = await getServerSession();
+  if ((session?.user as { id?: string } | undefined)?.id !== userId) {
+    throw new Error('Forbidden');
+  }
+
   const recipientRoles = ROLE_TO_RECIPIENT_ROLES[role];
   if (recipientRoles.length === 0) return [];
 

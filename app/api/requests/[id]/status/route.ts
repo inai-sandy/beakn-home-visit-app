@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { statusStages, visitRequests } from '@/db/schema';
+import { cities, statusStages, visitRequests } from '@/db/schema';
 import {
   ForbiddenError,
   requireAuth,
@@ -118,19 +118,19 @@ export async function POST(
       code: statusStages.code,
       cancelledAt: visitRequests.cancelledAt,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      cityCaptainUserId: cities.captainUserId,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.id, requestUuid))
     .limit(1);
 
   // HVA-135: per-row ownership check (defense-in-depth). proxy.ts gates
   // /api/* paths by role but can't enforce "this exec owns this request".
   // Without this guard, a sales_executive could POST to any request's
-  // status route and drive its stage forward. Captain + super_admin
-  // bypass — captain has team-scoped visibility (the assignment record
-  // ties exec→captain, and stage rules already prevent cross-team writes)
-  // and super_admin is global by design.
+  // status route and drive its stage forward. super_admin is global by
+  // design.
   if (
     actorRole === USER_ROLES.SALES_EXECUTIVE &&
     currentRow?.assignedExecUserId !== actorUserId
@@ -141,6 +141,28 @@ export async function POST(
         error: 'Forbidden',
         message:
           'This request is not assigned to you. You can only update the status of requests assigned to you.',
+      },
+      { status: 403 },
+    );
+  }
+
+  // A captain may only drive requests in their own city. The generic
+  // status route previously let ANY captain transition ANY request in
+  // ANY city (the old comment wrongly assumed stage rules were
+  // team-scoped — status_transitions.allowed_role is role-scoped only).
+  // Mirrors the city-ownership gate every sibling route already enforces
+  // (approve/reject/rollback). NOTE: this uses city-captain ownership to
+  // match those routes; the broader city-vs-assigned-captain model
+  // inconsistency is tracked separately.
+  if (
+    actorRole === USER_ROLES.CAPTAIN &&
+    currentRow?.cityCaptainUserId !== actorUserId
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Forbidden',
+        message: 'This request is not in your assigned city.',
       },
       { status: 403 },
     );

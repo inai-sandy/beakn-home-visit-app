@@ -33,7 +33,9 @@
 
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { APIError } from 'better-auth/api';
 import { phoneNumber } from 'better-auth/plugins';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { accounts, rateLimits, sessions, users, verifications } from '@/db/schema';
@@ -96,6 +98,33 @@ export const auth = betterAuth({
 
   account: { modelName: 'accounts' },
   verification: { modelName: 'verifications' },
+
+  databaseHooks: {
+    session: {
+      create: {
+        // Block re-login for deactivated users. Deactivating a user
+        // revokes their existing sessions, but nothing stopped them from
+        // signing in again and minting a fresh one with their unchanged
+        // password. Every sign-in path (phone-number plugin today, OTP
+        // later) ends in a session insert, so gating session creation is
+        // the single choke point that covers them all. Throwing here
+        // aborts the sign-in with 403 and no session row is written.
+        before: async (session) => {
+          const [u] = await db
+            .select({ isActive: users.isActive })
+            .from(users)
+            .where(eq(users.id, session.userId))
+            .limit(1);
+          if (!u || !u.isActive) {
+            throw new APIError('FORBIDDEN', {
+              message:
+                'This account has been deactivated. Contact your administrator.',
+            });
+          }
+        },
+      },
+    },
+  },
 
   advanced: {
     // Our id columns are `uuid` with DB-side `uuid_generate_v7()` defaults

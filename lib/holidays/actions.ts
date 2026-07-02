@@ -151,6 +151,9 @@ export async function updateHolidayAction(
 }
 
 export async function loadAllHolidaysForAdmin() {
+  const auth = await authorizeSuperAdmin();
+  if (!auth.ok) throw new Error(auth.error);
+
   return db
     .select({
       id: holidays.id,

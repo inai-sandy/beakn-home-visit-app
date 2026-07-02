@@ -165,6 +165,83 @@ describe('POST /api/requests/[id]/status — HVA-139 Submitted→Assigned guard'
   });
 });
 
+describe('POST /api/requests/[id]/status — captain city-ownership guard', () => {
+  it('rejects a captain transitioning a request in another city (403), leaving the request unchanged', async () => {
+    // Regression: the generic status route only ownership-checked sales
+    // execs; any captain could drive any request in any city. Now a
+    // captain is scoped to their own city, mirroring the sibling routes.
+    const cityA = await getOrCreateCity('Bangalore');
+    const captainA = await seedCaptain({ phone: '+919000022221' });
+    await db
+      .update(cities)
+      .set({ captainUserId: captainA.id })
+      .where(eq(cities.id, cityA.id));
+    const execA = await seedExecutive(captainA.id, { phone: '+919100022221' });
+    const req = await seedVisitRequest({
+      cityId: cityA.id,
+      statusStageCode: 'ASSIGNED',
+      assignedExecUserId: execA.id,
+      assignedCaptainUserId: captainA.id,
+    });
+
+    // A different captain who does not own cityA.
+    const captainB = await seedCaptain({ phone: '+919000033331' });
+    const visitScheduled = await getStatusStage('VISIT_SCHEDULED');
+
+    const sess = await loginByPhone(captainB.phone, captainB.password);
+    currentCookieHeader = sess.cookieHeader;
+
+    const res = await POST(
+      buildReq({ nextStatusId: visitScheduled.id }),
+      buildCtx(req.id),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { ok: boolean; message?: string };
+    expect(body.ok).toBe(false);
+    expect(body.message).toMatch(/not in your assigned city/i);
+
+    // No transition happened.
+    const [vr] = await db
+      .select({ statusStageId: visitRequests.statusStageId })
+      .from(visitRequests)
+      .where(eq(visitRequests.id, req.id))
+      .limit(1);
+    const assigned = await getStatusStage('ASSIGNED');
+    expect(vr.statusStageId).toBe(assigned.id);
+  });
+
+  it("does not block the request's own-city captain with the city guard", async () => {
+    const cityA = await getOrCreateCity('Bangalore');
+    const captainA = await seedCaptain({ phone: '+919000044441' });
+    await db
+      .update(cities)
+      .set({ captainUserId: captainA.id })
+      .where(eq(cities.id, cityA.id));
+    const execA = await seedExecutive(captainA.id, { phone: '+919100044441' });
+    const req = await seedVisitRequest({
+      cityId: cityA.id,
+      statusStageCode: 'ASSIGNED',
+      assignedExecUserId: execA.id,
+      assignedCaptainUserId: captainA.id,
+    });
+    const visitScheduled = await getStatusStage('VISIT_SCHEDULED');
+
+    const sess = await loginByPhone(captainA.phone, captainA.password);
+    currentCookieHeader = sess.cookieHeader;
+
+    const res = await POST(
+      buildReq({ nextStatusId: visitScheduled.id }),
+      buildCtx(req.id),
+    );
+    // The owning captain passes the city gate — whatever the outcome, it
+    // must NOT be the cross-city denial.
+    if (res.status === 403) {
+      const body = (await res.json()) as { message?: string };
+      expect(body.message ?? '').not.toMatch(/not in your assigned city/i);
+    }
+  });
+});
+
 describe('POST /api/requests/[id]/status — HVA-137 PENDING_CAPTAIN_APPROVAL guard', () => {
   it('rejects any caller trying to transition out of PENDING_CAPTAIN_APPROVAL via this route (409 WRONG_ROUTE)', async () => {
     const city = await getOrCreateCity('Bangalore');

@@ -54,4 +54,21 @@ describe('Better-Auth phone sign-in', () => {
     }
     expect(threw).not.toBeNull();
   });
+
+  it('deactivated user cannot re-login even with correct password', async () => {
+    // Regression: deactivation revoked existing sessions but nothing
+    // blocked signing back in to mint a fresh one. The session.create
+    // hook now rejects sign-in for isActive=false users.
+    const cap = await seedCaptain({ isActive: false });
+    let threw: unknown = null;
+    try {
+      await auth.api.signInPhoneNumber({
+        body: { phoneNumber: cap.phone, password: cap.password },
+      });
+    } catch (err) {
+      threw = err;
+    }
+    expect(threw).not.toBeNull();
+    expect(String(threw)).toMatch(/deactivated/i);
+  });
 });

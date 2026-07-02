@@ -325,6 +325,21 @@ export async function reportOrderValueTrend(
         args.scope.kind === 'global'
           ? captainFilter(filters.captainUserId)
           : undefined,
+        // A request rolled back and re-confirmed has multiple
+        // ORDER_CONFIRMED history rows; joining the 1:1 quotation to each
+        // double-counts its value in SUM (COUNT(DISTINCT) was already
+        // safe). Keep only the latest ORDER_CONFIRMED row per request so
+        // each order's value is summed exactly once, bucketed at its most
+        // recent confirmation.
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${requestStatusHistory} rsh_later
+          INNER JOIN ${statusStages} ss_later ON ss_later.id = rsh_later.to_status_stage_id
+          WHERE rsh_later.request_id = ${requestStatusHistory.requestId}
+            AND ss_later.code = 'ORDER_CONFIRMED'
+            AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date >= ${args.range.fromDate}
+            AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date <= ${args.range.toDate}
+            AND rsh_later.changed_at > ${requestStatusHistory.changedAt}
+        )`,
       ),
     )
     .groupBy(bucketCol);

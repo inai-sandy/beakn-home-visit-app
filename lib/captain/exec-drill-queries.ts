@@ -592,7 +592,17 @@ export async function loadExecPendingCollections(
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
-    .innerJoin(quotations, eq(quotations.visitRequestId, visitRequests.id))
+    .innerJoin(
+      quotations,
+      and(
+        eq(quotations.visitRequestId, visitRequests.id),
+        // HVA-281: outstanding is computed against CartPlus order actuals
+        // only. Manual quotations carry no real order value, so including
+        // them here inflated receivables with phantom amounts — every
+        // other finance surface filters source='portal'.
+        eq(quotations.source, 'portal'),
+      ),
+    )
     .leftJoin(payments, eq(payments.visitRequestId, visitRequests.id))
     .where(
       and(

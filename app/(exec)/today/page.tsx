@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
@@ -112,7 +112,7 @@ export default async function TodayPage() {
         })
         .from(tasks)
         .leftJoin(outcomeOptions, eq(outcomeOptions.id, tasks.outcomeOptionId))
-        .where(eq(tasks.dayPlanId, plan.id))
+        .where(and(eq(tasks.dayPlanId, plan.id), ne(tasks.status, 'cancelled')))
         .orderBy(asc(tasks.createdAt)),
       db
         .select({

@@ -1,5 +1,5 @@
 import { alias } from 'drizzle-orm/pg-core';
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -135,6 +135,8 @@ export async function loadTeamCalendarEvents(
       execUserId: tasks.execUserId,
       requestCustomerName: visitRequests.customerName,
       leadName: leads.name,
+      visitScheduledAt: visitRequests.visitScheduledAt,
+      requestCancelledAt: visitRequests.cancelledAt,
     })
     .from(tasks)
     .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
@@ -144,6 +146,8 @@ export async function loadTeamCalendarEvents(
         inArray(tasks.execUserId, execIds),
         gte(effectiveDate, fromIso),
         lte(effectiveDate, toIso),
+        ne(tasks.status, 'cancelled'),
+        or(isNull(tasks.linkRequestId), isNull(visitRequests.cancelledAt)),
       ),
     )
     .orderBy(asc(effectiveDate));
@@ -186,7 +190,10 @@ export async function loadTeamCalendarEvents(
         id: t.id,
         kind: 'task',
         title,
-        at: new Date(`${effDate}T09:00:00+05:30`),
+        at:
+          t.status !== 'postponed' && t.visitScheduledAt
+            ? t.visitScheduledAt
+            : new Date(`${effDate}T09:00:00+05:30`),
         stageCode: t.status,
         href,
         execName: execNameById.get(t.execUserId) ?? null,

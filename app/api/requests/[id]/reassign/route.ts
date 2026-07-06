@@ -24,6 +24,7 @@ import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { reassignSchema } from '@/lib/validators/reassign';
+import { moveVisitTaskToExec } from '@/lib/visit-schedule/task-sync';
 
 // =============================================================================
 // HVA-140: POST /api/requests/[id]/reassign
@@ -295,6 +296,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
         captainUserId: actorUserId,
         reason,
       });
+      // Move the linked visit task to the new exec's calendar + day plan so
+      // the visit leaves the old exec and appears on the new exec's /today.
+      await moveVisitTaskToExec(tx, requestUuid, newExecUserId);
     });
   } catch (err) {
     reqLog.error(

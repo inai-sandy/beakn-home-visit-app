@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, lt } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { formatDistanceToNow } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import type { Metadata } from "next";
 import Image from "next/image";
 import { notFound } from "next/navigation";
@@ -14,6 +15,7 @@ import {
   payments,
   quotations,
   requestExecAssignments,
+  requestRescheduleHistory,
   requestStatusHistory,
   statusStages,
   users,
@@ -203,6 +205,23 @@ export default async function TrackPage({ params }: PageProps) {
     .where(eq(visitRequests.trackingToken, token))
     .orderBy(asc(requestExecAssignments.createdAt));
 
+  // Reschedules live in their own table (they don't change status_stage_id).
+  // Previously the customer timeline never read this, so a reschedule was
+  // invisible on /track. Surface each as its own timeline entry.
+  const rescheduleRows = await db
+    .select({
+      id: requestRescheduleHistory.id,
+      toAt: requestRescheduleHistory.toVisitScheduledAt,
+      when: requestRescheduleHistory.rescheduledAt,
+    })
+    .from(requestRescheduleHistory)
+    .innerJoin(
+      visitRequests,
+      eq(visitRequests.id, requestRescheduleHistory.requestId),
+    )
+    .where(eq(visitRequests.trackingToken, token))
+    .orderBy(asc(requestRescheduleHistory.rescheduledAt));
+
   // Merge into a single chronological timeline. Each entry carries
   // enough discriminator info for the renderer to pick a variant +
   // label without re-querying.
@@ -221,6 +240,12 @@ export default async function TrackPage({ params }: PageProps) {
         id: string;
         when: Date;
         newExecName: string;
+      }
+    | {
+        kind: 'reschedule';
+        id: string;
+        when: Date;
+        toAtLabel: string;
       };
 
   // HVA-137: detect the captain reject by from_code === PENDING_CAPTAIN_APPROVAL.
@@ -243,6 +268,12 @@ export default async function TrackPage({ params }: PageProps) {
       id: r.id,
       when: r.createdAt,
       newExecName: r.newExecName ?? 'a new sales executive',
+    })),
+    ...rescheduleRows.map<TimelineEntry>((r) => ({
+      kind: 'reschedule',
+      id: r.id,
+      when: r.when,
+      toAtLabel: formatInTimeZone(r.toAt, 'Asia/Kolkata', "d MMM yyyy, h:mm a"),
     })),
   ].sort((a, b) => a.when.getTime() - b.when.getTime());
 
@@ -559,6 +590,16 @@ export default async function TrackPage({ params }: PageProps) {
                   <TimelineDot
                     key={`reassign-${entry.id}`}
                     stageName={`Your visit is now being handled by ${entry.newExecName}`}
+                    when={entry.when}
+                    variant="reassign"
+                  />
+                );
+              }
+              if (entry.kind === 'reschedule') {
+                return (
+                  <TimelineDot
+                    key={`reschedule-${entry.id}`}
+                    stageName={`Visit rescheduled to ${entry.toAtLabel}`}
                     when={entry.when}
                     variant="reassign"
                   />

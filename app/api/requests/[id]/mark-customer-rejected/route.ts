@@ -24,6 +24,7 @@ import {
   type RejectionReason,
 } from '@/lib/rejection-reasons';
 import { markCustomerRejectedSchema } from '@/lib/validators/mark-customer-rejected';
+import { cancelLinkedVisitTask } from '@/lib/visit-schedule/task-sync';
 
 // =============================================================================
 // HVA-69: POST /api/requests/[id]/mark-customer-rejected
@@ -252,6 +253,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
         changedByUserId: actorUserId,
         reason: `REJECTED: ${reasonText}`,
       });
+      // Cancel the linked visit task so the exec's calendar/day plan clears.
+      await cancelLinkedVisitTask(tx, requestUuid);
     });
   } catch (err) {
     reqLog.error(

@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import { db } from '@/db/client';
 import {
+  cities,
   rateLimitAttempts,
   supportTickets,
   visitRequests,
@@ -169,8 +170,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       assignedExecUserId: visitRequests.assignedExecUserId,
       assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityId: visitRequests.cityId,
+      cityCaptainUserId: cities.captainUserId,
     })
     .from(visitRequests)
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.trackingToken, parsed.data.trackingToken))
     .limit(1);
   if (!reqRow) {
@@ -219,6 +222,9 @@ export async function POST(req: Request): Promise<NextResponse> {
       cityId: reqRow.cityId,
       execUserId: reqRow.assignedExecUserId,
       captainUserId: reqRow.assignedCaptainUserId,
+      // captain_owning_city resolver reads cityCaptainUserId; without it the
+      // enabled captain rules skipped and city captains never saw new tickets.
+      cityCaptainUserId: reqRow.cityCaptainUserId,
     });
   } catch (err) {
     routeLog.warn(

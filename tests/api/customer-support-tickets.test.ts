@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
 import {
+  cities,
+  inAppNotifications,
   notificationRules,
   rateLimitAttempts,
   supportTickets,
@@ -65,6 +67,14 @@ async function seedBaseRequest(): Promise<{
 }> {
   const captain = await seedCaptain({ phone: '+919940000001' });
   const city = await getOrCreateCity('Bangalore');
+  // captain_owning_city resolver reads cities.captain_user_id — distinct
+  // from visit_requests.assigned_captain_user_id below. Set both so the
+  // fixture matches production: the captain who owns the city AND is the
+  // request's assigned captain.
+  await db
+    .update(cities)
+    .set({ captainUserId: captain.id })
+    .where(eq(cities.id, city.id));
   const exec = await seedExecutive(captain.id, {
     phone: '+919940000002',
     fullName: 'Exec Ticket',
@@ -97,6 +107,29 @@ function buildCreateRequest(body: unknown): Request {
     },
     body: JSON.stringify(body),
   });
+}
+
+// customer.support_ticket_created is dispatched fire-and-forget
+// (`void dispatchNotification(...)`, not awaited by the route) — poll for
+// the resulting in_app_notifications row instead of assuming it landed by
+// the time the HTTP response resolves.
+async function waitForInAppNotification(
+  userId: string,
+  eventType: string,
+  timeoutMs = 3000,
+): Promise<typeof inAppNotifications.$inferSelect | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [row] = await db
+      .select()
+      .from(inAppNotifications)
+      .where(
+        sql`${inAppNotifications.userId} = ${userId} AND ${inAppNotifications.eventType} = ${eventType}`,
+      );
+    if (row) return row;
+    if (Date.now() > deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 function buildReopenRequest(ticketId: string, body: unknown): {
@@ -148,6 +181,33 @@ describe('POST /api/customer/support-tickets', () => {
     expect(row!.subject).toBe('Wrong fabric colour');
     expect(row!.customerNameSnapshot).toBeTruthy();
     expect(row!.customerPhoneSnapshot).toBeTruthy();
+  });
+
+  it('notifies the city-owning captain in-app (captain_owning_city delivers, not skipped)', async () => {
+    const { trackingToken, captainId } = await seedBaseRequest();
+
+    const res = await createTicketPOST(
+      buildCreateRequest({
+        trackingToken,
+        subject: 'Missing installation kit',
+        description: 'The technician arrived without the mounting kit.',
+        category: 'complaint',
+        turnstileToken: 'OK_TOKEN',
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // Pre-fix: the route dispatched customer.support_ticket_created without
+    // cityCaptainUserId in context. The captain_owning_city resolver reads
+    // exactly that key, so the enabled captain_owning_city rule always
+    // resolved to `skipped` ('cityCaptainUserId missing from context') and
+    // no row ever landed here.
+    const captainNotification = await waitForInAppNotification(
+      captainId,
+      'customer.support_ticket_created',
+    );
+    expect(captainNotification).toBeDefined();
+    expect(captainNotification!.title.length).toBeGreaterThan(0);
   });
 
   it('rejects bad Turnstile token with 400', async () => {
@@ -258,6 +318,38 @@ describe('POST /api/customer/support-tickets/[id]/reopen', () => {
     expect(updated!.status).toBe('open');
     expect(updated!.reopenedAt).not.toBeNull();
     expect(updated!.resolvedAt).toBeNull();
+  });
+
+  it('re-notifies the city-owning captain in-app on reopen (captain_owning_city delivers, not skipped)', async () => {
+    const { requestId, trackingToken, captainId } = await seedBaseRequest();
+    const [ticket] = await db
+      .insert(supportTickets)
+      .values({
+        requestId,
+        category: 'complaint',
+        subject: 'Reopen wiring check',
+        description: 'Reopen wiring check',
+        status: 'resolved',
+        resolvedAt: new Date(),
+        customerNameSnapshot: 'Test',
+        customerPhoneSnapshot: '+919999991114',
+      })
+      .returning({ id: supportTickets.id });
+
+    const { req, ctx } = buildReopenRequest(ticket.id, {
+      trackingToken,
+      turnstileToken: 'OK_TOKEN',
+    });
+    const res = await reopenTicketPOST(req, ctx);
+    expect(res.status).toBe(200);
+
+    // Same cityCaptainUserId wiring fix as the create route — pre-fix this
+    // resolver always skipped on reopen too.
+    const captainNotification = await waitForInAppNotification(
+      captainId,
+      'customer.support_ticket_created',
+    );
+    expect(captainNotification).toBeDefined();
   });
 
   it('idempotent on already-open tickets', async () => {

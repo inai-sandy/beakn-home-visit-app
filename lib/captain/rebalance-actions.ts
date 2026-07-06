@@ -1,11 +1,12 @@
 'use server';
 
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
 import {
+  cities,
   requestExecAssignments,
   salesExecutives,
   users,
@@ -252,6 +253,40 @@ export async function bulkReassignAffectedVisitsAction(
     };
   }
 
+  // Enrich the notification context. The request.reassigned resolvers read
+  // oldExecUserId (exec_removed), execUserId (exec_assigned) and
+  // captainUserId (captain_acting), and the composers read customer/city/
+  // exec/captain NAMES. The old dispatch passed only from/to exec ids +
+  // reason, so every delivery skipped (missing keys) and any that resolved
+  // would have rendered "undefined" copy. Mirror the working single-visit
+  // path in app/api/requests/[id]/reassign/route.ts.
+  const requestIds = data.reassignments.map((r) => r.requestId);
+  const reqInfoRows = await db
+    .select({
+      id: visitRequests.id,
+      customerName: visitRequests.customerName,
+      cityName: cities.name,
+    })
+    .from(visitRequests)
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .where(inArray(visitRequests.id, requestIds));
+  const reqInfoById = new Map(reqInfoRows.map((r) => [r.id, r]));
+
+  const nameUserIds = Array.from(
+    new Set<string>([
+      data.fromExecUserId,
+      auth.actorId,
+      ...data.reassignments.map((r) => r.toExecUserId),
+    ]),
+  );
+  const nameRows = await db
+    .select({ id: users.id, fullName: users.fullName })
+    .from(users)
+    .where(inArray(users.id, nameUserIds));
+  const nameById = new Map(nameRows.map((u) => [u.id, u.fullName]));
+  const captainName = nameById.get(auth.actorId) ?? 'Captain';
+  const oldExecName = nameById.get(data.fromExecUserId) ?? 'A team member';
+
   // Per-visit audit + notification. logEvent is gated by config; we
   // dispatch a single 'request.reassigned' event per visit so existing
   // notification rules still trigger as expected.
@@ -269,11 +304,19 @@ export async function bulkReassignAffectedVisitsAction(
       },
       reason: data.reason,
     });
+    const info = reqInfoById.get(r.requestId);
     try {
       await dispatchNotification('request.reassigned', {
         requestId: r.requestId,
-        fromExecUserId: data.fromExecUserId,
-        toExecUserId: r.toExecUserId,
+        customerName: info?.customerName ?? 'a customer',
+        cityName: info?.cityName ?? 'your city',
+        oldExecUserId: data.fromExecUserId,
+        oldExecName,
+        newExecUserId: r.toExecUserId,
+        execUserId: r.toExecUserId, // exec_assigned resolver reads execUserId
+        newExecName: nameById.get(r.toExecUserId) ?? 'a team member',
+        captainUserId: auth.actorId, // captain_acting resolver reads captainUserId
+        captainName,
         reason: data.reason,
       });
     } catch {

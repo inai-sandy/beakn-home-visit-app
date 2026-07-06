@@ -495,6 +495,7 @@ export async function transitionRequestStatus(
         customerWhatsappOptIn: currentRow.whatsappOptIn,
         cityName: currentRow.cityName,
         cityCaptainUserId: currentRow.cityCaptainUserId,
+        execUserId: currentRow.assignedExecUserId,
         execName: currentRow.execName ?? 'A team member',
       }).catch((err) => {
         transitionLog.warn(

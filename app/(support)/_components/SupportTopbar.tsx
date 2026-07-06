@@ -2,18 +2,39 @@
 
 import { usePathname } from 'next/navigation';
 
-import { activeSupportNav } from '@/lib/support/nav';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+import type { InAppNotificationRow } from '@/lib/notifications/in-app-queries';
+import { activeSupportNav, type SupportNavCounts } from '@/lib/support/nav';
+
+import { SupportSidebarSheet } from './SupportSidebarSheet';
 
 // =============================================================================
 // HVA-235: SupportTopbar — top bar for /support/*
 // =============================================================================
 //
-// 56dp top strip with the current page title. Bell + actions land in
-// Phase 2. Mobile drawer trigger also lands in Phase 2 alongside
-// SupportSidebarSheet.
+// 56dp top strip with: mobile hamburger (opens SupportSidebarSheet below
+// lg), the current page title, and the shared in-app NotificationBell.
+//
+// HVA-231 Phase 2: mobile drawer + bell landed here, bringing Support to
+// parity with the captain / exec / admin shells. The bell reuses the
+// role-agnostic component from HVA-52; support users receive in-app
+// notifications via the support_team_all recipient rules.
 // =============================================================================
 
-export function SupportTopbar() {
+interface Props {
+  fullName: string;
+  navCounts?: SupportNavCounts;
+  /** HVA-52: drives the bell badge + drawer feed. */
+  unreadInAppCount?: number;
+  initialNotifications?: InAppNotificationRow[];
+}
+
+export function SupportTopbar({
+  fullName,
+  navCounts,
+  unreadInAppCount = 0,
+  initialNotifications = [],
+}: Props) {
   const pathname = usePathname();
   const item = activeSupportNav(pathname);
   const title = item?.label ?? 'Support portal';
@@ -22,9 +43,16 @@ export function SupportTopbar() {
     <header
       role="banner"
       aria-label="Page header"
-      className="h-14 border-b bg-background/95 backdrop-blur sticky top-0 z-30 flex items-center px-4"
+      className="h-14 border-b bg-background/95 backdrop-blur sticky top-0 z-30 flex items-center gap-2 px-4"
     >
-      <h1 className="text-base font-semibold tracking-tight">{title}</h1>
+      <SupportSidebarSheet fullName={fullName} navCounts={navCounts} />
+      <h1 className="flex-1 min-w-0 text-base font-semibold tracking-tight truncate">
+        {title}
+      </h1>
+      <NotificationBell
+        unreadCount={unreadInAppCount}
+        initialNotifications={initialNotifications}
+      />
     </header>
   );
 }

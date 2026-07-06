@@ -41,3 +41,41 @@ export function activeSupportNav(pathname: string): SupportNavItem | null {
   }
   return null;
 }
+
+// =============================================================================
+// HVA-231 Phase 2: nav backlog counts (client-safe types + mapping)
+// =============================================================================
+//
+// The `SupportNavCounts` shape + the href→count mapping live here (a
+// client-safe module with no DB imports) so the sidebar + mobile drawer
+// client components can read them. The server-only loader that hits the
+// DB lives in lib/support/nav-counts.ts.
+
+export interface SupportNavCounts {
+  pending: number;
+  inProgress: number;
+  orders: number;
+}
+
+/**
+ * Resolve the backlog count for a given nav item href. Returns null for
+ * items that carry no badge (e.g. Activity) or when counts are absent.
+ * Shared by the desktop sidebar + mobile drawer so both surfaces map
+ * hrefs → counts identically.
+ */
+export function supportNavCountFor(
+  href: string,
+  counts: SupportNavCounts | undefined,
+): number | null {
+  if (!counts) return null;
+  switch (href) {
+    case '/support':
+      return counts.pending;
+    case '/support/in-progress':
+      return counts.inProgress;
+    case '/support/orders':
+      return counts.orders;
+    default:
+      return null;
+  }
+}

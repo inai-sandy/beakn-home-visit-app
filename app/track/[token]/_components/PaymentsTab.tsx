@@ -1,4 +1,3 @@
-import { Icon } from '@/components/ui/icon';
 import type { CollectionSummary } from '@/lib/collection-summary';
 import { formatInrFromPaise } from '@/lib/money';
 import { cn } from '@/lib/utils';
@@ -11,8 +10,8 @@ import { cn } from '@/lib/utils';
 // due, and a customer-safe payment history (date · amount · mode). It
 // deliberately omits internal fields — who recorded the payment, reference
 // numbers, internal notes — since this link is public (token only, no
-// login). A disabled "Pay online" placeholder appears when there's a
-// balance, reserving the spot for the future Razorpay flow.
+// login). Online payment (Razorpay) is not wired yet, so no pay CTA is
+// shown — the balance figure stands on its own.
 // =============================================================================
 
 export interface CustomerPaymentRow {
@@ -78,18 +77,6 @@ export function PaymentsTab({ summary, payments, hasQuotation }: Props) {
           )}
         </div>
       </div>
-
-      {/* Pay online — reserved for Razorpay (HVA-286). Disabled until wired. */}
-      {!summary.isFullyCollected && !summary.isOverpaid && summary.balancePaise > 0 && (
-        <button
-          type="button"
-          disabled
-          className="w-full rounded-2xl border bg-muted/40 px-4 py-3 text-sm font-medium text-muted-foreground inline-flex items-center justify-center gap-2 cursor-not-allowed"
-        >
-          <Icon name="lock" size="sm" />
-          Pay online — coming soon
-        </button>
-      )}
 
       {/* History */}
       <div className="space-y-2">

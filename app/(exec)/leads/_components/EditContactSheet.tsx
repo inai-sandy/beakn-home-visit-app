@@ -183,13 +183,8 @@ export function EditContactSheet({
             </div>
             {collision && (
               <p className="text-[11px] text-muted-foreground pt-1">
-                <span
-                  aria-disabled
-                  className="underline opacity-60 cursor-not-allowed"
-                  title="Merge flow lands in HVA-165"
-                >
-                  Merge (coming soon)
-                </span>
+                This number already belongs to another contact. Pick a
+                different number to save.
               </p>
             )}
           </FormRow>

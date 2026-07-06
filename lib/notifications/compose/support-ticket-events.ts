@@ -24,6 +24,10 @@ export interface SupportTicketCreatedContext {
   // can arrive here, not just the 4 seeded ones.
   category: string;
   subject: string;
+  // Set true when the customer REOPENED a resolved ticket (reopen route
+  // re-fires this same event). Distinguishes "back again" from a brand-new
+  // ticket so the exec/captain don't mistake it for a duplicate.
+  reopened?: boolean;
 }
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -42,7 +46,9 @@ export function composeSupportTicketCreatedInApp(
   const label =
     CATEGORY_LABEL[ctx.category] ?? ctx.category.replace(/_/g, ' ');
   return {
-    title: `New ${label.toLowerCase()} from ${ctx.customerName}`,
+    title: ctx.reopened
+      ? `Reopened ${label.toLowerCase()} from ${ctx.customerName}`
+      : `New ${label.toLowerCase()} from ${ctx.customerName}`,
     body: ctx.subject.length > 120
       ? `${ctx.subject.slice(0, 117)}…`
       : ctx.subject,

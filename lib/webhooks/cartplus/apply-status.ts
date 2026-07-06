@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
+import { cancelLinkedVisitTask } from '@/lib/visit-schedule/task-sync';
 
 import {
   PORTAL_CANCEL_REASON,
@@ -92,6 +93,26 @@ export async function applyCartplusOrderStatus(
         updatedAt: now,
       })
       .where(eq(visitRequests.id, requestId));
+    // Timeline parity with the customer/staff cancel paths: write a history
+    // row (same "CANCELLED_BY_CUSTOMER:" prefix) so /track shows it and
+    // history-based cancellation reports count it — previously omitted.
+    const [ord] = await tx
+      .select({
+        maxOrder: sql<number>`COALESCE(MAX(${requestStatusHistory.transitionOrder}), 0)`,
+      })
+      .from(requestStatusHistory)
+      .where(eq(requestStatusHistory.requestId, requestId));
+    await tx.insert(requestStatusHistory).values({
+      requestId,
+      fromStatusStageId: req.currentStageId,
+      toStatusStageId: req.currentStageId,
+      sequenceNumber: req.currentSeq,
+      transitionOrder: Number(ord?.maxOrder ?? 0) + 1,
+      changedByUserId: actorUserId,
+      reason: `CANCELLED_BY_CUSTOMER: ${PORTAL_CANCEL_REASON}`,
+    });
+    // Clear the linked visit task so the exec's calendar/day plan updates.
+    await cancelLinkedVisitTask(tx, requestId);
     return { ...NOOP, cancelled: true };
   }
 

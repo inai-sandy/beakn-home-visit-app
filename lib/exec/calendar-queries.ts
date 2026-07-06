@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { leads, statusStages, tasks, visitRequests } from '@/db/schema';
@@ -89,6 +89,10 @@ export async function loadCalendarEvents(
       // can lead with the customer instead of the raw description.
       requestCustomerName: visitRequests.customerName,
       leadName: leads.name,
+      // Real visit moment so a reschedule (which updates visit_scheduled_at)
+      // is reflected on the tile instead of a hardcoded 09:00.
+      visitScheduledAt: visitRequests.visitScheduledAt,
+      requestCancelledAt: visitRequests.cancelledAt,
     })
     .from(tasks)
     .leftJoin(visitRequests, eq(visitRequests.id, tasks.linkRequestId))
@@ -98,6 +102,10 @@ export async function loadCalendarEvents(
         eq(tasks.execUserId, execUserId),
         gte(effectiveDate, fromIso),
         lte(effectiveDate, toIso),
+        // Hide cancelled tasks, and tasks whose linked request was cancelled
+        // (defensive for rows orphaned before task-cancel propagation landed).
+        ne(tasks.status, 'cancelled'),
+        or(isNull(tasks.linkRequestId), isNull(visitRequests.cancelledAt)),
       ),
     )
     .orderBy(asc(effectiveDate));
@@ -142,9 +150,13 @@ export async function loadCalendarEvents(
         id: t.id,
         kind: 'task',
         title,
-        // Anchor tasks at 09:00 IST so they cluster at the start of the day
-        // in Day view without the SQL needing a time column on tasks.
-        at: new Date(`${effDate}T09:00:00+05:30`),
+        // Use the linked visit's real moment (so reschedules show the new
+        // time); fall back to 09:00 IST for postponed/non-visit tasks that
+        // have no live visit_scheduled_at.
+        at:
+          t.status !== 'postponed' && t.visitScheduledAt
+            ? t.visitScheduledAt
+            : new Date(`${effDate}T09:00:00+05:30`),
         stageCode: t.status,
         href,
       };

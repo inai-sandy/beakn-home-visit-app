@@ -25,7 +25,15 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import type { CustomerTicketRow } from '@/lib/support-tickets/queries';
+import type {
+  CustomerTicketRow,
+  TicketMessageRow,
+} from '@/lib/support-tickets/queries';
+
+// Server serialises Date → ISO string over the RSC boundary; accept both.
+type ClientTicketMessage = Omit<TicketMessageRow, 'createdAt'> & {
+  createdAt: Date | string;
+};
 
 // =============================================================================
 // HVA-254 (HVA-232 Phase 1): /track/[token] support tickets section
@@ -92,21 +100,33 @@ interface Props {
   initialTickets: CustomerTicketRow[];
   // HVA-256-FIX1: active categories loaded by the server page
   categories: CategoryOption[];
+  // HVA-232 Phase 3: message threads keyed by ticketId.
+  initialMessages: Record<string, ClientTicketMessage[]>;
 }
 
 export function SupportTicketsSection({
   trackingToken,
   initialTickets,
   categories,
+  initialMessages,
 }: Props) {
   const [tickets, setTickets] = useState<CustomerTicketRow[]>(
     initialTickets.map(rehydrateDates),
   );
+  const [messagesByTicket, setMessagesByTicket] =
+    useState<Record<string, ClientTicketMessage[]>>(initialMessages);
   const [dialogOpen, setDialogOpen] = useState(false);
   const categoryLabelByCode = new Map(categories.map((c) => [c.code, c.name]));
 
   function onTicketCreated(newRow: CustomerTicketRow) {
     setTickets((prev) => [newRow, ...prev]);
+  }
+
+  function onCustomerReplied(ticketId: string, message: ClientTicketMessage) {
+    setMessagesByTicket((prev) => ({
+      ...prev,
+      [ticketId]: [...(prev[ticketId] ?? []), message],
+    }));
   }
 
   function onTicketReopened(ticketId: string) {
@@ -143,6 +163,8 @@ export function SupportTicketsSection({
                 ticket={t}
                 trackingToken={trackingToken}
                 onReopened={() => onTicketReopened(t.id)}
+                messages={messagesByTicket[t.id] ?? []}
+                onReplied={(m) => onCustomerReplied(t.id, m)}
                 categoryLabel={categoryLabelByCode.get(t.category) ?? t.category}
               />
             ))}
@@ -165,11 +187,15 @@ function TicketCard({
   ticket,
   trackingToken,
   onReopened,
+  messages,
+  onReplied,
   categoryLabel,
 }: {
   ticket: CustomerTicketRow;
   trackingToken: string;
   onReopened: () => void;
+  messages: ClientTicketMessage[];
+  onReplied: (message: ClientTicketMessage) => void;
   categoryLabel: string;
 }) {
   const [reopening, setReopening] = useState(false);
@@ -247,11 +273,109 @@ function TicketCard({
     })();
   }, [reopenWidgetOpen, reopenToken, reopening, onReopened, ticket.id, trackingToken]);
 
+  // ---- Reply flow (mirrors the reopen Turnstile-on-demand pattern) ----
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [replyWidgetOpen, setReplyWidgetOpen] = useState(false);
+  const [replyToken, setReplyToken] = useState('');
+  const replyTurnstileRef = useRef<HTMLDivElement | null>(null);
+  const replyWidgetIdRef = useRef<string | null>(null);
+  // Snapshot the body at Send time so a later keystroke can't change what
+  // we post once the async Turnstile token arrives.
+  const pendingBodyRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!replyWidgetOpen) return;
+    if (!TURNSTILE_SITE_KEY) return;
+    const tryRender = () => {
+      const ts = window.turnstile;
+      const el = replyTurnstileRef.current;
+      if (!ts || !el) return false;
+      if (replyWidgetIdRef.current) return true;
+      replyWidgetIdRef.current = ts.render(el, {
+        sitekey: TURNSTILE_SITE_KEY,
+        size: 'invisible',
+        callback: (token: string) => setReplyToken(token),
+        'error-callback': () => setReplyToken(''),
+        'expired-callback': () => setReplyToken(''),
+      });
+      return true;
+    };
+    if (!tryRender()) {
+      const t = setInterval(() => {
+        if (tryRender()) clearInterval(t);
+      }, 200);
+      return () => clearInterval(t);
+    }
+  }, [replyWidgetOpen]);
+
+  useEffect(() => {
+    if (!replyWidgetOpen || !replyToken || sending) return;
+    void (async () => {
+      setSending(true);
+      try {
+        const res = await fetch(
+          `/api/customer/support-tickets/${ticket.id}/reply`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              trackingToken,
+              body: pendingBodyRef.current,
+              turnstileToken: replyToken,
+            }),
+          },
+        );
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          messageId?: string;
+          error?: string;
+        };
+        if (!res.ok || !j.ok || !j.messageId) {
+          toast.error(j.error ?? 'Could not send — please try again');
+          return;
+        }
+        onReplied({
+          id: j.messageId,
+          authorKind: 'customer',
+          authorUserId: null,
+          authorFirstName: null,
+          body: pendingBodyRef.current,
+          createdAt: new Date(),
+        });
+        setReplyText('');
+        toast.success('Sent — the team will see your reply');
+      } catch {
+        toast.error('Network error — please try again');
+      } finally {
+        setSending(false);
+        setReplyWidgetOpen(false);
+        setReplyToken('');
+        if (replyWidgetIdRef.current && window.turnstile) {
+          window.turnstile.remove(replyWidgetIdRef.current);
+          replyWidgetIdRef.current = null;
+        }
+      }
+    })();
+  }, [replyWidgetOpen, replyToken, sending, onReplied, ticket.id, trackingToken]);
+
+  function onSendReply() {
+    const body = replyText.trim();
+    if (!body) {
+      toast.error('Type a message first');
+      return;
+    }
+    if (sending || replyWidgetOpen) return;
+    pendingBodyRef.current = body;
+    setReplyWidgetOpen(true);
+  }
+
   const style = STATUS_STYLE[ticket.status];
   const showsReopen = ticket.status === 'resolved';
+  const canReply = ticket.status === 'open' || ticket.status === 'in_progress';
 
   return (
-    <li className="rounded-2xl border bg-card p-4 space-y-2">
+    <li className="rounded-2xl border bg-card p-4 space-y-3">
       <div className="flex items-start gap-2 flex-wrap">
         <Badge variant="outline" className={cn('text-[10px]', style.cls)}>
           {style.label}
@@ -268,6 +392,55 @@ function TicketCard({
             ? `Raised ${relativeTime(ticket.openedAt)} · ${ticket.ownerFirstName} is handling this`
             : `Raised ${relativeTime(ticket.openedAt)}`}
       </p>
+
+      {/* Thread — opening message (the customer's description) then replies */}
+      <ul className="space-y-2">
+        <MessageBubble
+          who="You"
+          isCustomer
+          when={ticket.openedAt}
+          body={ticket.description}
+        />
+        {messages.map((m) => (
+          <MessageBubble
+            key={m.id}
+            who={
+              m.authorKind === 'customer'
+                ? 'You'
+                : (m.authorFirstName ?? 'Support')
+            }
+            isCustomer={m.authorKind === 'customer'}
+            when={m.createdAt}
+            body={m.body}
+          />
+        ))}
+      </ul>
+
+      {canReply ? (
+        <div className="space-y-2 pt-1">
+          <Textarea
+            rows={2}
+            maxLength={2000}
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="Reply to the team…"
+            disabled={sending}
+          />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              disabled={sending || replyWidgetOpen || replyText.trim().length === 0}
+              onClick={onSendReply}
+            >
+              {sending ? 'Sending…' : 'Send reply'}
+            </Button>
+          </div>
+          {/* Invisible Turnstile widget container for the reply POST */}
+          <div ref={replyTurnstileRef} className="sr-only" aria-hidden />
+        </div>
+      ) : null}
+
       {showsReopen ? (
         <div className="pt-1">
           <Button
@@ -283,6 +456,40 @@ function TicketCard({
           <div ref={reopenTurnstileRef} className="sr-only" aria-hidden />
         </div>
       ) : null}
+    </li>
+  );
+}
+
+function MessageBubble({
+  who,
+  isCustomer,
+  when,
+  body,
+}: {
+  who: string;
+  isCustomer: boolean;
+  when: Date | string;
+  body: string;
+}) {
+  const at = when instanceof Date ? when : new Date(when);
+  return (
+    <li
+      className={cn(
+        'rounded-xl border p-2.5 text-sm',
+        isCustomer
+          ? 'bg-muted/40 border-muted-foreground/15'
+          : 'bg-primary/5 border-primary/20',
+      )}
+    >
+      <div className="flex items-center gap-2 mb-0.5">
+        <span className="text-[11px] font-semibold">{who}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {relativeTime(at)}
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-foreground/90">
+        {body}
+      </p>
     </li>
   );
 }
@@ -411,6 +618,7 @@ function SubmitDialog({
       onSuccess({
         id: j.ticketId,
         subject: trimmedSubject,
+        description: trimmedDescription,
         category,
         status: 'open',
         openedAt: new Date(),

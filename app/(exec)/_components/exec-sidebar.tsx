@@ -41,6 +41,8 @@ interface ExecSidebarProps {
   cities: SidebarCity[];
   /** HVA-156: unread-count badge next to the Announcements item. */
   unreadAnnouncementsCount?: number;
+  /** HVA-232 Phase 3: open support tickets — badge on the Tickets item. */
+  openTicketsCount?: number;
 }
 
 export function ExecSidebar({
@@ -48,6 +50,7 @@ export function ExecSidebar({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  openTicketsCount = 0,
 }: ExecSidebarProps) {
   const pathname = usePathname() ?? "/today";
   // eslint-disable-next-line no-restricted-syntax -- HVA-149: logoutAction returns Promise<void>, not ActionResult
@@ -153,6 +156,16 @@ export function ExecSidebar({
                           : unreadAnnouncementsCount}
                       </Badge>
                     )}
+                  {/* HVA-232 Phase 3: open support tickets on assigned reqs. */}
+                  {item.href === "/tickets" && openTicketsCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[9px] tabular-nums border-primary/50 text-primary"
+                      aria-label={`${openTicketsCount} open support tickets`}
+                    >
+                      {openTicketsCount > 99 ? "99+" : openTicketsCount}
+                    </Badge>
+                  )}
                 </Link>
               </li>
             );

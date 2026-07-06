@@ -260,7 +260,7 @@ describe('production composer registry (HVA-49)', () => {
   // Snapshot then restore (the suite above wipes the registry per test).
   beforeEach(() => restoreRegistry());
 
-  it('registers all 22 templates by template_key', () => {
+  it('registers all 23 templates by template_key', () => {
     expect(Object.keys(WHATSAPP_COMPOSERS).sort()).toEqual(
       [
         // Customer-facing (8)
@@ -289,6 +289,9 @@ describe('production composer registry (HVA-49)', () => {
         'captain_assist_request',
         // payment.received → captain (added 2026-06-02)
         'captain_payment_received',
+        // customer.support_ticket_resolved (composer ready; rule ships
+        // disabled until the Meta template is approved)
+        'support_ticket_resolved',
       ].sort(),
     );
   });

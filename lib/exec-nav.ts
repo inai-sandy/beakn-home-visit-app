@@ -20,6 +20,10 @@ export interface ExecNavItem {
   icon: string;
   /** Target href. Every exec nav item is a real route — no placeholders. */
   href: string;
+  /** HVA-232 Phase 3: optional live count rendered as a badge pill (e.g.
+   *  open support tickets on the Tickets item). Populated at render from a
+   *  server count, not in the static config. */
+  badgeCount?: number;
 }
 
 export const EXEC_NAV: ExecNavItem[] = [

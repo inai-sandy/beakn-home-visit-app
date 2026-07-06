@@ -87,6 +87,9 @@ export const supportTickets = pgTable(
       table.openedAt,
     ),
     index('support_tickets_status_opened_idx').on(table.status, table.openedAt),
+    // HVA-232 Phase 3 (migration 0082): "open workload" count for the
+    // exec/captain/admin Tickets nav badge — status IN (open,in_progress).
+    index('support_tickets_status_idx').on(table.status),
     // HVA-259: partial index — matches migration 0071 (WHERE claimed_by
     // IS NOT NULL); the Drizzle definition previously omitted the WHERE,
     // which a future drizzle-kit introspect would flag as drift.
@@ -100,6 +103,68 @@ export const supportTickets = pgTable(
     check(
       'support_tickets_description_length',
       sql`char_length(${table.description}) BETWEEN 1 AND 2000`,
+    ),
+  ],
+);
+
+// =============================================================================
+// HVA-232 Phase 3 (migration 0082): two-way support ticket message thread
+// =============================================================================
+//
+// The original tickets model was one-way: a customer raised a ticket and
+// staff could only claim + resolve it — no reply, no thread, no customer
+// notification. This table adds an append-only message thread so staff can
+// reply and the customer can respond, all visible on /track.
+//
+// author_kind distinguishes the two writer classes:
+//   - 'staff'    → author_user_id set (exec / captain / super_admin).
+//   - 'customer' → author_user_id NULL (the tracking-token holder; there
+//                  is no user row for a customer).
+//
+// The ticket's own `description` is the opening customer message and is
+// NOT duplicated here; the UI renders it as the first bubble, then this
+// thread in created_at order.
+// =============================================================================
+
+export const supportTicketAuthorKindEnum = pgEnum(
+  'support_ticket_author_kind',
+  ['staff', 'customer'],
+);
+
+export const supportTicketMessages = pgTable(
+  'support_ticket_messages',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    ticketId: uuid('ticket_id')
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: 'cascade' }),
+    authorKind: supportTicketAuthorKindEnum('author_kind').notNull(),
+    // NULL for customer authors (no user row). RESTRICT so a staff author's
+    // history survives — you can't delete a user who has replied on a ticket.
+    authorUserId: uuid('author_user_id').references(() => users.id, {
+      onDelete: 'restrict',
+    }),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // "All messages for this ticket, oldest first" — thread render on both
+    // the staff queue and the customer /track page.
+    index('support_ticket_messages_ticket_created_idx').on(
+      table.ticketId,
+      table.createdAt,
+    ),
+    check(
+      'support_ticket_messages_body_length',
+      sql`char_length(${table.body}) BETWEEN 1 AND 2000`,
+    ),
+    // A staff message MUST carry an author; a customer message MUST NOT.
+    check(
+      'support_ticket_messages_author_kind_consistency',
+      sql`(${table.authorKind} = 'staff' AND ${table.authorUserId} IS NOT NULL)
+        OR (${table.authorKind} = 'customer' AND ${table.authorUserId} IS NULL)`,
     ),
   ],
 );

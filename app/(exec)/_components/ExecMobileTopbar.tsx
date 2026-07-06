@@ -29,6 +29,8 @@ interface Props {
   captainName: string | null;
   cities: Array<{ id: string; name: string }>;
   unreadAnnouncementsCount?: number;
+  /** HVA-232 Phase 3: open support tickets — badge on the Tickets item. */
+  openTicketsCount?: number;
   /** HVA-52: drives the bell badge + drawer feed on mobile. */
   unreadInAppCount?: number;
   initialNotifications?: InAppNotificationRow[];
@@ -39,6 +41,7 @@ export function ExecMobileTopbar({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  openTicketsCount = 0,
   unreadInAppCount = 0,
   initialNotifications = [],
 }: Props) {
@@ -55,6 +58,7 @@ export function ExecMobileTopbar({
         captainName={captainName}
         cities={cities}
         unreadAnnouncementsCount={unreadAnnouncementsCount}
+        openTicketsCount={openTicketsCount}
       />
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}

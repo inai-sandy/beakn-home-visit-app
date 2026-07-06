@@ -273,6 +273,10 @@ export const CONFIG_SCHEMA = {
       'support_ticket_claimed',
       'support_ticket_resolved',
       'support_ticket_reopened',
+      // HVA-232 Phase 3 (migration 0082): two-way message thread — a
+      // staff reply, a customer reply, or a resolution note all write one
+      // support_ticket_messages row and emit this event.
+      'support_ticket_message_added',
       // HVA-256-FIX1: admin-configurable categories (replaces the
       // hardcoded enum).
       'support_ticket_category_created',

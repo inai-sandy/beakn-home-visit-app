@@ -16,6 +16,9 @@ export interface CaptainNavItem {
   label: string;
   /** Material Symbols Rounded glyph name passed to `<Icon name=…>`. */
   icon: string;
+  /** HVA-232 Phase 3: optional live count rendered as a badge pill (open
+   *  support tickets on the Tickets item). Populated at render, not config. */
+  badgeCount?: number;
 }
 
 export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [

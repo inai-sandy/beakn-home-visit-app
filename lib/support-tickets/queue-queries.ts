@@ -160,7 +160,46 @@ export async function loadTicketsQueue(
   };
 }
 
+// =============================================================================
+// HVA-232 Phase 3 (migration 0082): open-ticket count for the nav badge
+// =============================================================================
+//
+// Same role-scope as loadTicketsQueue, reduced to a COUNT of "open workload"
+// (status IN ('open','in_progress')). Drives the Tickets badge in the
+// exec / captain / admin shells — a badge of "6" matches what the user sees
+// when they open their tickets queue filtered to open+in-progress.
+// =============================================================================
+
+export async function openTicketCountForRole(
+  role: 'sales_executive' | 'captain' | 'super_admin',
+  userId: string,
+): Promise<number> {
+  const conditions: SQL[] = [
+    inArray(supportTickets.status, ['open', 'in_progress']),
+  ];
+
+  if (role === 'sales_executive') {
+    conditions.push(eq(visitRequests.assignedExecUserId, userId));
+  } else if (role === 'captain') {
+    const captainScope = or(
+      eq(visitRequests.assignedCaptainUserId, userId),
+      sql`${visitRequests.assignedExecUserId} IN (
+        SELECT user_id FROM sales_executives
+        WHERE captain_user_id = ${userId}
+      )`,
+    );
+    if (captainScope) conditions.push(captainScope);
+  }
+  // super_admin: no scope condition (counts every open/in-progress ticket).
+
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(supportTickets)
+    .innerJoin(visitRequests, eq(visitRequests.id, supportTickets.requestId))
+    .where(and(...conditions));
+  return row?.n ?? 0;
+}
+
 // Reference imports the linter would otherwise drop
-void inArray;
 void count;
 void salesExecutives;

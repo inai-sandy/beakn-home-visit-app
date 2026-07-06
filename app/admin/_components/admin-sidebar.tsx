@@ -36,9 +36,12 @@ export function AdminSidebar({
   /** HVA-77 + HVA-94: pending admin help count drives the badge next to
    *  the "Admin Help Inbox" nav item. */
   pendingHelpCount = 0,
+  /** HVA-232 Phase 3: open support tickets — badge on "Customer Tickets". */
+  openTicketsCount = 0,
 }: {
   userFooter: React.ReactNode;
   pendingHelpCount?: number;
+  openTicketsCount?: number;
 }) {
   const pathname = usePathname() ?? "/admin";
   const searchParams = useSearchParams();
@@ -82,7 +85,9 @@ export function AdminSidebar({
                     badgeCount={
                       item.label === 'Admin Help Inbox'
                         ? pendingHelpCount
-                        : 0
+                        : item.label === 'Customer Tickets'
+                          ? openTicketsCount
+                          : 0
                     }
                   />
                 ))}

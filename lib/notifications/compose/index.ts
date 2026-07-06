@@ -93,7 +93,9 @@ import {
 } from './order-comment-events';
 import {
   composeSupportTicketCreatedInApp,
+  composeSupportTicketReplyInApp,
   type SupportTicketCreatedContext,
+  type SupportTicketReplyContext,
 } from './support-ticket-events';
 import {
   composeInstallationScheduledInApp,
@@ -307,6 +309,12 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   'customer.support_ticket_created': (ctx) =>
     composeSupportTicketCreatedInApp(
       ctx as unknown as SupportTicketCreatedContext,
+    ),
+  // HVA-232 Phase 3: staff in-app + push when the customer replies on a
+  // ticket. Same body for exec_assigned + captain_owning_city.
+  'customer.support_ticket_reply': (ctx) =>
+    composeSupportTicketReplyInApp(
+      ctx as unknown as SupportTicketReplyContext,
     ),
   // Notification-wiring fix: these three events had enabled rules but no
   // registered composer, so every in-app + push delivery hard-failed

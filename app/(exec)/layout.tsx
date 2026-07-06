@@ -11,6 +11,7 @@ import {
   loadRecentInAppNotifications,
   loadUnreadInAppCount,
 } from "@/lib/notifications/in-app-queries";
+import { openTicketCountForRole } from "@/lib/support-tickets/queue-queries";
 
 import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
 
@@ -87,12 +88,18 @@ export default async function ExecLayout({
   // both the mobile drawer + desktop sidebar.
   // HVA-52: in-app notification bell — count + initial drawer payload.
   // All three fan out in parallel so the layout TTFB stays bounded.
-  const [unreadAnnouncementsCount, unreadInAppCount, initialNotifications] =
-    await Promise.all([
-      countUnreadAnnouncementsForUser(user.id, user.role),
-      loadUnreadInAppCount(user.id),
-      loadRecentInAppNotifications(user.id, 20),
-    ]);
+  const [
+    unreadAnnouncementsCount,
+    unreadInAppCount,
+    initialNotifications,
+    openTicketsCount,
+  ] = await Promise.all([
+    countUnreadAnnouncementsForUser(user.id, user.role),
+    loadUnreadInAppCount(user.id),
+    loadRecentInAppNotifications(user.id, 20),
+    // HVA-232 Phase 3: open/in-progress tickets on this exec's assigned reqs.
+    openTicketCountForRole("sales_executive", user.id),
+  ]);
 
   return (
     <div className="min-h-svh flex bg-background">
@@ -101,6 +108,7 @@ export default async function ExecLayout({
         captainName={execRow?.captainName ?? null}
         cities={cityRows}
         unreadAnnouncementsCount={unreadAnnouncementsCount}
+        openTicketsCount={openTicketsCount}
       />
       <div className="flex-1 flex flex-col min-w-0">
         {/*
@@ -112,6 +120,7 @@ export default async function ExecLayout({
           captainName={execRow?.captainName ?? null}
           cities={cityRows}
           unreadAnnouncementsCount={unreadAnnouncementsCount}
+          openTicketsCount={openTicketsCount}
           unreadInAppCount={unreadInAppCount}
           initialNotifications={initialNotifications}
         />

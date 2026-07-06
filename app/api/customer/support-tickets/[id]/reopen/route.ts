@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { supportTickets, visitRequests } from '@/db/schema';
+import { cities, supportTickets, visitRequests } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
@@ -91,12 +91,14 @@ export async function POST(
       assignedExecUserId: visitRequests.assignedExecUserId,
       assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityId: visitRequests.cityId,
+      cityCaptainUserId: cities.captainUserId,
       trackingToken: visitRequests.trackingToken,
       subject: supportTickets.subject,
       category: supportTickets.category,
     })
     .from(supportTickets)
     .innerJoin(visitRequests, eq(visitRequests.id, supportTickets.requestId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(supportTickets.id, ticketId))
     .limit(1);
 
@@ -167,6 +169,8 @@ export async function POST(
       cityId: row.cityId,
       execUserId: row.assignedExecUserId,
       captainUserId: row.assignedCaptainUserId,
+      // captain_owning_city resolver reads cityCaptainUserId.
+      cityCaptainUserId: row.cityCaptainUserId,
       reopened: true,
     });
   } catch (err) {

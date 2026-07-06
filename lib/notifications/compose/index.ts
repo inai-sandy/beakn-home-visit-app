@@ -95,6 +95,18 @@ import {
   composeSupportTicketCreatedInApp,
   type SupportTicketCreatedContext,
 } from './support-ticket-events';
+import {
+  composeInstallationScheduledInApp,
+  type InstallationScheduledContext,
+} from './request-installation-scheduled';
+import {
+  composeCartplusOrderReceivedInApp,
+  type CartplusOrderReceivedContext,
+} from './cartplus-order-received';
+import {
+  composeApprovalOverdueInApp,
+  type ApprovalOverdueContext,
+} from './request-approval-overdue';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -296,6 +308,19 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     composeSupportTicketCreatedInApp(
       ctx as unknown as SupportTicketCreatedContext,
     ),
+  // Notification-wiring fix: these three events had enabled rules but no
+  // registered composer, so every in-app + push delivery hard-failed
+  // (push reuses IN_APP_COMPOSERS). Same body for all recipient roles.
+  'request.installation_scheduled': (ctx) =>
+    composeInstallationScheduledInApp(
+      ctx as unknown as InstallationScheduledContext,
+    ),
+  'webhook.cartplus.order_received': (ctx) =>
+    composeCartplusOrderReceivedInApp(
+      ctx as unknown as CartplusOrderReceivedContext,
+    ),
+  'request.approval_overdue': (ctx) =>
+    composeApprovalOverdueInApp(ctx as unknown as ApprovalOverdueContext),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

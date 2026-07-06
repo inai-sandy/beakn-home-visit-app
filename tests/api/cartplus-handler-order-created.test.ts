@@ -5,6 +5,7 @@ import { POST } from '@/app/api/webhooks/cartplus/route';
 import { db } from '@/db/client';
 import {
   cities,
+  inAppNotifications,
   notificationRules,
   quotationLineItems,
   quotations,
@@ -159,6 +160,30 @@ function buildRequest(body: string, signature: string): Request {
   });
 }
 
+// The handler dispatches `webhook.cartplus.order_received` fire-and-forget
+// (`void dispatchNotification(...)`, not awaited) so the webhook response
+// isn't held up by notification fan-out. Poll for the resulting
+// in_app_notifications row instead of assuming it landed by the time POST()
+// resolves.
+async function waitForInAppNotification(
+  userId: string,
+  eventType: string,
+  timeoutMs = 3000,
+): Promise<typeof inAppNotifications.$inferSelect | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const [row] = await db
+      .select()
+      .from(inAppNotifications)
+      .where(
+        sql`${inAppNotifications.userId} = ${userId} AND ${inAppNotifications.eventType} = ${eventType}`,
+      );
+    if (row) return row;
+    if (Date.now() > deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 describe('order.created handler', () => {
   beforeEach(async () => {
     await reseedPortalNotificationRules();
@@ -227,6 +252,56 @@ describe('order.created handler', () => {
       .from(webhookEvents)
       .where(eq(webhookEvents.providerEventId, 'evt_happy_0001'));
     expect(eventRow!.result).toBe('ok');
+  });
+
+  it('notifies the city-owning captain in-app (captain_owning_city delivers, not failed/skipped)', async () => {
+    await seedActiveSecretAndAdmin();
+    const captain = await seedCaptain({ phone: '+919985900010' });
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919985900011',
+      fullName: 'Priya Sales Two',
+    });
+    const bangalore = await getOrCreateCity('Bangalore');
+    await db
+      .update(cities)
+      .set({ cartplusStoreId: 8102, captainUserId: captain.id })
+      .where(eq(cities.id, bangalore.id));
+    await db
+      .update(users)
+      .set({ portalExecId: 43 })
+      .where(eq(users.id, exec.id));
+
+    const { body, signature } = buildOrderCreatedEnvelope({
+      storeId: 8102,
+      createdById: 43,
+      eventId: 'evt_captain_notify_0001',
+      orderId: 7011,
+      itemId: 8011,
+    });
+    const res = await POST(buildRequest(body, signature) as never);
+    expect(res.status).toBe(200);
+
+    // Pre-fix: 1) IN_APP_COMPOSERS had no entry for
+    // webhook.cartplus.order_received, so the in-app adapter returned
+    // status='failed' for every recipient (including the exec); and
+    // 2) the dispatch context never included cityCaptainUserId, so the
+    // captain_owning_city rule always resolved 'skipped' regardless. Both
+    // are fixed — assert the captain's row exists and is well-formed.
+    const captainNotification = await waitForInAppNotification(
+      captain.id,
+      'webhook.cartplus.order_received',
+    );
+    expect(captainNotification).toBeDefined();
+    expect(captainNotification!.title.length).toBeGreaterThan(0);
+    expect(captainNotification!.body.length).toBeGreaterThan(0);
+
+    // The assigned exec (exec_assigned) also delivers now that the
+    // composer is registered.
+    const execNotification = await waitForInAppNotification(
+      exec.id,
+      'webhook.cartplus.order_received',
+    );
+    expect(execNotification).toBeDefined();
   });
 
   it('falls back to "Other" city when store_id is unmapped', async () => {

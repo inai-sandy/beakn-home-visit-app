@@ -159,3 +159,155 @@ describe('dispatchNotification', () => {
     expect(result.deliveries).toHaveLength(0);
   });
 });
+
+// =============================================================================
+// Notification-wiring fix regression tests
+// =============================================================================
+//
+// Covers three events whose notification_rules were enabled (either from a
+// prior migration or from 0080, which ships in the same PR as these code
+// fixes) but whose dispatch either had no registered in-app composer
+// (installation_scheduled / approval_overdue — 'failed' delivery) or whose
+// caller didn't pass the context key the recipient resolver reads
+// (approval_overdue's cityCaptainUserId — 'skipped' delivery pre-fix, before
+// migration 0080 even seeded the rule at all).
+// =============================================================================
+describe('dispatchNotification — notification-wiring fixes', () => {
+  it('request.approval_overdue delivers in-app to the owning city captain', async () => {
+    const cap = await seedCaptain({ phone: '+919911100001' });
+    await insertRule({
+      channel: 'in_app',
+      recipientRole: 'captain_owning_city',
+      eventType: 'request.approval_overdue',
+    });
+
+    const result = await dispatchNotification('request.approval_overdue', {
+      requestId: REQ_ID,
+      customerName: 'Rahul Verma',
+      cityName: 'Pune',
+      cityCaptainUserId: cap.id,
+      hoursStuck: 30,
+    });
+
+    expect(result.rulesMatched).toBeGreaterThanOrEqual(1);
+    expect(result.deliveries).toHaveLength(1);
+    // Pre-fix: IN_APP_COMPOSERS had no 'request.approval_overdue' entry, so
+    // the in-app adapter returned status='failed', error='no_in_app_composer_
+    // for_request.approval_overdue'. The composer is now registered
+    // (lib/notifications/compose/request-approval-overdue.ts) so this
+    // resolves to 'delivered'.
+    expect(result.deliveries[0].status).toBe('delivered');
+    expect(result.deliveries[0].error).toBeUndefined();
+
+    const [inApp] = await db
+      .select()
+      .from(inAppNotifications)
+      .where(eq(inAppNotifications.userId, cap.id));
+    expect(inApp).toBeDefined();
+    expect(inApp.title.length).toBeGreaterThan(0);
+    expect(inApp.title).toContain('Rahul Verma');
+  });
+
+  it('request.installation_scheduled delivers in-app to both the assigned exec and the owning city captain', async () => {
+    const cap = await seedCaptain({ phone: '+919911100002' });
+    const exec = await seedExecutive(cap.id, { phone: '+919911100003' });
+    await insertRule({
+      channel: 'in_app',
+      recipientRole: 'exec_assigned',
+      eventType: 'request.installation_scheduled',
+    });
+    await insertRule({
+      channel: 'in_app',
+      recipientRole: 'captain_owning_city',
+      eventType: 'request.installation_scheduled',
+    });
+
+    const result = await dispatchNotification('request.installation_scheduled', {
+      requestId: REQ_ID,
+      execUserId: exec.id,
+      cityCaptainUserId: cap.id,
+      customerName: 'Meera Nair',
+      cityName: 'Chennai',
+    });
+
+    expect(result.rulesMatched).toBe(2);
+    expect(result.deliveries).toHaveLength(2);
+    // Pre-fix: no composer registered for this event → both deliveries
+    // would have come back 'failed' (no_in_app_composer_for_request
+    // .installation_scheduled).
+    const statuses = result.deliveries.map((d) => d.status);
+    expect(statuses).toEqual(['delivered', 'delivered']);
+
+    const rows = await db
+      .select()
+      .from(inAppNotifications)
+      .where(eq(inAppNotifications.eventType, 'request.installation_scheduled'));
+    expect(rows).toHaveLength(2);
+    const recipientIds = rows.map((r) => r.userId).sort();
+    expect(recipientIds).toEqual([cap.id, exec.id].sort());
+  });
+
+  it('request.reassigned resolves exec_removed/exec_assigned/captain_acting when the caller passes oldExecUserId + execUserId + captainUserId', async () => {
+    const cap = await seedCaptain({
+      phone: '+919911100004',
+      email: 'captain-reassign@example.com',
+    });
+    const fromExec = await seedExecutive(cap.id, { phone: '+919911100005' });
+    const toExec = await seedExecutive(cap.id, { phone: '+919911100006' });
+
+    // Mirror the 3 rules migration 0017 seeds for request.reassigned.
+    await insertRule({
+      channel: 'in_app',
+      recipientRole: 'exec_removed',
+      eventType: 'request.reassigned',
+    });
+    await insertRule({
+      channel: 'in_app',
+      recipientRole: 'exec_assigned',
+      eventType: 'request.reassigned',
+    });
+    await insertRule({
+      channel: 'email',
+      recipientRole: 'captain_acting',
+      eventType: 'request.reassigned',
+    });
+
+    // This is the SHAPE bulkReassignAffectedVisitsAction now dispatches
+    // (oldExecUserId / execUserId / captainUserId) — pre-fix the action only
+    // passed fromExecUserId/toExecUserId/reason, none of which any resolver
+    // reads, so every one of these 3 deliveries would have come back
+    // 'skipped' with a "missing from context" reason.
+    const result = await dispatchNotification('request.reassigned', {
+      requestId: REQ_ID,
+      customerName: 'Divya Rao',
+      cityName: 'Hyderabad',
+      oldExecUserId: fromExec.id,
+      oldExecName: 'From Exec',
+      execUserId: toExec.id,
+      newExecName: 'To Exec',
+      captainUserId: cap.id,
+      captainName: 'Test Captain',
+      reason: 'Rebalanced because the exec went on unplanned leave today.',
+    });
+
+    expect(result.rulesMatched).toBe(3);
+    const byRole = Object.fromEntries(
+      result.deliveries.map((d) => [d.recipientRole, d]),
+    );
+    expect(byRole.exec_removed.status).toBe('delivered');
+    expect(byRole.exec_removed.resolvedTarget).toBe(fromExec.id);
+    expect(byRole.exec_assigned.status).toBe('delivered');
+    expect(byRole.exec_assigned.resolvedTarget).toBe(toExec.id);
+    expect(byRole.captain_acting.status).toBe('delivered');
+
+    const rows = await db
+      .select()
+      .from(inAppNotifications)
+      .where(eq(inAppNotifications.eventType, 'request.reassigned'));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.body).not.toContain('undefined');
+      expect(row.body.length).toBeGreaterThan(0);
+    }
+  });
+});

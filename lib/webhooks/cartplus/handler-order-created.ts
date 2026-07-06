@@ -304,6 +304,9 @@ export async function handleCartplusOrderCreated(
         totalAmountInr: order.total_amount,
         execUserId: execResult.userId,
         cityId: cityResult.cityId,
+        // captain_owning_city resolver reads cityCaptainUserId; without it
+        // the enabled captain rules skipped on every portal order.
+        cityCaptainUserId: cityResult.captainUserId,
         fallbackUsed: cityResult.fallback || execResult.fallback,
       });
     } catch (err) {

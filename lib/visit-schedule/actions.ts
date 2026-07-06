@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { db } from '@/db/client';
 import { TIMEZONE } from '@/lib/date';
 import {
+  cities,
   dayPlans,
   requestStatusHistory,
   statusStages,
@@ -149,9 +150,12 @@ export async function scheduleVisitAction(
       statusStageId: visitRequests.statusStageId,
       currentStageCode: statusStages.code,
       currentStageSeq: statusStages.sequenceNumber,
+      cityName: cities.name,
+      cityCaptainUserId: cities.captainUserId,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.id, data.requestId))
     .limit(1);
   if (!reqRow) return { ok: false, error: 'Request not found' };
@@ -340,6 +344,13 @@ export async function scheduleVisitAction(
         customerPhone: reqRow.customerPhone,
         trackingToken: reqRow.trackingToken,
         customerWhatsappOptIn: reqRow.whatsappOptIn,
+        // Internal-audience keys so emits_event notifications targeting the
+        // exec / owning city captain resolve (e.g. request.installation_scheduled,
+        // which fires from this scheduling path). Ignored by events that
+        // don't target those roles.
+        cityName: reqRow.cityName,
+        cityCaptainUserId: reqRow.cityCaptainUserId,
+        execUserId: reqRow.assignedExecUserId,
       };
       // Preserve the existing field name for the visit-scheduled event
       // so the WhatsApp template body params keep resolving (the template

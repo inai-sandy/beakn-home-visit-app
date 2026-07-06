@@ -304,7 +304,7 @@ export async function bulkReassignAffectedVisitsAction(
   // reason, so every delivery skipped (missing keys) and any that resolved
   // would have rendered "undefined" copy. Mirror the working single-visit
   // path in app/api/requests/[id]/reassign/route.ts.
-  const requestIds = data.reassignments.map((r) => r.requestId);
+  // (requestIds already computed above for the ownership check.)
   const reqInfoRows = await db
     .select({
       id: visitRequests.id,

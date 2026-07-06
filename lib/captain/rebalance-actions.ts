@@ -1,6 +1,6 @@
 'use server';
 
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -110,6 +110,15 @@ export async function loadTeammatesForRebalance(
   captainUserId: string,
   excludeExecUserId: string,
 ) {
+  // Exported 'use server' functions are directly-invokable POST endpoints.
+  // Require a captain/admin session and, for captains, that they only read
+  // their OWN team roster (admins may read any).
+  const auth = await authorizeCaptainOrAdmin();
+  if (!auth.ok) throw new Error(auth.error);
+  if (!auth.isAdmin && auth.actorId !== captainUserId) {
+    throw new Error('Forbidden — not your team');
+  }
+
   const candidates = await db
     .select({
       id: users.id,
@@ -219,6 +228,41 @@ export async function bulkReassignAffectedVisitsAction(
       return {
         ok: false,
         error: 'Destination exec is inactive or unavailable',
+      };
+    }
+  }
+
+  // Every request being reassigned must currently belong to fromExecUserId
+  // and be uncancelled. The destination checks above only validate WHERE
+  // the visits land — nothing verified the captain actually owns the
+  // visits being MOVED. Without this, a captain could pass arbitrary
+  // request UUIDs (other execs' / other cities' visits) with a forged
+  // fromExecUserId and pull them onto their own team. Reject the whole
+  // batch if any selected request isn't currently assigned to the declared
+  // from-exec.
+  const requestIds = data.reassignments.map((r) => r.requestId);
+  const currentAssignments = await db
+    .select({
+      id: visitRequests.id,
+      assignedExecUserId: visitRequests.assignedExecUserId,
+      cancelledAt: visitRequests.cancelledAt,
+    })
+    .from(visitRequests)
+    .where(inArray(visitRequests.id, requestIds));
+  const assignmentById = new Map(
+    currentAssignments.map((r) => [r.id, r]),
+  );
+  for (const r of data.reassignments) {
+    const current = assignmentById.get(r.requestId);
+    if (
+      !current ||
+      current.assignedExecUserId !== data.fromExecUserId ||
+      current.cancelledAt !== null
+    ) {
+      return {
+        ok: false,
+        error:
+          'One or more selected visits are not currently assigned to this exec.',
       };
     }
   }

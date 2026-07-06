@@ -322,6 +322,10 @@ export async function loadFinanceSnapshot(
           ? eq(visitRequests.assignedExecUserId, args.execFilter)
           : undefined,
         args.cityFilter ? eq(visitRequests.cityId, args.cityFilter) : undefined,
+        // Received must honour the active search like the other three
+        // tiles (which share `where` above); without it a filtered view
+        // showed a Received total that didn't reconcile with its siblings.
+        searchPredicate(args.search),
       ),
     );
   const receivedPaise = Number(receivedRow?.received ?? 0);

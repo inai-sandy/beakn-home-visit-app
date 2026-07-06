@@ -1,8 +1,8 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
-import { payments, quotations } from '@/db/schema';
+import { payments, quotations, visitRequests } from '@/db/schema';
 import { loadFinanceSnapshot } from '@/lib/captain/finance-queries';
 
 import {
@@ -200,5 +200,65 @@ describe('loadFinanceSnapshot — per-row clamp regression', () => {
     expect(snap.receivedPaise).toBe(700000);
     expect(snap.totalQuotedPaise).toBe(1000000);
     expect(snap.outstandingPaise).toBe(600000);
+  });
+
+  // F3b — HVA-281 regression: the Received tile's inbound/outbound SUM
+  // query ignored args.search entirely (unlike the other three tiles,
+  // which all AND in searchPredicate(args.search) via the shared `where`).
+  // A filtered captain finance view showed the SAME Received total
+  // regardless of the search box, which didn't reconcile with the
+  // filtered order-book/pipeline/outstanding tiles sitting right next to
+  // it. The fix ANDs searchPredicate(args.search) into the Received query.
+  it('REGRESSION: Received tile honours the active search filter', async () => {
+    const captain = await seedCaptain({
+      phone: '+919000900004',
+      fullName: 'FinCap4',
+    });
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919100900004',
+      fullName: 'FinExec4',
+    });
+    const city = await getOrCreateCity('Mumbai');
+
+    // Customer Alpha: quoted 10k, paid 6k.
+    const alpha = await seedVisitRequest({
+      cityId: city.id,
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
+    });
+    await db
+      .update(visitRequests)
+      .set({ customerName: 'Alpha Distinctive Customer' })
+      .where(eq(visitRequests.id, alpha.id));
+    await seedQuotation(alpha.id, 1_000_000, exec.id);
+    await seedPayment(alpha.id, 600_000, 'inbound', exec.id);
+
+    // Customer Bravo: quoted 20k, paid 9k.
+    const bravo = await seedVisitRequest({
+      cityId: city.id,
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: captain.id,
+    });
+    await db
+      .update(visitRequests)
+      .set({ customerName: 'Bravo Unrelated Buyer' })
+      .where(eq(visitRequests.id, bravo.id));
+    await seedQuotation(bravo.id, 2_000_000, exec.id);
+    await seedPayment(bravo.id, 900_000, 'inbound', exec.id);
+
+    // No search — Received = sum of both (6k + 9k = 15k).
+    const unfiltered = await loadFinanceSnapshot({
+      captainUserId: captain.id,
+      isSuperAdmin: true,
+    });
+    expect(unfiltered.receivedPaise).toBe(1_500_000);
+
+    // Search for "Alpha" — Received must drop to JUST Alpha's payment (6k).
+    const filtered = await loadFinanceSnapshot({
+      captainUserId: captain.id,
+      isSuperAdmin: true,
+      search: 'Alpha',
+    });
+    expect(filtered.receivedPaise).toBe(600_000);
   });
 });

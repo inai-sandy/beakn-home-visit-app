@@ -162,6 +162,20 @@ async function loadCityAggregates(args: ReportArgs): Promise<CityAggRow[]> {
             sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
             toDate,
           ),
+          // A request rolled back and re-confirmed has multiple
+          // ORDER_CONFIRMED history rows; joining the 1:1 quotation to each
+          // double-counts its value in SUM (COUNT(DISTINCT) was already
+          // safe). Keep only the latest ORDER_CONFIRMED row per request so
+          // each order's value is summed exactly once.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${requestStatusHistory} rsh_later
+            INNER JOIN ${statusStages} ss_later ON ss_later.id = rsh_later.to_status_stage_id
+            WHERE rsh_later.request_id = ${requestStatusHistory.requestId}
+              AND ss_later.code = 'ORDER_CONFIRMED'
+              AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date >= ${fromDate}
+              AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date <= ${toDate}
+              AND rsh_later.changed_at > ${requestStatusHistory.changedAt}
+          )`,
         ),
       )
       .groupBy(visitRequests.cityId),
@@ -802,7 +816,9 @@ export async function reportOutstandingAging(
                ELSE 0 END
         ), 0) AS net_paid
       FROM ${visitRequests} vr
-      INNER JOIN ${quotations} q ON q.visit_request_id = vr.id
+      -- HVA-281: outstanding aging is against CartPlus order actuals only;
+      -- manual quotations carry no real order value and inflate receivables.
+      INNER JOIN ${quotations} q ON q.visit_request_id = vr.id AND q.source = 'portal'
       LEFT JOIN ${payments} p ON p.visit_request_id = vr.id
       WHERE vr.cancelled_at IS NULL
       GROUP BY vr.id

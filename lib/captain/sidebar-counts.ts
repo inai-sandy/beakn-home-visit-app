@@ -22,6 +22,7 @@ import {
 } from '@/db/schema';
 
 import { loadOpenAssistCountForCaptain } from '@/lib/assist/queries';
+import { openTicketCountForRole } from '@/lib/support-tickets/queue-queries';
 
 import { buildCaptainRequestVisibilityWhere } from './team-scope';
 
@@ -32,6 +33,9 @@ export interface CaptainSidebarCounts {
   // HVA-199: unresolved assist requests (status NOT IN dispatched/rejected)
   // for this captain's team.
   openAssistCount: number;
+  // HVA-232 Phase 3: open + in-progress support tickets in the captain's
+  // team scope (drives the Tickets nav badge).
+  openTicketsCount: number;
 }
 
 const EMPTY_COUNTS: CaptainSidebarCounts = {
@@ -39,6 +43,7 @@ const EMPTY_COUNTS: CaptainSidebarCounts = {
   pendingApprovalsCount: 0,
   outstandingFinanceCount: 0,
   openAssistCount: 0,
+  openTicketsCount: 0,
 };
 
 export async function loadCaptainSidebarCounts(
@@ -73,7 +78,7 @@ export async function loadCaptainSidebarCounts(
   const submittedStageId = submittedStage[0]?.id ?? null;
   const pendingApprovalStageId = pendingApprovalStage[0]?.id ?? null;
 
-  const [newRow, pendingRow, outstandingRow, openAssistCount] = await Promise.all([
+  const [newRow, pendingRow, outstandingRow, openAssistCount, openTicketsCount] = await Promise.all([
     // New = SUBMITTED + unassigned + not cancelled, within visibility scope.
     submittedStageId
       ? db
@@ -132,6 +137,8 @@ export async function loadCaptainSidebarCounts(
       ),
     // HVA-199: open assist count (non-terminal statuses for team execs).
     loadOpenAssistCountForCaptain(captainUserId),
+    // HVA-232 Phase 3: open + in-progress tickets in this captain's scope.
+    openTicketCountForRole('captain', captainUserId),
   ]);
 
   return {
@@ -139,5 +146,6 @@ export async function loadCaptainSidebarCounts(
     pendingApprovalsCount: pendingRow[0]?.cnt ?? 0,
     outstandingFinanceCount: outstandingRow[0]?.cnt ?? 0,
     openAssistCount,
+    openTicketsCount,
   };
 }

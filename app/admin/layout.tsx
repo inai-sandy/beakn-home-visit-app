@@ -7,6 +7,7 @@ import {
   loadRecentInAppNotifications,
   loadUnreadInAppCount,
 } from "@/lib/notifications/in-app-queries";
+import { openTicketCountForRole } from "@/lib/support-tickets/queue-queries";
 
 import { PushPromptBanner } from "@/components/notifications/PushPromptBanner";
 
@@ -68,12 +69,18 @@ export default async function AdminLayout({
 
   // HVA-77 + HVA-94: drives the Admin Help Inbox sidebar badge.
   // HVA-87: in-app notification bell on the admin topbar.
-  const [pendingHelpCount, unreadInAppCount, initialNotifications] =
-    await Promise.all([
-      countPendingAdminHelpMessages(),
-      loadUnreadInAppCount(user.id),
-      loadRecentInAppNotifications(user.id, 20),
-    ]);
+  const [
+    pendingHelpCount,
+    unreadInAppCount,
+    initialNotifications,
+    openTicketsCount,
+  ] = await Promise.all([
+    countPendingAdminHelpMessages(),
+    loadUnreadInAppCount(user.id),
+    loadRecentInAppNotifications(user.id, 20),
+    // HVA-232 Phase 3: admin sees every open/in-progress ticket.
+    openTicketCountForRole("super_admin", user.id),
+  ]);
 
   return (
     <div className="min-h-svh flex bg-background">
@@ -91,6 +98,7 @@ export default async function AdminLayout({
             <AdminUserFooter fullName={displayName} role={user.role} />
           }
           pendingHelpCount={pendingHelpCount}
+          openTicketsCount={openTicketsCount}
         />
       </div>
       {/*
@@ -110,6 +118,7 @@ export default async function AdminLayout({
           displayName={displayName}
           role={user.role}
           pendingHelpCount={pendingHelpCount}
+          openTicketsCount={openTicketsCount}
           unreadInAppCount={unreadInAppCount}
           initialNotifications={initialNotifications}
         />

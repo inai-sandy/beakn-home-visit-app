@@ -5,10 +5,21 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
 import { db } from '@/db/client';
-import { supportTickets, visitRequests } from '@/db/schema';
+import {
+  cities,
+  supportTicketMessages,
+  supportTickets,
+  visitRequests,
+} from '@/db/schema';
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { log } from '@/lib/logger';
+import { dispatchNotification } from '@/lib/notifications/engine';
+import {
+  loadTicketMessages,
+  type TicketMessageRow,
+} from '@/lib/support-tickets/queries';
 
 // =============================================================================
 // HVA-255 (HVA-232 Phase 2): claim + resolve server actions
@@ -60,6 +71,16 @@ const idSchema = z.object({ ticketId: z.string().uuid() });
 interface ScopedTicket {
   id: string;
   status: 'open' | 'in_progress' | 'resolved';
+  requestId: string;
+  subject: string;
+  // Customer-notify context (resolve dispatch). Snapshotted phone/name are
+  // taken from the request row so the WhatsApp composer + opt-in gate work.
+  customerName: string;
+  customerPhone: string;
+  trackingToken: string;
+  whatsappOptIn: boolean;
+  cityCaptainUserId: string | null;
+  execUserId: string | null;
 }
 
 /**
@@ -94,9 +115,18 @@ async function loadScopedTicket(
     .select({
       id: supportTickets.id,
       status: supportTickets.status,
+      requestId: supportTickets.requestId,
+      subject: supportTickets.subject,
+      customerName: visitRequests.customerName,
+      customerPhone: visitRequests.customerPhone,
+      trackingToken: visitRequests.trackingToken,
+      whatsappOptIn: visitRequests.whatsappOptIn,
+      cityCaptainUserId: cities.captainUserId,
+      execUserId: visitRequests.assignedExecUserId,
     })
     .from(supportTickets)
     .innerJoin(visitRequests, eq(visitRequests.id, supportTickets.requestId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(and(...scopeConditions))
     .limit(1);
 
@@ -170,13 +200,21 @@ export async function claimTicketAction(
 // resolve — in_progress → resolved
 // -----------------------------------------------------------------------------
 
+const resolveSchema = z.object({
+  ticketId: z.string().uuid(),
+  // Optional closing note. Stored as a staff message so it shows in the
+  // thread on /track; also surfaced to the customer via the resolve
+  // WhatsApp nudge below.
+  note: z.string().trim().min(1).max(2000).optional(),
+});
+
 export async function resolveTicketAction(
-  input: z.infer<typeof idSchema>,
+  input: z.infer<typeof resolveSchema>,
 ): Promise<ActionResult> {
   const auth = await requireAgent();
   if (!auth.ok) return auth;
 
-  const parsed = idSchema.safeParse(input);
+  const parsed = resolveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: 'Invalid input' };
 
   const before = await loadScopedTicket(parsed.data.ticketId, auth);
@@ -218,6 +256,24 @@ export async function resolveTicketAction(
     };
   }
 
+  // Optional closing note → staff message in the thread (visible on /track).
+  if (parsed.data.note) {
+    await db.insert(supportTicketMessages).values({
+      ticketId: parsed.data.ticketId,
+      authorKind: 'staff',
+      authorUserId: auth.userId,
+      body: parsed.data.note,
+    });
+    await logEvent({
+      eventType: 'support_ticket_message_added',
+      actorUserId: auth.userId,
+      actorRole: auth.role,
+      targetEntityType: 'support_ticket',
+      targetEntityId: parsed.data.ticketId,
+      afterState: { authorKind: 'staff', context: 'resolution_note' },
+    });
+  }
+
   await logEvent({
     eventType: 'support_ticket_resolved',
     actorUserId: auth.userId,
@@ -228,6 +284,96 @@ export async function resolveTicketAction(
     afterState: { status: 'resolved', resolvedAt: now.toISOString() },
   });
 
+  // Customer notify — the callback the /track UI has always promised.
+  // WhatsApp only (customer has no in-app login), opt-in gated in the
+  // engine. Fire-and-forget; the resolve succeeds regardless of delivery.
+  setImmediate(() => {
+    void dispatchNotification('customer.support_ticket_resolved', {
+      ticketId: parsed.data.ticketId,
+      requestId: before.requestId,
+      subject: before.subject,
+      customerName: before.customerName,
+      customerPhone: before.customerPhone,
+      customerWhatsappOptIn: before.whatsappOptIn,
+      trackingToken: before.trackingToken,
+    }).catch((err) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), ticketId: parsed.data.ticketId },
+        'support_ticket_resolved_notify_failed',
+      );
+    });
+  });
+
   revalidatePath('/', 'layout');
   return { ok: true };
+}
+
+// -----------------------------------------------------------------------------
+// reply — staff appends a message to the thread (any status)
+// -----------------------------------------------------------------------------
+
+const replySchema = z.object({
+  ticketId: z.string().uuid(),
+  body: z.string().trim().min(1).max(2000),
+});
+
+export async function replyToTicketAction(
+  input: z.infer<typeof replySchema>,
+): Promise<ActionResult<{ messageId: string }>> {
+  const auth = await requireAgent();
+  if (!auth.ok) return auth;
+
+  const parsed = replySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
+  }
+
+  // Same scope boundary as claim/resolve — the caller must be able to SEE
+  // the ticket. Returns 'Ticket not found' for both missing + out-of-scope.
+  const ticket = await loadScopedTicket(parsed.data.ticketId, auth);
+  if (!ticket) return { ok: false, error: 'Ticket not found' };
+
+  const [row] = await db
+    .insert(supportTicketMessages)
+    .values({
+      ticketId: parsed.data.ticketId,
+      authorKind: 'staff',
+      authorUserId: auth.userId,
+      body: parsed.data.body,
+    })
+    .returning({ id: supportTicketMessages.id });
+
+  await logEvent({
+    eventType: 'support_ticket_message_added',
+    actorUserId: auth.userId,
+    actorRole: auth.role,
+    targetEntityType: 'support_ticket',
+    targetEntityId: parsed.data.ticketId,
+    afterState: { authorKind: 'staff', context: 'reply' },
+  });
+
+  // A staff reply surfaces on /track; we intentionally do NOT WhatsApp the
+  // customer per-reply (only on resolve) to avoid over-notifying mid-thread.
+  revalidatePath('/', 'layout');
+  return { ok: true, data: { messageId: row.id } };
+}
+
+// -----------------------------------------------------------------------------
+// loadTicketThreadAction — scoped thread load for the expandable staff row
+// -----------------------------------------------------------------------------
+
+export async function loadTicketThreadAction(
+  input: z.infer<typeof idSchema>,
+): Promise<ActionResult<{ messages: TicketMessageRow[] }>> {
+  const auth = await requireAgent();
+  if (!auth.ok) return auth;
+
+  const parsed = idSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: 'Invalid input' };
+
+  const ticket = await loadScopedTicket(parsed.data.ticketId, auth);
+  if (!ticket) return { ok: false, error: 'Ticket not found' };
+
+  const messages = await loadTicketMessages(parsed.data.ticketId);
+  return { ok: true, data: { messages } };
 }

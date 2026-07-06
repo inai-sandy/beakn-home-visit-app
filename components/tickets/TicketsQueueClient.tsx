@@ -16,13 +16,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import {
   claimTicketAction,
+  loadTicketThreadAction,
+  replyToTicketAction,
   resolveTicketAction,
 } from '@/lib/support-tickets/actions';
 import type { TicketCategoryRow } from '@/lib/support-tickets/category-queries';
 import type { QueueRow } from '@/lib/support-tickets/queue-queries';
+import type { TicketMessageRow } from '@/lib/support-tickets/queries';
 import { cn } from '@/lib/utils';
 
 // =============================================================================
@@ -258,19 +262,57 @@ function TicketRow({
   const status = STATUS_STYLE[row.status];
   const opened = new Date(row.openedAt);
 
+  // Thread state (loaded on demand when the row is expanded).
+  const [expanded, setExpanded] = useState(false);
+  const [messages, setMessages] = useState<TicketMessageRow[] | null>(null);
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
+
   const { mutate: doClaim, isPending: claiming } = useServerMutation(
     claimTicketAction,
     { successMessage: 'Claimed — you own this ticket now' },
   );
   const { mutate: doResolve, isPending: resolving } = useServerMutation(
     resolveTicketAction,
-    { successMessage: 'Resolved — customer sees it on /track' },
+    { successMessage: 'Resolved — the customer is notified + sees it on /track' },
+  );
+  const { mutate: doReply, isPending: replying } = useServerMutation(
+    replyToTicketAction,
+    { successMessage: 'Reply sent', skipRefresh: true },
   );
 
   const canClaim = row.status === 'open';
   const canResolve =
     row.status === 'in_progress' ||
     (currentRole === 'super_admin' && row.status === 'open');
+
+  async function loadThread() {
+    setLoadingThread(true);
+    try {
+      const res = await loadTicketThreadAction({ ticketId: row.ticketId });
+      if (res.ok && res.data) setMessages(res.data.messages);
+    } finally {
+      setLoadingThread(false);
+    }
+  }
+
+  function toggleExpanded() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && messages === null && !loadingThread) void loadThread();
+  }
+
+  async function onSendReply() {
+    const body = replyText.trim();
+    if (!body) return;
+    const data = await doReply({ ticketId: row.ticketId, body });
+    if (data) {
+      setReplyText('');
+      // Optimistically append + refresh the authoritative thread.
+      void loadThread();
+    }
+  }
 
   return (
     <AnimatedLi className="rounded-3xl border bg-card p-5 shadow-sm space-y-4">
@@ -315,6 +357,15 @@ function TicketRow({
             Open order
           </Link>
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleExpanded}
+          aria-expanded={expanded}
+        >
+          <Icon name={expanded ? 'expand_less' : 'forum'} size="xs" />
+          {expanded ? 'Hide thread' : 'Reply / thread'}
+        </Button>
         {canClaim ? (
           <Button
             size="sm"
@@ -324,7 +375,7 @@ function TicketRow({
             {claiming ? 'Claiming…' : 'Take this'}
           </Button>
         ) : null}
-        {canResolve ? (
+        {canResolve && !expanded ? (
           <Button
             size="sm"
             variant="secondary"
@@ -335,7 +386,114 @@ function TicketRow({
           </Button>
         ) : null}
       </div>
+
+      {expanded ? (
+        <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
+          {/* Thread */}
+          <div className="space-y-3">
+            {loadingThread && messages === null ? (
+              <p className="text-xs text-muted-foreground">Loading thread…</p>
+            ) : (
+              <>
+                {/* Opening customer message is the ticket description; the
+                    queue row doesn't carry it, so we lead with a marker. */}
+                {(messages?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No replies yet. Send the first reply below.
+                  </p>
+                ) : (
+                  <ul className="space-y-3">
+                    {messages!.map((m) => (
+                      <ThreadBubble key={m.id} message={m} />
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Reply box */}
+          <div className="space-y-2">
+            <Textarea
+              rows={3}
+              maxLength={2000}
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              placeholder="Reply to the customer — they'll see this on their tracking page."
+              disabled={replying}
+            />
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                disabled={replying || replyText.trim().length === 0}
+                onClick={onSendReply}
+              >
+                {replying ? 'Sending…' : 'Send reply'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Resolve with optional closing note */}
+          {canResolve ? (
+            <div className="space-y-2 border-t pt-4">
+              <label className="text-xs font-medium text-muted-foreground">
+                Closing note (optional) — sent to the customer on resolve
+              </label>
+              <Textarea
+                rows={2}
+                maxLength={2000}
+                value={resolveNote}
+                onChange={(e) => setResolveNote(e.target.value)}
+                placeholder="e.g. Replacement dispatched, arriving Tuesday."
+                disabled={resolving}
+              />
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={resolving}
+                  onClick={() =>
+                    doResolve({
+                      ticketId: row.ticketId,
+                      note: resolveNote.trim() || undefined,
+                    })
+                  }
+                >
+                  {resolving ? 'Resolving…' : 'Resolve ticket'}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </AnimatedLi>
+  );
+}
+
+function ThreadBubble({ message }: { message: TicketMessageRow }) {
+  const isStaff = message.authorKind === 'staff';
+  const who = isStaff
+    ? (message.authorFirstName ?? 'Support')
+    : 'Customer';
+  return (
+    <li
+      className={cn(
+        'rounded-2xl border p-3 text-sm',
+        isStaff
+          ? 'bg-primary/5 border-primary/20'
+          : 'bg-card border-muted-foreground/15',
+      )}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xs font-semibold">{who}</span>
+        <span className="text-[11px] text-muted-foreground">
+          {relativeTime(new Date(message.createdAt))}
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-foreground/90">
+        {message.body}
+      </p>
+    </li>
   );
 }
 

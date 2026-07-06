@@ -49,3 +49,34 @@ export function composeSupportTicketCreatedInApp(
     linkUrl: `/requests/${ctx.requestId}`,
   };
 }
+
+// =============================================================================
+// HVA-232 Phase 3 (migration 0082): staff in-app when a customer replies
+// =============================================================================
+//
+// Fired when the tracking-token holder posts a reply on an open /
+// in-progress ticket. Targets the assigned exec + city-owning captain
+// (same audience as customer.support_ticket_created). linkUrl points to
+// the order so the recipient lands on the ticket queue in context.
+
+export interface SupportTicketReplyContext {
+  ticketId: string;
+  requestId: string;
+  customerName: string;
+  subject: string;
+  bodyPreview: string;
+}
+
+export function composeSupportTicketReplyInApp(
+  ctx: SupportTicketReplyContext,
+): InAppBody {
+  const preview =
+    ctx.bodyPreview.length > 120
+      ? `${ctx.bodyPreview.slice(0, 117)}…`
+      : ctx.bodyPreview;
+  return {
+    title: `${ctx.customerName} replied on a support ticket`,
+    body: preview.length > 0 ? preview : ctx.subject,
+    linkUrl: `/requests/${ctx.requestId}`,
+  };
+}

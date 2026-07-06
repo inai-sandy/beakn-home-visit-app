@@ -44,6 +44,8 @@ interface Props {
   cities: SidebarCity[];
   /** HVA-156: unread-count badge next to the Announcements item. */
   unreadAnnouncementsCount?: number;
+  /** HVA-232 Phase 3: open support tickets — badge on the Tickets item. */
+  openTicketsCount?: number;
 }
 
 export function ExecSidebarSheet({
@@ -51,6 +53,7 @@ export function ExecSidebarSheet({
   captainName,
   cities,
   unreadAnnouncementsCount = 0,
+  openTicketsCount = 0,
 }: Props) {
   const pathname = usePathname() ?? '';
   const [open, setOpen] = useState(false);
@@ -173,6 +176,16 @@ export function ExecSidebarSheet({
                             : unreadAnnouncementsCount}
                         </Badge>
                       )}
+                    {/* HVA-232 Phase 3: open support tickets. */}
+                    {item.href === '/tickets' && openTicketsCount > 0 && (
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] tabular-nums border-primary/50 text-primary"
+                        aria-label={`${openTicketsCount} open support tickets`}
+                      >
+                        {openTicketsCount > 99 ? '99+' : openTicketsCount}
+                      </Badge>
+                    )}
                   </Link>
                 </li>
               );

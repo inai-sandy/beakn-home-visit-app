@@ -25,6 +25,8 @@ interface Props {
   role: string;
   /** HVA-77 + HVA-94: pending admin help count drives the sidebar badge. */
   pendingHelpCount?: number;
+  /** HVA-232 Phase 3: open support tickets — badge on "Customer Tickets". */
+  openTicketsCount?: number;
   /** HVA-87: in-app notification bell. */
   unreadInAppCount?: number;
   initialNotifications?: InAppNotificationRow[];
@@ -34,6 +36,7 @@ export function AdminMobileTopbar({
   displayName,
   role,
   pendingHelpCount = 0,
+  openTicketsCount = 0,
   unreadInAppCount = 0,
   initialNotifications = [],
 }: Props) {
@@ -50,6 +53,7 @@ export function AdminMobileTopbar({
         displayName={displayName}
         role={role}
         pendingHelpCount={pendingHelpCount}
+        openTicketsCount={openTicketsCount}
       />
       <h1 className="flex-1 min-w-0 text-base font-medium tracking-tight truncate">
         {title}

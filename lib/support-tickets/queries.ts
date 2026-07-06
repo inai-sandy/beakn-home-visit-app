@@ -1,7 +1,12 @@
-import { desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { supportTickets, users, visitRequests } from '@/db/schema';
+import {
+  supportTicketMessages,
+  supportTickets,
+  users,
+  visitRequests,
+} from '@/db/schema';
 
 // =============================================================================
 // HVA-254 (HVA-232 Phase 1): support tickets read-side
@@ -19,6 +24,9 @@ import { supportTickets, users, visitRequests } from '@/db/schema';
 export interface CustomerTicketRow {
   id: string;
   subject: string;
+  // HVA-232 Phase 3: the customer's opening message. Rendered as the first
+  // bubble in the thread on /track so the conversation reads top-to-bottom.
+  description: string;
   // HVA-256-FIX1: was a fixed enum; now a code string from
   // support_ticket_categories. The UI renders by joining the active
   // categories list passed alongside.
@@ -38,6 +46,7 @@ export async function loadTicketsForRequest(
     .select({
       id: supportTickets.id,
       subject: supportTickets.subject,
+      description: supportTickets.description,
       category: supportTickets.category,
       status: supportTickets.status,
       openedAt: supportTickets.openedAt,
@@ -53,6 +62,7 @@ export async function loadTicketsForRequest(
   return rows.map((r) => ({
     id: r.id,
     subject: r.subject,
+    description: r.description,
     category: r.category,
     status: r.status,
     openedAt: r.openedAt,
@@ -60,6 +70,98 @@ export async function loadTicketsForRequest(
     reopenedAt: r.reopenedAt,
     ownerFirstName: r.claimedByName?.split(' ')[0] ?? null,
   }));
+}
+
+// =============================================================================
+// HVA-232 Phase 3 (migration 0082): message thread read-side
+// =============================================================================
+
+export interface TicketMessageRow {
+  id: string;
+  authorKind: 'staff' | 'customer';
+  authorUserId: string | null;
+  // First name of the staff author ("Priya replied"); null for customer
+  // messages (rendered as "You" on /track, "Customer" on the staff queue).
+  authorFirstName: string | null;
+  body: string;
+  createdAt: Date;
+}
+
+/**
+ * All messages for a single ticket, oldest first. Used by the staff queue's
+ * expandable thread (via a scoped server action) and — indirectly — by the
+ * per-request customer loader below.
+ */
+export async function loadTicketMessages(
+  ticketId: string,
+): Promise<TicketMessageRow[]> {
+  const rows = await db
+    .select({
+      id: supportTicketMessages.id,
+      authorKind: supportTicketMessages.authorKind,
+      authorUserId: supportTicketMessages.authorUserId,
+      authorName: users.fullName,
+      body: supportTicketMessages.body,
+      createdAt: supportTicketMessages.createdAt,
+    })
+    .from(supportTicketMessages)
+    .leftJoin(users, eq(users.id, supportTicketMessages.authorUserId))
+    .where(eq(supportTicketMessages.ticketId, ticketId))
+    .orderBy(asc(supportTicketMessages.createdAt));
+
+  return rows.map((r) => ({
+    id: r.id,
+    authorKind: r.authorKind,
+    authorUserId: r.authorUserId,
+    authorFirstName: r.authorName?.split(' ')[0] ?? null,
+    body: r.body,
+    createdAt: r.createdAt,
+  }));
+}
+
+/**
+ * Messages for every ticket on a request, grouped by ticketId. Loaded once
+ * on the /track page so the customer sees each ticket's full thread without
+ * a per-ticket round trip. Customer authors are anonymised (no user join
+ * needed) — the UI shows staff first names and "You" for the customer.
+ */
+export async function loadTicketMessagesForRequest(
+  requestId: string,
+): Promise<Record<string, TicketMessageRow[]>> {
+  const ticketRows = await db
+    .select({ id: supportTickets.id })
+    .from(supportTickets)
+    .where(eq(supportTickets.requestId, requestId));
+  const ticketIds = ticketRows.map((t) => t.id);
+  if (ticketIds.length === 0) return {};
+
+  const rows = await db
+    .select({
+      id: supportTicketMessages.id,
+      ticketId: supportTicketMessages.ticketId,
+      authorKind: supportTicketMessages.authorKind,
+      authorUserId: supportTicketMessages.authorUserId,
+      authorName: users.fullName,
+      body: supportTicketMessages.body,
+      createdAt: supportTicketMessages.createdAt,
+    })
+    .from(supportTicketMessages)
+    .leftJoin(users, eq(users.id, supportTicketMessages.authorUserId))
+    .where(inArray(supportTicketMessages.ticketId, ticketIds))
+    .orderBy(asc(supportTicketMessages.createdAt));
+
+  const byTicket: Record<string, TicketMessageRow[]> = {};
+  for (const r of rows) {
+    (byTicket[r.ticketId] ??= []).push({
+      id: r.id,
+      authorKind: r.authorKind,
+      authorUserId: r.authorUserId,
+      authorFirstName: r.authorName?.split(' ')[0] ?? null,
+      body: r.body,
+      createdAt: r.createdAt,
+    });
+  }
+  return byTicket;
 }
 
 // Used by the public reopen endpoint to confirm the ticket belongs to the

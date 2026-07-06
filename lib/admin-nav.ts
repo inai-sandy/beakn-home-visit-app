@@ -27,6 +27,9 @@ export interface AdminNavItem {
   query?: Record<string, string>;
   /** Render muted, non-clickable. The REPORTS group is all placeholder. */
   placeholder?: true;
+  /** HVA-232 Phase 3: optional live count rendered as a badge pill (open
+   *  support tickets on the Customer Tickets item). Populated at render. */
+  badgeCount?: number;
 }
 
 /** Accordion subgroup — used inside the Settings group per the HVA-89

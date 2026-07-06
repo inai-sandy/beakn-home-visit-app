@@ -219,6 +219,19 @@ export function CaptainSidebarSheet({
                             : sidebarCounts!.openAssistCount}
                         </Badge>
                       )}
+                    {/* HVA-232 Phase 3: open support tickets in team scope. */}
+                    {item.href === '/captain/tickets' &&
+                      (sidebarCounts?.openTicketsCount ?? 0) > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] tabular-nums border-primary/50 text-primary"
+                          aria-label={`${sidebarCounts!.openTicketsCount} open support tickets`}
+                        >
+                          {sidebarCounts!.openTicketsCount > 99
+                            ? '99+'
+                            : sidebarCounts!.openTicketsCount}
+                        </Badge>
+                      )}
                   </Link>
                 </li>
               );

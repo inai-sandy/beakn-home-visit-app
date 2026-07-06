@@ -26,7 +26,10 @@ import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
 import type { ResourceRow } from "@/lib/content/types";
 import { log } from "@/lib/logger";
 import { loadActiveCategories } from "@/lib/support-tickets/category-queries";
-import { loadTicketsForRequest } from "@/lib/support-tickets/queries";
+import {
+  loadTicketMessagesForRequest,
+  loadTicketsForRequest,
+} from "@/lib/support-tickets/queries";
 import { cn } from "@/lib/utils";
 
 import { loadLineItems } from "@/app/requests/[id]/_actions/lineItems";
@@ -329,10 +332,13 @@ export default async function TrackPage({ params }: PageProps) {
   // request_id); render the customer-facing section below the timeline.
   // HVA-256-FIX1: also load active categories so the form's dropdown
   // shows whatever admin has configured.
-  const [supportTickets, supportCategories] = await Promise.all([
-    loadTicketsForRequest(reqRow.requestId),
-    loadActiveCategories(),
-  ]);
+  const [supportTickets, supportCategories, supportTicketMessages] =
+    await Promise.all([
+      loadTicketsForRequest(reqRow.requestId),
+      loadActiveCategories(),
+      // HVA-232 Phase 3: message threads for every ticket on this order.
+      loadTicketMessagesForRequest(reqRow.requestId),
+    ]);
 
   // HVA-286: Order + Payments tab data. The customer sees the CartPlus
   // (portal) quotation only; payments are shown customer-safe (no staff /
@@ -637,6 +643,7 @@ export default async function TrackPage({ params }: PageProps) {
             trackingToken={token}
             initialTickets={supportTickets}
             categories={supportCategories}
+            initialMessages={supportTicketMessages}
           />
         )}
 

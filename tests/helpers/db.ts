@@ -124,6 +124,10 @@ const SAFE_TRUNCATE_TABLES = [
   // has no FK but lives next to it.
   'webhook_events',
   'webhook_secrets',
+  // HVA-232 Phase 3 (migration 0082): support_ticket_messages.author_user_id
+  // is ON DELETE RESTRICT (staff authors). Truncate before users. It also
+  // cascades from support_tickets, but list it explicitly for clarity.
+  'support_ticket_messages',
   // HVA-254 (HVA-232): support_tickets.claimed_by_user_id +
   // resolved_by_user_id are ON DELETE RESTRICT. Truncate before users.
   'support_tickets',

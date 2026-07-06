@@ -63,6 +63,11 @@ export function CitiesClient({ cities }: Props) {
 
   return (
     <>
+      {cities.length === 0 ? (
+        <div className="rounded-3xl border bg-muted/40 p-10 text-center text-sm text-muted-foreground">
+          No cities yet.
+        </div>
+      ) : (
       <ul className="space-y-3">
         {cities.map((c) => {
           const isOther = c.name === "Other";
@@ -166,6 +171,7 @@ export function CitiesClient({ cities }: Props) {
           );
         })}
       </ul>
+      )}
 
       {editing && (
         <EditCityModal

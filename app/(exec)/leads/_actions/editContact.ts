@@ -231,7 +231,7 @@ export async function editContactAction(
       const reqCount = cnt?.count ?? 0;
       return {
         ok: false,
-        error: `This phone already belongs to contact ${collision.name} (${reqCount} request${reqCount === 1 ? '' : 's'}). Pick a different number, or use Merge (coming soon).`,
+        error: `This phone already belongs to contact ${collision.name} (${reqCount} request${reqCount === 1 ? '' : 's'}). Pick a different number.`,
         collisionContactId: collision.id,
       };
     }

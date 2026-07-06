@@ -14,6 +14,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
+import { cancelLinkedVisitTask } from '@/lib/visit-schedule/task-sync';
 import {
   TRACK_CANCEL_REASON_LABELS,
   trackCancelSchema,
@@ -187,6 +188,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
         changedByUserId: null,
         reason: `CANCELLED_BY_CUSTOMER: ${reasonText}`,
       });
+      // Cancel the linked visit task so the exec no longer sees a live visit.
+      await cancelLinkedVisitTask(tx, reqRow.id);
     });
   } catch (err) {
     reqLog.error(

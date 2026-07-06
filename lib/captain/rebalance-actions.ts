@@ -17,6 +17,7 @@ import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { resolveTeamUnavailableTodaySet } from '@/lib/captain/availability';
 import { dispatchNotification } from '@/lib/notifications/engine';
+import { moveVisitTaskToExec } from '@/lib/visit-schedule/task-sync';
 
 // =============================================================================
 // HVA-85: rebalance flow — captain reassigns the future-scheduled visits
@@ -288,6 +289,8 @@ export async function bulkReassignAffectedVisitsAction(
           captainUserId: auth.actorId,
           reason: data.reason,
         });
+        // Move the linked visit task onto the new exec's calendar + day plan.
+        await moveVisitTaskToExec(tx, r.requestId, r.toExecUserId);
       }
     });
   } catch (err) {

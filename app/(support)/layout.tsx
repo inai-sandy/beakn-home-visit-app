@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation';
 
 import { getServerSession } from '@/lib/auth-server';
+import {
+  loadRecentInAppNotifications,
+  loadUnreadInAppCount,
+} from '@/lib/notifications/in-app-queries';
+import { loadSupportNavCounts } from '@/lib/support/nav-counts';
 import { decideSupportAccess } from '@/lib/support-authz';
 
 import { SupportSidebar } from './_components/SupportSidebar';
@@ -34,18 +39,39 @@ export default async function SupportLayout({
     redirect(decision.redirectTo);
   }
 
-  const user = session!.user as { name?: string; fullName?: string };
+  const user = session!.user as {
+    id: string;
+    name?: string;
+    fullName?: string;
+  };
   const fullName = user.fullName ?? user.name ?? 'Support';
+
+  // HVA-231 Phase 2: backlog counts for the nav badges + the in-app
+  // notification bell payload (support users receive support_team_all
+  // notifications).
+  const [navCounts, unreadInAppCount, initialNotifications] = await Promise.all(
+    [
+      loadSupportNavCounts(),
+      loadUnreadInAppCount(user.id),
+      loadRecentInAppNotifications(user.id, 20),
+    ],
+  );
 
   return (
     <div className="min-h-svh flex bg-background">
-      {/* Desktop sidebar hidden below lg. Mobile drawer lands in Phase 2. */}
+      {/* Desktop sidebar hidden below lg; mobile uses the drawer in the
+          topbar (SupportSidebarSheet). */}
       <div className="hidden lg:flex">
-        <SupportSidebar fullName={fullName} />
+        <SupportSidebar fullName={fullName} navCounts={navCounts} />
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <SupportTopbar />
+        <SupportTopbar
+          fullName={fullName}
+          navCounts={navCounts}
+          unreadInAppCount={unreadInAppCount}
+          initialNotifications={initialNotifications}
+        />
         <main className="flex-1 px-4 sm:px-6 py-6 mx-auto w-full max-w-4xl">
           {children}
         </main>

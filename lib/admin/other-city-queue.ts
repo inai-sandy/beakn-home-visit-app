@@ -68,6 +68,11 @@ export async function loadOtherCityQueue(args: {
   pageSize?: number;
   search?: string;
 }): Promise<{ rows: OtherCityRequestRow[]; total: number }> {
+  // Exported 'use server' loaders are directly-invokable POST endpoints;
+  // this one returns customer PII (name/phone/email/address), so gate it.
+  const auth = await authorizeSuperAdmin();
+  if (!auth.ok) throw new Error(auth.error);
+
   const [otherCity] = await db
     .select({ id: cities.id })
     .from(cities)
@@ -131,6 +136,9 @@ export async function loadOtherCityQueue(args: {
 
 /** Active captains, ordered by name. Drives the routing dropdown. */
 export async function loadActiveCaptainsForRouting() {
+  const auth = await authorizeSuperAdmin();
+  if (!auth.ok) throw new Error(auth.error);
+
   return db
     .select({
       id: users.id,

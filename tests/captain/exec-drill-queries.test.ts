@@ -5,6 +5,7 @@ import { db } from '@/db/client';
 import {
   dayPlans,
   leads,
+  quotations,
   visitRequests,
 } from '@/db/schema';
 import { offsetIstDate } from '@/lib/captain/dashboard-queries';
@@ -12,6 +13,7 @@ import {
   canCaptainViewExec,
   loadExecDayPlan,
   loadExecLeadsBreakdown,
+  loadExecPendingCollections,
   loadExecWeeklyReport,
 } from '@/lib/captain/exec-drill-queries';
 import { loadSingleExecMetrics } from '@/lib/captain/team-queries';
@@ -239,6 +241,85 @@ describe('loadExecLeadsBreakdown', () => {
     expect(data.customer.notYetConverted).toBe(0);
     expect(data.business.converted).toBe(0);
     expect(data.business.notYetConverted).toBe(0);
+  });
+});
+
+describe('loadExecPendingCollections — F3a HVA-281 manual-quotation contamination', () => {
+  it('REGRESSION: a request with only a MANUAL quotation is excluded (phantom receivable)', async () => {
+    const cap = await seedCaptain({
+      phone: '+919006000001',
+      fullName: 'Cap',
+    });
+    const exec = await seedExecutive(cap.id, {
+      phone: '+919106000001',
+      fullName: 'Exec',
+    });
+    const city = await getOrCreateCity('Bangalore');
+
+    const req = await seedVisitRequest({
+      cityId: city.id,
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: cap.id,
+    });
+    await db.insert(quotations).values({
+      visitRequestId: req.id,
+      quotationNumber: 'MANUAL-1',
+      totalOrderValuePaise: 500_000, // ₹5,000
+      source: 'manual',
+      submittedByUserId: exec.id,
+    });
+
+    const rows = await loadExecPendingCollections(exec.id);
+    // Manual-source quotation carries no real order value — must not
+    // surface as a phantom receivable.
+    expect(rows.find((r) => r.requestId === req.id)).toBeUndefined();
+    expect(rows).toEqual([]);
+  });
+
+  it('a request with a portal quotation still surfaces with correct outstanding', async () => {
+    const cap = await seedCaptain({
+      phone: '+919006000002',
+      fullName: 'Cap',
+    });
+    const exec = await seedExecutive(cap.id, {
+      phone: '+919106000002',
+      fullName: 'Exec',
+    });
+    const city = await getOrCreateCity('Bangalore');
+
+    // Manual-only request — should NOT appear.
+    const manualReq = await seedVisitRequest({
+      cityId: city.id,
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: cap.id,
+    });
+    await db.insert(quotations).values({
+      visitRequestId: manualReq.id,
+      quotationNumber: 'MANUAL-2',
+      totalOrderValuePaise: 999_999,
+      source: 'manual',
+      submittedByUserId: exec.id,
+    });
+
+    // Portal request — should appear with outstanding = quoted (no payments).
+    const portalReq = await seedVisitRequest({
+      cityId: city.id,
+      assignedExecUserId: exec.id,
+      assignedCaptainUserId: cap.id,
+    });
+    await db.insert(quotations).values({
+      visitRequestId: portalReq.id,
+      quotationNumber: 'PORTAL-1',
+      totalOrderValuePaise: 250_000, // ₹2,500
+      source: 'portal',
+      submittedByUserId: exec.id,
+    });
+
+    const rows = await loadExecPendingCollections(exec.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].requestId).toBe(portalReq.id);
+    expect(rows[0].quotedPaise).toBe(250_000);
+    expect(rows[0].outstandingPaise).toBe(250_000);
   });
 });
 

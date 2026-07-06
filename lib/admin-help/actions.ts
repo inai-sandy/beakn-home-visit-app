@@ -208,6 +208,15 @@ export async function replyAdminHelpAction(
 // -----------------------------------------------------------------------------
 
 export async function loadAdminHelpForRequest(requestId: string) {
+  // Directly-invokable POST endpoint exposing exec↔admin messages.
+  // /requests/[id] is an internal page (proxy gates it to internal roles),
+  // so require an authenticated internal session; customers have none.
+  const session = await getServerSession();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  if (!session || !role || role === USER_ROLES.SUPPORT) {
+    throw new Error('Forbidden');
+  }
+
   return db
     .select({
       id: adminHelpMessages.id,
@@ -265,6 +274,12 @@ export async function loadAdminHelpInbox(args: {
   search?: string;
   dateFilter?: AdminHelpDateFilter;
 }): Promise<{ rows: AdminHelpInboxRow[]; total: number }> {
+  // Admin-only inbox of every exec↔admin message; gate the raw endpoint.
+  const session = await getServerSession();
+  if ((session?.user as { role?: string } | undefined)?.role !== USER_ROLES.SUPER_ADMIN) {
+    throw new Error('Forbidden');
+  }
+
   const term = args.search?.trim().toLowerCase() ?? '';
   const since = dateFilterToSinceISO(args.dateFilter ?? 'all');
 

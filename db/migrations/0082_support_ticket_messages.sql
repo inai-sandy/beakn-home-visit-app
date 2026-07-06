@@ -70,7 +70,13 @@ CREATE INDEX IF NOT EXISTS support_tickets_status_idx
 
 INSERT INTO notification_rules (event_type, channel, recipient_role, enabled, template_key)
 VALUES
-  ('customer.support_ticket_resolved', 'whatsapp', 'customer', TRUE, 'support_ticket_resolved'),
+  -- Ships DISABLED: there is no WHATSAPP_COMPOSER for 'support_ticket_resolved'
+  -- yet, and the Meta template isn't approved — enabling it now would hard-fail
+  -- every resolve with no_whatsapp_composer_for_support_ticket_resolved (the
+  -- same failure class migration 0080 defused). Enable once the composer is
+  -- authored + the template approved. The customer still sees the resolution
+  -- (and any closing note) on /track regardless.
+  ('customer.support_ticket_resolved', 'whatsapp', 'customer', FALSE, 'support_ticket_resolved'),
 
   ('customer.support_ticket_reply', 'in_app',   'exec_assigned',       TRUE,  NULL),
   ('customer.support_ticket_reply', 'in_app',   'captain_owning_city', TRUE,  NULL),

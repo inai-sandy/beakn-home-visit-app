@@ -22,7 +22,7 @@ import {
 // side effects across channels.
 // =============================================================================
 
-const dispatchMock = vi.fn(async () => ({
+const dispatchMock = vi.fn(async (..._args: unknown[]) => ({
   eventType: '',
   rulesMatched: 0,
   deliveries: [],

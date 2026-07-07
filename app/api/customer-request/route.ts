@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { revalidatePath } from 'next/cache';
 import { headers as headersFn } from 'next/headers';
@@ -8,10 +8,15 @@ import { db } from '@/db/client';
 import {
   cities,
   rateLimitAttempts,
+  requestStatusHistory,
   statusStages,
   visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import {
+  findOrCreateContactForAssignment,
+  resolveOwningExecForPhone,
+} from '@/lib/captain/contact-linker';
 import { emit } from '@/lib/events';
 import { log } from '@/lib/logger';
 // Side-effect import: registers the captain-new-request handler against
@@ -74,6 +79,8 @@ const DEDUP_WINDOW = '1 hour';
 const TRACKING_TOKEN_LENGTH = 21;
 const MAX_TOKEN_COLLISION_RETRIES = 5;
 const STATUS_STAGE_SUBMITTED = 'SUBMITTED';
+// HVA-256: born-assigned stage for the sticky-ownership auto-route.
+const STATUS_STAGE_ASSIGNED = 'ASSIGNED';
 const apiLog = log.child({ route: '/api/customer-request' });
 
 // Form-side BHK values include a space ('2 BHK'); DB enum is spaceless
@@ -346,6 +353,31 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
+  // 6b. HVA-256: sticky account ownership. If this phone was worked
+  //     before, resolve the owning exec so the request is created
+  //     PRE-ASSIGNED instead of landing in the captain's unassigned
+  //     queue. null → brand-new/ownerless contact → unchanged SUBMITTED
+  //     flow. The pre-assigned path also needs the ASSIGNED stage (id +
+  //     sequence for the initial status-history row); if it isn't seeded
+  //     we degrade gracefully to the unassigned flow — a missing stage
+  //     must never fail a customer submission.
+  let owningExec = await resolveOwningExecForPhone(customerPhoneStorage);
+  let assignedStage: { id: string; sequenceNumber: number } | null = null;
+  if (owningExec) {
+    [assignedStage] = await db
+      .select({
+        id: statusStages.id,
+        sequenceNumber: statusStages.sequenceNumber,
+      })
+      .from(statusStages)
+      .where(eq(statusStages.code, STATUS_STAGE_ASSIGNED))
+      .limit(1);
+    if (!assignedStage) {
+      reqLog.error({}, 'customer_request_assigned_stage_not_seeded');
+      owningExec = null;
+    }
+  }
+
   // 7. Generate token + INSERT.
   let trackingToken: string;
   try {
@@ -361,6 +393,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
+  // Single timestamp shared by assigned_at + the initial status-history
+  // row so the born-assigned request is internally consistent.
+  const now = new Date();
   let insertedId: string;
   try {
     const [row] = await db
@@ -398,7 +433,16 @@ export async function POST(req: Request): Promise<NextResponse> {
             ? String(parsed.data.accuracy)
             : null,
         trackingToken,
-        statusStageId: submittedStage.id,
+        // HVA-256: born-assigned to the owning exec for a returning
+        // contact; else unassigned SUBMITTED (unchanged default flow).
+        statusStageId: owningExec ? assignedStage!.id : submittedStage.id,
+        ...(owningExec
+          ? {
+              assignedExecUserId: owningExec.execUserId,
+              assignedCaptainUserId: owningExec.captainUserId,
+              assignedAt: now,
+            }
+          : {}),
         // HVA-79: customer's WhatsApp opt-in from the public /request
         // form. Defaulted to true at both the schema layer (.default)
         // and the column layer (DEFAULT TRUE).
@@ -439,6 +483,86 @@ export async function POST(req: Request): Promise<NextResponse> {
     ipAddress: ip,
     userAgent: reqHeaders.get('user-agent'),
   });
+
+  // 8b. HVA-256: born-assigned side-effects. When the request was created
+  //     pre-assigned (returning contact → owning exec), mirror the captain
+  //     assign route: write the initial null→ASSIGNED status-history row,
+  //     link the contact, and audit the assignment. All best-effort — the
+  //     assignment itself is already committed on the row above, so a
+  //     failure here logs and the request simply stays assigned without
+  //     the timeline/contact niceties (a later walk can backfill).
+  if (owningExec && assignedStage) {
+    try {
+      await db.insert(requestStatusHistory).values({
+        requestId: insertedId,
+        fromStatusStageId: null,
+        toStatusStageId: assignedStage.id,
+        sequenceNumber: assignedStage.sequenceNumber,
+        transitionOrder: 1,
+        // System actor — no human clicked Assign.
+        changedByUserId: null,
+        reason: 'Auto-assigned to owning exec (returning customer)',
+        changedAt: now,
+      });
+    } catch (err) {
+      reqLog.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'customer_request_autoassign_history_failed',
+      );
+    }
+
+    // Link (or create) the contact just like the manual assign route, so
+    // visit_requests.contact_id is populated and the exec's contact book
+    // stays coherent. Returning contacts almost always match an existing
+    // lead by phone; the create branch covers first-request-was-legacy.
+    try {
+      const linkResult = await findOrCreateContactForAssignment({
+        requestId: insertedId,
+        customerPhone: customerPhoneStorage,
+        customerName: parsed.data.name,
+        customerEmail: parsed.data.email === '' ? null : parsed.data.email,
+        cityId: cityRow.id,
+        bhk: parsed.data.bhk === '' ? 'Others' : toDbBhk(parsed.data.bhk),
+        assignedExecUserId: owningExec.execUserId,
+      });
+      if (linkResult.contactId) {
+        await db
+          .update(visitRequests)
+          .set({ contactId: linkResult.contactId })
+          .where(
+            and(
+              eq(visitRequests.id, insertedId),
+              isNull(visitRequests.contactId),
+            ),
+          );
+      }
+    } catch (err) {
+      reqLog.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'customer_request_autoassign_contact_link_failed',
+      );
+    }
+
+    // Audit the assignment (actor NULL = system auto-route). Mirrors the
+    // manual route's 'request_assigned' row.
+    await logEvent({
+      eventType: 'request_assigned',
+      actorUserId: null,
+      actorRole: null,
+      targetEntityType: 'visit_request',
+      targetEntityId: insertedId,
+      beforeState: { assignedExecUserId: null },
+      afterState: {
+        assignedExecUserId: owningExec.execUserId,
+        assignedCaptainUserId: owningExec.captainUserId,
+        cityName: parsed.data.city,
+        autoAssigned: true,
+      },
+      reason: 'auto_assigned_returning_contact',
+      ipAddress: ip,
+      userAgent: reqHeaders.get('user-agent'),
+    });
+  }
 
   // 9. Notification dispatch (HVA-42). emit() schedules handlers via
   //    setImmediate — the HTTP response below is returned BEFORE any
@@ -491,6 +615,34 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     });
   });
+
+  // HVA-256: when auto-assigned, also notify the exec they've received a
+  // request (request.assigned → in-app + push to exec_assigned). Fired
+  // alongside request.created above, which still carries the customer ack
+  // and city-captain awareness. There is no human actor, so the
+  // assignment-receipt rule (captain_assigning) addresses the owning
+  // captain with a system label rather than a captain's name.
+  if (owningExec) {
+    const assignedExec = owningExec;
+    setImmediate(() => {
+      dispatchNotification('request.assigned', {
+        requestId: insertedId,
+        execUserId: assignedExec.execUserId,
+        execName: assignedExec.execName,
+        captainUserId: assignedExec.captainUserId,
+        captainName: 'Auto-assigned (returning customer)',
+        customerName: parsed.data.name,
+        cityName: parsed.data.city,
+        cityCaptainUserId: cityRow.captainUserId,
+        note: null,
+      }).catch((err) => {
+        reqLog.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'customer_request_autoassign_notification_failed',
+        );
+      });
+    });
+  }
 
   // HVA-143: invalidate the client Router Cache so the captain's
   // /captain/requests Open bucket shows the new submission on next

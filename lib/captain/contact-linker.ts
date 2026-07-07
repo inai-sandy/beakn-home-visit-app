@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { leads } from '@/db/schema';
+import { leads, salesExecutives, users, visitRequests } from '@/db/schema';
 import { log } from '@/lib/logger';
 import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 
@@ -56,6 +56,94 @@ export interface FindOrCreateContactResult {
   created: boolean;
   /** Set when contactId is null so the caller can log/skip. */
   skipReason?: 'invalid_phone' | 'no_phone';
+}
+
+export interface OwningExec {
+  execUserId: string;
+  /** The owning exec's display name — populates request.assigned notifications. */
+  execName: string;
+  /**
+   * The owning exec's OWN captain (sales_executives.captain_user_id) —
+   * used for assigned_captain_user_id. "Follow the exec" across cities:
+   * we route to the exec regardless of the new request's city, and keep
+   * team scoping consistent with the exec's captain.
+   */
+  captainUserId: string;
+}
+
+// =============================================================================
+// HVA-256: "sticky" account ownership — auto-route returning contacts
+// =============================================================================
+//
+// When a customer who has been worked before (matched by phone) raises a
+// NEW web request, route it straight to the exec who most recently owned
+// a request for that phone, instead of dropping it into the captain's
+// unassigned queue.
+//
+// Owner = the exec on the contact's MOST-RECENT request that carries an
+// exec (ordered by assigned_at desc). This follows reassignments: if the
+// account moved A→B, B is returned (the live owner), not the original
+// captor. We deliberately don't read leads.captured_by_user_id (that's
+// the FIRST captor and can be stale after a reassign).
+//
+// Returns null — caller falls back to the normal unassigned SUBMITTED
+// flow — when:
+//   * phone is unparseable,
+//   * no prior request for this phone was ever assigned to an exec,
+//   * the owning exec is inactive (users.is_active = false) or is no
+//     longer a sales_executive (no row). We don't route into a dead
+//     account; a captain assigns it manually as before.
+//
+// Unlike is_unavailable (a soft "out today" flag that does NOT block —
+// matching the manual assign route's HVA-81 behaviour), an INACTIVE user
+// is a hard skip.
+// =============================================================================
+
+export async function resolveOwningExecForPhone(
+  customerPhone: string,
+): Promise<OwningExec | null> {
+  const normalised = normalizeIndianPhone(customerPhone);
+  if (!normalised) return null;
+  const storage = toStorageFormat(normalised);
+  if (!storage) return null;
+
+  // Most-recent prior request for this phone that carries an exec.
+  // NULLS LAST guards the (defensive) case of an assigned row with a null
+  // assigned_at — Postgres orders NULLs first under plain DESC, which would
+  // otherwise let a legacy null-timestamp row shadow a genuinely newer one.
+  const [prior] = await db
+    .select({ execUserId: visitRequests.assignedExecUserId })
+    .from(visitRequests)
+    .where(
+      and(
+        eq(visitRequests.customerPhone, storage),
+        isNotNull(visitRequests.assignedExecUserId),
+      ),
+    )
+    .orderBy(sql`${visitRequests.assignedAt} DESC NULLS LAST`)
+    .limit(1);
+  if (!prior?.execUserId) return null;
+
+  // The candidate must still be an active sales executive. Their own
+  // captain becomes assigned_captain_user_id (follow-the-exec).
+  const [exec] = await db
+    .select({
+      userId: salesExecutives.userId,
+      captainUserId: salesExecutives.captainUserId,
+      fullName: users.fullName,
+      isActive: users.isActive,
+    })
+    .from(salesExecutives)
+    .innerJoin(users, eq(users.id, salesExecutives.userId))
+    .where(eq(salesExecutives.userId, prior.execUserId))
+    .limit(1);
+  if (!exec || !exec.isActive) return null;
+
+  return {
+    execUserId: exec.userId,
+    execName: exec.fullName,
+    captainUserId: exec.captainUserId,
+  };
 }
 
 export async function findOrCreateContactForAssignment(

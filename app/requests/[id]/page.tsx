@@ -5,6 +5,11 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { DispatchHistoryBlock } from "@/app/(support)/support/orders/[id]/_components/DispatchHistoryBlock";
+import { OrderFulfilmentTable } from "@/components/dispatch/OrderFulfilmentTable";
+import {
+  formatFulfilmentSummary,
+  summariseFulfilment,
+} from "@/lib/dispatch/fulfilment";
 import {
   Accordion,
   AccordionContent,
@@ -568,9 +573,18 @@ export default async function RequestDetailPage({ params }: PageProps) {
     "ORDER_EXECUTED_SUCCESSFULLY",
   ]);
   const showOrderActivity = orderConfirmedStages.has(reqRow.currentStageCode);
-  const dispatchesForRequest = showOrderActivity
-    ? (await loadOrderDetail(reqRow.id))?.dispatches ?? []
-    : [];
+  // HVA-302: loadOrderDetail already returns the per-product fulfilment
+  // maths (quantityTotal / quantityDispatched / quantityRemaining). It used
+  // to be discarded here — only `.dispatches` was kept — which is why the
+  // exec could see that SOMETHING shipped but not WHICH products. Keep the
+  // whole detail; orders ship in installments, so the per-item split is the
+  // thing the exec is actually asked about.
+  const orderDetail = showOrderActivity
+    ? await loadOrderDetail(reqRow.id)
+    : null;
+  const dispatchesForRequest = orderDetail?.dispatches ?? [];
+  const fulfilmentItems = orderDetail?.items ?? [];
+  const fulfilmentSummary = summariseFulfilment(fulfilmentItems);
 
   // HVA-243: resolve the single primary action surfaced in the sticky
   // header. Priority approve > markComplete > advance > assignExec.
@@ -829,7 +843,13 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const orderTab = (
     <Accordion
       type="multiple"
-      defaultValue={["quotation"]}
+      // HVA-302: once the order is confirmed, dispatch is what the exec
+      // came here for — open it and the shipment list, and let the
+      // quotation collapse. Pre-confirmation there is nothing to ship, so
+      // the quotation stays the landing section.
+      defaultValue={
+        showOrderActivity ? ["dispatch", "shipments"] : ["quotation"]
+      }
       className="rounded-2xl border bg-card divide-y px-4"
     >
       <AccordionItem value="quotation" className="border-b">
@@ -848,24 +868,46 @@ export default async function RequestDetailPage({ params }: PageProps) {
         </AccordionContent>
       </AccordionItem>
       {showOrderActivity && (
-        <AccordionItem value="dispatch">
-          <AccordionTrigger>
-            <span>Dispatch history ({dispatchesForRequest.length})</span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <DispatchHistoryBlock
-              canAdvance={false}
-              dispatches={dispatchesForRequest.map((d) => ({
-                dispatchId: d.dispatchId,
-                createdAtIso: d.createdAt.toISOString(),
-                dispatchedByName: d.dispatchedByName,
-                notes: d.notes,
-                currentStage: d.currentStage,
-                items: d.items,
-              }))}
-            />
-          </AccordionContent>
-        </AccordionItem>
+        <>
+          {/* HVA-302: what has actually shipped, per product. Orders go out
+              in installments, so this — not the shipment list below — is
+              the question the exec is usually being asked. */}
+          <AccordionItem value="dispatch" className="border-b">
+            <AccordionTrigger>
+              <span>Dispatch</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  {formatFulfilmentSummary(
+                    fulfilmentSummary,
+                    dispatchesForRequest.length,
+                  )}
+                </p>
+                <OrderFulfilmentTable items={fulfilmentItems} />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="shipments">
+            <AccordionTrigger>
+              <span>Shipments ({dispatchesForRequest.length})</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <DispatchHistoryBlock
+                canAdvance={false}
+                dispatches={dispatchesForRequest.map((d) => ({
+                  dispatchId: d.dispatchId,
+                  createdAtIso: d.createdAt.toISOString(),
+                  dispatchedByName: d.dispatchedByName,
+                  notes: d.notes,
+                  currentStage: d.currentStage,
+                  items: d.items,
+                }))}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        </>
       )}
     </Accordion>
   );

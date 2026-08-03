@@ -232,7 +232,13 @@ test.describe.serial('Golden journey', () => {
       timeout: 10_000,
     });
     await page.getByRole('button', { name: /^resolve$/i }).first().click();
-    await expect(page.getByText(/resolved — customer sees it/i)).toBeVisible({
+    // Toast copy: 'Resolved — the customer is notified + sees it on /track'
+    // (TicketsQueueClient resolve successMessage). Match the stable prefix so a
+    // trailing reword doesn't re-break this; the old assertion ("customer sees
+    // it") predated a rewording and had been failing CI since the tickets feature.
+    await expect(
+      page.getByText(/resolved — the customer is notified/i),
+    ).toBeVisible({
       timeout: 10_000,
     });
   });

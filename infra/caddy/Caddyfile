@@ -14,3 +14,125 @@ rag.1site.ai {
 visits.beakn.in {
 	reverse_proxy beakn-app:3001
 }
+
+# Hermes Agent web dashboard. The dashboard runs on the host bound to the
+# hermes-network gateway IP (172.19.0.1) so only containers on that network
+# can reach it. Caddy enforces HTTP basic auth in front because the dashboard
+# exposes API keys. header_up Host rewrites the Host header so the dashboard's
+# anti-DNS-rebinding check accepts the request.
+agent.1site.ai {
+	basic_auth {
+		sandeep __REDACTED_BCRYPT_HASH__
+	}
+	reverse_proxy 172.19.0.1:9119 {
+		header_up Host {upstream_hostport}
+	}
+}
+
+# Honcho MCP auth-injecting proxy. claude.ai web's custom connector flow
+# expects OAuth and doesn't support static headers, so this proxy adds the
+# Honcho Authorization + workspace/user headers on the way through.
+# IMPORTANT: The Honcho API key lives in plaintext here. If the key is
+# rotated, this block must be updated too.
+honcho.1site.ai {
+    reverse_proxy https://mcp.honcho.dev {
+        header_up Host mcp.honcho.dev
+        header_up Authorization "Bearer __REDACTED__"
+        header_up X-Honcho-User-Name "sandeep"
+        header_up X-Honcho-Workspace-ID "sandeep-brain"
+        transport http {
+            tls
+            tls_server_name mcp.honcho.dev
+        }
+    }
+}
+
+docs.1site.ai {
+    root * /srv/docs
+    @emoflash path /emo-flash/*
+    header @emoflash Cache-Control "no-store"
+    file_server
+}
+
+files.1site.ai {
+	reverse_proxy filebrowser:80
+}
+
+# Supermemory MCP auth-injecting proxy. claude.ai web custom connectors do not
+# support static headers, so this proxy adds the Bearer key + x-sm-project on
+# the way through to supermemory's hosted MCP. Key is plaintext here; if it is
+# rotated, update this block too.
+sm.1site.ai {
+    reverse_proxy https://mcp.supermemory.ai {
+        header_up Host mcp.supermemory.ai
+        header_up Authorization "Bearer __REDACTED__"
+        header_up x-sm-project "sandeep"
+        transport http {
+            tls
+            tls_server_name mcp.supermemory.ai
+        }
+    }
+}
+
+mybrain.1site.ai {
+	reverse_proxy mybrain-app:8080
+}
+
+1site.ai, www.1site.ai {
+    rewrite / /welcome.html
+    reverse_proxy mybrain-app:8080
+}
+
+kitflow.1site.ai {
+	encode zstd gzip
+	reverse_proxy kitflow-app:8080
+}
+
+postbox.1site.ai {
+	reverse_proxy postbox-app:8080
+}
+emo.1site.ai {
+	@signup path /api/v1/auth/signup
+	handle @signup {
+		respond "Registration is closed." 403
+	}
+	@api path /api/v1/*
+	handle @api {
+		reverse_proxy dograh-api-1:8000
+	}
+	@audio path /voice-audio/*
+	handle @audio {
+		reverse_proxy minio:9000
+	}
+	handle {
+		root * /srv/docs
+		rewrite / /emo.html
+		file_server
+	}
+}
+
+features.1site.ai {
+	root * /srv/docs/beakn-features
+	encode gzip zstd
+	header {
+		Cache-Control "no-cache, must-revalidate"
+		X-Content-Type-Options "nosniff"
+	}
+	file_server
+}
+
+# KIOT client proposals for Xpulsar Technology (Aug 2026).
+# Static one-page HTML from /var/www/docs/pages. Lowercase URL variants are
+# handled by symlinks on disk, NOT redir: Caddy path matchers are
+# case-insensitive, so a lowercase redir rule also matches the uppercase
+# target and loops. noindex is deliberate - these carry pricing.
+pages.1site.ai {
+	root * /srv/docs/pages
+	encode gzip zstd
+	header {
+		Cache-Control "no-cache, must-revalidate"
+		X-Content-Type-Options "nosniff"
+		X-Robots-Tag "noindex, nofollow"
+	}
+	file_server
+}

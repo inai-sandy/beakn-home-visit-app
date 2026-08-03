@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { WHATSAPP_COMPOSERS } from '@/lib/notifications/compose/whatsapp-events';
+import type { TemplateMessage } from '@/lib/whatsapp';
 
 // =============================================================================
 // HVA-306: every WhatsApp rule must have a composer behind it
@@ -102,6 +103,23 @@ describe('WhatsApp composer coverage', () => {
   });
 });
 
+/**
+ * Body text parameters as plain strings.
+ *
+ * `components` and `parameters` are both optional on TemplateMessage, and
+ * TemplateParameter is a union (text / image / document / video), so the
+ * narrowing here is what makes the assertions type-safe. A composer that
+ * emitted an image parameter would surface as a missing string rather
+ * than a silent pass.
+ */
+function bodyTextParams(msg: TemplateMessage): string[] {
+  const body = msg.components?.find((c) => c.type === 'body');
+  expect(body, 'composer produced no body component').toBeDefined();
+  return (body?.parameters ?? []).map((p) =>
+    p.type === 'text' ? p.text : '',
+  );
+}
+
 describe('dispatch composers produce a sendable template', () => {
   const baseContext = {
     requestId: '019abcde-cafe-7000-8000-00000000000b',
@@ -121,23 +139,25 @@ describe('dispatch composers produce a sendable template', () => {
 
     expect(msg.name).toBe('internal_items_dispatched_v1');
     expect(msg.language.code).toBe('en');
-    const params = msg.components[0].parameters;
+    const params = bodyTextParams(msg);
     expect(params).toHaveLength(5);
     // Meta rejects blank parameters outright — none may be empty.
-    for (const p of params) expect(p.text.length).toBeGreaterThan(0);
-    expect(params[0].text).toBe('Arun'); // first name only
-    expect(params[1].text).toBe('Ramesh Kumar');
-    expect(params[4].text).toContain('/requests/');
+    for (const text of params) expect(text.length).toBeGreaterThan(0);
+    expect(params[0]).toBe('Arun'); // first name only
+    expect(params[1]).toBe('Ramesh Kumar');
+    expect(params[4]).toContain('/requests/');
   });
 
   it('words each stage of dispatch advanced', () => {
     const wordFor = (newStage: string) =>
-      WHATSAPP_COMPOSERS.internal_dispatch_advanced_v1({
-        target: '+919999999999',
-        context: { ...baseContext, newStage },
-        templateKey: 'internal_dispatch_advanced_v1',
-        targetUserName: 'Arun Prakash',
-      }).components[0].parameters[2].text;
+      bodyTextParams(
+        WHATSAPP_COMPOSERS.internal_dispatch_advanced_v1({
+          target: '+919999999999',
+          context: { ...baseContext, newStage },
+          templateKey: 'internal_dispatch_advanced_v1',
+          targetUserName: 'Arun Prakash',
+        }),
+      )[2];
 
     expect(wordFor('packed')).toBe('packed');
     expect(wordFor('handed_off')).toBe('handed over to the courier');
@@ -151,15 +171,18 @@ describe('dispatch composers produce a sendable template', () => {
       'internal_items_dispatched_v1',
       'internal_dispatch_advanced_v1',
     ]) {
-      const msg = WHATSAPP_COMPOSERS[key]({
-        target: '+919999999999',
-        context: {},
-        templateKey: key,
-        targetUserName: null,
-      });
-      for (const p of msg.components[0].parameters) {
-        expect(p.text.length).toBeGreaterThan(0);
-      }
+      const composer = WHATSAPP_COMPOSERS[key];
+      expect(composer, `${key} is not registered`).toBeDefined();
+      const params = bodyTextParams(
+        composer!({
+          target: '+919999999999',
+          context: {},
+          templateKey: key,
+          targetUserName: null,
+        }),
+      );
+      expect(params.length).toBeGreaterThan(0);
+      for (const text of params) expect(text.length).toBeGreaterThan(0);
     }
   });
 });

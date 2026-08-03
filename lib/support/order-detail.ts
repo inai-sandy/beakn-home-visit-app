@@ -40,6 +40,12 @@ export interface DispatchHistoryEntry {
   dispatchedByUserId: string;
   dispatchedByName: string | null;
   notes: string | null;
+  /** HVA-303: who is carrying this package, and its tracking number.
+   *  Both null until support records them — the courier is often booked
+   *  after the dispatch row is created. Tracking is done manually on the
+   *  courier's own site, so no URL is derived from these. */
+  courierName: string | null;
+  trackingNumber: string | null;
   currentStage: 'created' | 'packed' | 'handed_off';
   items: Array<{
     lineItemId: string;
@@ -154,6 +160,9 @@ export async function loadOrderDetail(
         dispatchedByUserId: dispatches.dispatchedByUserId,
         dispatchedByName: users.fullName,
         notes: dispatches.notes,
+        // HVA-303: courier details travel with each shipment.
+        courierName: dispatches.courierName,
+        trackingNumber: dispatches.trackingNumber,
       })
       .from(dispatches)
       .innerJoin(
@@ -172,6 +181,8 @@ export async function loadOrderDetail(
         dispatches.dispatchedByUserId,
         users.fullName,
         dispatches.notes,
+        dispatches.courierName,
+        dispatches.trackingNumber,
       )
       .orderBy(asc(dispatches.createdAt));
 
@@ -248,6 +259,8 @@ export async function loadOrderDetail(
         dispatchedByUserId: d.dispatchedByUserId,
         dispatchedByName: d.dispatchedByName,
         notes: d.notes,
+        courierName: d.courierName,
+        trackingNumber: d.trackingNumber,
         currentStage: latestStageByDispatch.get(d.dispatchId) ?? 'created',
         items: itemsByDispatch.get(d.dispatchId) ?? [],
       }));

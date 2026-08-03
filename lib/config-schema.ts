@@ -251,6 +251,9 @@ export const CONFIG_SCHEMA = {
       'dispatch_created',
       'dispatch_advanced',
       'dispatch_item_added',
+      // HVA-303: courier / tracking number filled in or corrected after
+      // the dispatch row was created.
+      'dispatch_tracking_updated',
       // HVA-241 (HVA-231 Phase 3): order comment thread
       'order_comment_added',
       // HVA-248 (HVA-230 Phase 1.A): CartPlus webhook foundation events.

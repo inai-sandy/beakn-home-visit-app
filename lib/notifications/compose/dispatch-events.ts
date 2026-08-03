@@ -78,16 +78,22 @@ export function composeDispatchRecordedInApp(
 // support.dispatch_advanced — stage flipped (created → packed → handed_off)
 // -----------------------------------------------------------------------------
 
+/** HVA-304: 'delivered' joins the advanceable stages. It reuses the
+ *  existing `support.dispatch_advanced` event rather than introducing a new
+ *  event type — those rules are already enabled for exec + captain, so
+ *  delivery notifications work with no notification_rules migration. */
+export type AdvanceableDispatchStage = 'packed' | 'handed_off' | 'delivered';
+
 export interface DispatchAdvancedContext {
   requestId: string;
   dispatchId: string;
   customerName: string;
-  newStage: 'packed' | 'handed_off';
+  newStage: AdvanceableDispatchStage;
   changedByName: string;
 }
 
 const STAGE_HEADLINE: Record<
-  'packed' | 'handed_off',
+  AdvanceableDispatchStage,
   { title: string; body: (ctx: DispatchAdvancedContext) => string }
 > = {
   packed: {
@@ -100,6 +106,20 @@ const STAGE_HEADLINE: Record<
     body: (ctx) =>
       `Dispatch for ${ctx.customerName} handed off by ${ctx.changedByName}. On its way to the customer.`,
   },
+  delivered: {
+    title: 'Items delivered',
+    body: (ctx) =>
+      `${ctx.customerName} has received this dispatch. Marked delivered by ${ctx.changedByName}.`,
+  },
+};
+
+/** Human wording for the WhatsApp body parameter. Kept beside
+ *  STAGE_HEADLINE so a new stage can't be added to one and missed in the
+ *  other — the Record type forces both to be exhaustive. */
+const WHATSAPP_STAGE_WORD: Record<AdvanceableDispatchStage, string> = {
+  packed: 'packed',
+  handed_off: 'handed off',
+  delivered: 'delivered',
 };
 
 export function composeDispatchAdvancedInApp(
@@ -175,7 +195,7 @@ export function composeDispatchAdvancedWhatsApp(
         parameters: [
           { type: 'text', text: recipientName },
           { type: 'text', text: ctx.customerName },
-          { type: 'text', text: ctx.newStage === 'packed' ? 'packed' : 'handed off' },
+          { type: 'text', text: WHATSAPP_STAGE_WORD[ctx.newStage] },
           { type: 'text', text: ctx.changedByName },
           { type: 'text', text: ctx.requestId },
         ],

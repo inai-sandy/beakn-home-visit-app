@@ -218,10 +218,13 @@ export const payments = pgTable(
 // request; the relationship is derived through dispatch_items →
 // quotation_line_items → quotations → visit_requests.
 
+// HVA-304: 'delivered' records that the customer actually received the
+// package, not merely that it left us. Added in migration 0084.
 export const dispatchStageEnum = pgEnum('dispatch_stage', [
   'created',
   'packed',
   'handed_off',
+  'delivered',
 ]);
 
 export const dispatches = pgTable(

@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-06-14 (HVA-293 — day plans auto-close at 23:55 IST; + HVA-292 walk-session fixes: calendar postpone/IST, customer reschedule, start-my-day recent tasks, admin Revenue & KPI drill-downs)
+**Last updated:** 2026-08-03 (HVA-302 — exec + captain now see per-product shipped vs pending on /requests/[id]; closes the unmet HVA-231 acceptance criterion "X of Y dispatched, Z left everywhere they're displayed")
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -20,6 +20,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Captain approval gate — exec can't bypass to Order Executed (HVA-137)
 - Edit access on contacts, requests, team (HVA-163; no delete anywhere)
 - Approvals queue, Collections queue, Unassigned requests bucket
+- Same per-product dispatch view as the exec on any team member's order detail (HVA-302)
 
 ### Sales exec portal (11 pages)
 - Day plan: Start My Day → visit tasks → close day workflow (HVA-60, HVA-64)
@@ -28,6 +29,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Tasks: move semantics for Pending+Postponed, clone for Completed (HVA-170-FIX1)
 - Requests tab with 5 buckets, mirrors captain pattern (HVA-65)
 - Request detail with customer info + status timeline (HVA-66)
+- Request detail → Order tab → **Dispatch**: per-product Ordered / Shipped / Pending with a Not-shipped / Partly-shipped / Shipped pill, plus a Shipments list. Read-only; support does the dispatching. Orders ship in installments, so this answers "which products have gone out and which are still pending" without phoning support (HVA-302)
 - Contacts/Leads with unified form (Customer/Business toggle) (HVA-73)
 - Mobile hamburger drawer mirrors captain pattern; 8 items: Dashboard / Today / Tasks / Contacts / Requests / Resources / Announcements / Profile (HVA-51, HVA-156)
 - Resources surface (admin-published sales scripts / pricing / brand assets / training, grouped by category) (HVA-156)

@@ -3,11 +3,11 @@
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
-import { Badge } from '@/components/ui/badge';
+import { OrderFulfilmentTable } from '@/components/dispatch/OrderFulfilmentTable';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import type { FulfilmentItem } from '@/lib/dispatch/fulfilment';
 import { formatInrFromPaise } from '@/lib/money';
-import { cn } from '@/lib/utils';
 
 import { DispatchDialog } from '../../../_components/DispatchDialog';
 
@@ -15,40 +15,21 @@ import { DispatchDialog } from '../../../_components/DispatchDialog';
 // HVA-242 (HVA-231 Phase 4): per-order items table with inline dispatch
 // =============================================================================
 //
-// Replaces the inline server-rendered items table on /support/orders/[id]
-// with a client component that:
-//   - shows checkboxes on rows where qty_remaining > 0 (fully done rows
-//     show a "Done" badge instead)
-//   - exposes a sticky "Dispatch selected (N)" bar at the bottom of the
-//     section once anything is checked
-//   - opens the existing DispatchDialog (reused from /support queue)
-//     pre-filled with the checked rows
-//   - on success: router.refresh() so items + dispatch history both update
+// Owns the *interaction* around the items table on /support/orders/[id]:
+//   - which rows are ticked
+//   - the sticky "Dispatch selected (N)" bar
+//   - opening DispatchDialog pre-filled with the ticked rows
+//   - router.refresh() on success so items + dispatch history both update
+//
+// HVA-302: the table markup itself moved to the shared
+// `components/dispatch/OrderFulfilmentTable` so exec + captain render the
+// identical Ordered / Shipped / Pending numbers read-only on
+// /requests/[id]. This component now supplies the selection config; drop
+// that prop and the very same table renders read-only.
 // =============================================================================
 
-const PRIORITY_LABEL: Record<'low' | 'med' | 'high', string> = {
-  low: 'Low',
-  med: 'Medium',
-  high: 'High',
-};
-
-const PRIORITY_TONE: Record<'low' | 'med' | 'high', string> = {
-  low: 'bg-muted text-muted-foreground',
-  med: 'bg-amber-500/15 text-amber-700 border-amber-500/30',
-  high: 'bg-rose-500/15 text-rose-700 border-rose-500/30',
-};
-
-export interface DispatchTableItem {
-  id: string;
-  productName: string;
-  productSku: string | null;
-  quantityTotal: number;
-  quantityDispatched: number;
-  quantityRemaining: number;
-  unitPricePaise: number;
-  priority: 'low' | 'med' | 'high';
-  targetDispatchDate: string | null;
-}
+/** Re-exported for callers that already imported the row shape from here. */
+export type DispatchTableItem = FulfilmentItem;
 
 interface Props {
   items: DispatchTableItem[];
@@ -103,115 +84,22 @@ export function ItemsDispatchTable({ items, canDispatch }: Props) {
     router.refresh();
   }
 
-  if (items.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No line items recorded yet — exec / captain needs to break the
-        quotation into products first.
-      </p>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase tracking-wide text-muted-foreground bg-muted/30">
-              <tr>
-                {canDispatch && (
-                  <th className="px-3 py-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={allSelected}
-                      ref={(el) => {
-                        if (el) el.indeterminate = someSelected;
-                      }}
-                      onChange={toggleAll}
-                      disabled={dispatchableIds.length === 0}
-                      aria-label={
-                        allSelected ? 'Unselect all' : 'Select all'
-                      }
-                    />
-                  </th>
-                )}
-                <th className="text-left px-3 py-2 font-medium">Product</th>
-                <th className="text-right px-3 py-2 font-medium">Total</th>
-                <th className="text-right px-3 py-2 font-medium">Done</th>
-                <th className="text-right px-3 py-2 font-medium">Left</th>
-                <th className="text-left px-3 py-2 font-medium">Priority</th>
-                <th className="text-left px-3 py-2 font-medium">Target</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => {
-                const isDone = it.quantityRemaining === 0;
-                const isSelected = selected.has(it.id);
-                return (
-                  <tr
-                    key={it.id}
-                    className={cn('border-t', isSelected && 'bg-primary/5')}
-                  >
-                    {canDispatch && (
-                      <td className="px-3 py-2">
-                        {isDone ? (
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] bg-emerald-500/10 text-emerald-700 border-emerald-500/30"
-                          >
-                            Done
-                          </Badge>
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleRow(it.id)}
-                            aria-label={`Select ${it.productName}`}
-                          />
-                        )}
-                      </td>
-                    )}
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{it.productName}</div>
-                      {it.productSku && (
-                        <div className="text-[11px] font-mono text-muted-foreground">
-                          {it.productSku}
-                        </div>
-                      )}
-                      <div className="text-[11px] text-muted-foreground">
-                        Unit {formatInrFromPaise(it.unitPricePaise)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono">
-                      {it.quantityTotal}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-muted-foreground">
-                      {it.quantityDispatched}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono font-semibold">
-                      {it.quantityRemaining}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'text-[10px]',
-                          PRIORITY_TONE[it.priority],
-                        )}
-                      >
-                        {PRIORITY_LABEL[it.priority]}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground text-xs">
-                      {it.targetDispatchDate ?? '—'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <OrderFulfilmentTable
+        items={items}
+        selection={
+          canDispatch
+            ? {
+                selectedIds: selected,
+                allSelected,
+                someSelected,
+                onToggleAll: toggleAll,
+                onToggleRow: toggleRow,
+              }
+            : undefined
+        }
+      />
 
       {canDispatch && selected.size > 0 && (
         <div className="sticky bottom-2 z-20 flex items-center justify-between gap-3 rounded-2xl border bg-background/95 shadow-lg backdrop-blur px-4 py-3">

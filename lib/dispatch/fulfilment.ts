@@ -16,6 +16,25 @@
 // React — so they're cheap to unit test and safe to import anywhere.
 // =============================================================================
 
+/**
+ * Orders become dispatchable at ORDER_CONFIRMED, sequence 6. Mirrors the
+ * `ORDER_CONFIRMED_SEQ = 6` guard the support side already uses in
+ * addDispatchAction and lib/support/*.
+ *
+ * Gate on the SEQUENCE, never on a hand-written list of stage codes. The
+ * original HVA-243 gate listed 'INSTALLATION_DONE', which is not a real
+ * stage code — the actual stages above INSTALLATION_SCHEDULED are
+ * INSTALLATION_CONFIGURATION_DONE (8) and PENDING_CAPTAIN_APPROVAL (9),
+ * so dispatch state silently vanished from the order detail at those two
+ * stages and reappeared at ORDER_EXECUTED_SUCCESSFULLY (10). A sequence
+ * comparison can't rot that way when a stage is added or renamed.
+ */
+export const ORDER_CONFIRMED_SEQ = 6;
+
+export function isDispatchVisible(statusSequence: number): boolean {
+  return statusSequence >= ORDER_CONFIRMED_SEQ;
+}
+
 export interface FulfilmentItem {
   id: string;
   productName: string;
@@ -114,6 +133,75 @@ export function summariseFulfilment(
     productsPending,
     state,
   };
+}
+
+// =============================================================================
+// HVA-305: order-level roll-up for the exec + captain request LISTS
+// =============================================================================
+//
+// The detail page derives its numbers from the full line-item list. A
+// paginated list can't afford that, so the queries hand back four
+// pre-aggregated counts and this turns them into the same vocabulary.
+// =============================================================================
+
+export interface OrderDispatchSummary {
+  unitsTotal: number;
+  unitsShipped: number;
+  unitsPending: number;
+  shipmentCount: number;
+  deliveredShipmentCount: number;
+  state: ItemFulfilmentState;
+  /** True when every shipment that went out has been marked delivered. */
+  fullyDelivered: boolean;
+}
+
+export function deriveOrderDispatchSummary(raw: {
+  unitsTotal: number;
+  unitsShipped: number;
+  shipmentCount: number;
+  deliveredShipmentCount: number;
+}): OrderDispatchSummary {
+  const unitsTotal = Math.max(0, Number(raw.unitsTotal) || 0);
+  // Clamp, same reasoning as summariseFulfilment — never render "7 of 5".
+  const unitsShipped = Math.min(
+    Math.max(0, Number(raw.unitsShipped) || 0),
+    unitsTotal,
+  );
+  const unitsPending = Math.max(0, unitsTotal - unitsShipped);
+  const shipmentCount = Math.max(0, Number(raw.shipmentCount) || 0);
+  const deliveredShipmentCount = Math.max(
+    0,
+    Number(raw.deliveredShipmentCount) || 0,
+  );
+
+  let state: ItemFulfilmentState;
+  if (unitsShipped <= 0) state = 'pending';
+  else if (unitsPending === 0) state = 'complete';
+  else state = 'partial';
+
+  return {
+    unitsTotal,
+    unitsShipped,
+    unitsPending,
+    shipmentCount,
+    deliveredShipmentCount,
+    state,
+    fullyDelivered:
+      shipmentCount > 0 &&
+      deliveredShipmentCount >= shipmentCount &&
+      state === 'complete',
+  };
+}
+
+/**
+ * Short label for the list pill. Kept terse — it sits beside the status
+ * badge on a phone, so it has to survive a narrow column.
+ */
+export function formatDispatchPill(summary: OrderDispatchSummary): string {
+  if (summary.fullyDelivered) return 'Delivered';
+  if (summary.state === 'complete') return 'All shipped';
+  if (summary.state === 'pending') return 'Not shipped';
+  return `${summary.unitsShipped} of ${summary.unitsTotal} shipped`;
 }
 
 /**

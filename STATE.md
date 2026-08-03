@@ -21,6 +21,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Edit access on contacts, requests, team (HVA-163; no delete anywhere)
 - Approvals queue, Collections queue, Unassigned requests bucket
 - Same per-product dispatch view as the exec on any team member's order detail (HVA-302)
+- Same dispatch pill on /captain/requests, team-wide (HVA-305)
 
 ### Sales exec portal (11 pages)
 - Day plan: Start My Day → visit tasks → close day workflow (HVA-60, HVA-64)
@@ -28,6 +29,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Tasks page with Pending / Postponed / Completed accordion (HVA-170)
 - Tasks: move semantics for Pending+Postponed, clone for Completed (HVA-170-FIX1)
 - Requests tab with 5 buckets, mirrors captain pattern (HVA-65)
+- Requests list shows a dispatch pill per order — Not shipped / "3 of 8 shipped" / All shipped / Delivered — so "which of my orders have gone out" is answerable without opening each one (HVA-305)
 - Request detail with customer info + status timeline (HVA-66)
 - Request detail → Order tab → **Dispatch**: per-product Ordered / Shipped / Pending with a Not-shipped / Partly-shipped / Shipped pill, plus a Shipments list. Read-only; support does the dispatching. Orders ship in installments, so this answers "which products have gone out and which are still pending" without phoning support (HVA-302)
 - Each shipment shows its own courier name + tracking number, with a copy button on the AWB. Tracking is done manually on the courier's site — the app stores the details, it does not generate tracking links (HVA-303)

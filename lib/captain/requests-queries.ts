@@ -10,6 +10,11 @@ import {
   type CaptainRequestBucket,
 } from '@/lib/captain/request-buckets';
 import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
+import {
+  deriveOrderDispatchSummary,
+  isDispatchVisible,
+} from '@/lib/dispatch/fulfilment';
+import { orderDispatchSummarySelect } from '@/lib/dispatch/order-dispatch-summary';
 import { computePageRange, DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 import type { RequestRow } from '@/components/requests/types';
@@ -114,10 +119,14 @@ export async function fetchCaptainRequests(
             cityName: cities.name,
             statusCode: statusStages.code,
             statusName: statusStages.name,
+            statusSequence: statusStages.sequenceNumber,
             assignedExecUserId: visitRequests.assignedExecUserId,
             assignedExecName: execUser.fullName,
             cancelledAt: visitRequests.cancelledAt,
             createdAt: visitRequests.createdAt,
+            // HVA-305: dispatch roll-up for the progress pill. Rows query
+            // only — the D6 bucket-count pass above stays untouched.
+            ...orderDispatchSummarySelect,
           })
           .from(visitRequests)
           .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -135,10 +144,20 @@ export async function fetchCaptainRequests(
     cityName: r.cityName,
     statusCode: r.statusCode,
     statusName: r.statusName,
+    statusSequence: r.statusSequence,
     assignedExecUserId: r.assignedExecUserId,
     assignedExecName: r.assignedExecName,
     cancelledAt: r.cancelledAt,
     createdAt: r.createdAt,
+    // HVA-305: null before ORDER_CONFIRMED so pre-order rows stay quiet.
+    dispatch: isDispatchVisible(r.statusSequence)
+      ? deriveOrderDispatchSummary({
+          unitsTotal: r.dispatchUnitsTotal,
+          unitsShipped: r.dispatchUnitsShipped,
+          shipmentCount: r.dispatchShipmentCount,
+          deliveredShipmentCount: r.dispatchDeliveredShipmentCount,
+        })
+      : null,
   }));
 
   const bucketCounts = emptyBucketCounts();

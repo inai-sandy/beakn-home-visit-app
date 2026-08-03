@@ -6,6 +6,11 @@ import { db } from '@/db/client';
 import { cities, statusStages, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import {
+  deriveOrderDispatchSummary,
+  isDispatchVisible,
+} from '@/lib/dispatch/fulfilment';
+import { orderDispatchSummarySelect } from '@/lib/dispatch/order-dispatch-summary';
+import {
   EXEC_REQUEST_BUCKETS,
   IN_PROGRESS_STATUS_CODES,
   NEW_STATUS_CODES,
@@ -151,9 +156,13 @@ export default async function ExecRequestsPage({ searchParams }: PageProps) {
       cityName: cities.name,
       statusCode: statusStages.code,
       statusName: statusStages.name,
+      statusSequence: statusStages.sequenceNumber,
       assignedExecUserId: visitRequests.assignedExecUserId,
       cancelledAt: visitRequests.cancelledAt,
       createdAt: visitRequests.createdAt,
+      // HVA-305: dispatch roll-up for the progress pill. Only on the
+      // paginated rows query — the bucket-count pass above is untouched.
+      ...orderDispatchSummarySelect,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -163,11 +172,30 @@ export default async function ExecRequestsPage({ searchParams }: PageProps) {
     .limit(pageRange.pageSize)
     .offset(pageRange.offset);
 
-  const serialized: SerializedRequestRow[] = rows.map((r) => ({
-    ...r,
-    cancelledAt: r.cancelledAt === null ? null : r.cancelledAt.toISOString(),
-    createdAt: r.createdAt.toISOString(),
-  }));
+  const serialized: SerializedRequestRow[] = rows.map((r) => {
+    const {
+      dispatchUnitsTotal,
+      dispatchUnitsShipped,
+      dispatchShipmentCount,
+      dispatchDeliveredShipmentCount,
+      ...rest
+    } = r;
+    return {
+      ...rest,
+      cancelledAt: r.cancelledAt === null ? null : r.cancelledAt.toISOString(),
+      createdAt: r.createdAt.toISOString(),
+      // HVA-305: null before ORDER_CONFIRMED — a row that isn't ready to
+      // ship should read as quiet, not "Not shipped".
+      dispatch: isDispatchVisible(r.statusSequence)
+        ? deriveOrderDispatchSummary({
+            unitsTotal: dispatchUnitsTotal,
+            unitsShipped: dispatchUnitsShipped,
+            shipmentCount: dispatchShipmentCount,
+            deliveredShipmentCount: dispatchDeliveredShipmentCount,
+          })
+        : null,
+    };
+  });
 
   return (
     <main className="min-h-svh bg-background">

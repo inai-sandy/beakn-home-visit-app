@@ -8,6 +8,7 @@ import { DispatchHistoryBlock } from "@/app/(support)/support/orders/[id]/_compo
 import { OrderFulfilmentTable } from "@/components/dispatch/OrderFulfilmentTable";
 import {
   formatFulfilmentSummary,
+  isDispatchVisible,
   summariseFulfilment,
 } from "@/lib/dispatch/fulfilment";
 import {
@@ -566,13 +567,14 @@ export default async function RequestDetailPage({ params }: PageProps) {
   };
 
   // HVA-243: read-only dispatch state for the Order tab (ORDER_CONFIRMED+).
-  const orderConfirmedStages = new Set([
-    "ORDER_CONFIRMED",
-    "INSTALLATION_SCHEDULED",
-    "INSTALLATION_DONE",
-    "ORDER_EXECUTED_SUCCESSFULLY",
-  ]);
-  const showOrderActivity = orderConfirmedStages.has(reqRow.currentStageCode);
+  // HVA-305 fix: this was a hand-written set of stage CODES containing
+  // "INSTALLATION_DONE" — which is not a real stage. The actual stages
+  // above INSTALLATION_SCHEDULED are INSTALLATION_CONFIGURATION_DONE (8)
+  // and PENDING_CAPTAIN_APPROVAL (9), so the whole Dispatch section
+  // silently disappeared at those two stages and reappeared at
+  // ORDER_EXECUTED_SUCCESSFULLY (10). Gate on the sequence instead, which
+  // can't rot when a stage is added or renamed.
+  const showOrderActivity = isDispatchVisible(reqRow.currentStageSeq);
   // HVA-302: loadOrderDetail already returns the per-product fulfilment
   // maths (quantityTotal / quantityDispatched / quantityRemaining). It used
   // to be discarded here — only `.dispatches` was kept — which is why the

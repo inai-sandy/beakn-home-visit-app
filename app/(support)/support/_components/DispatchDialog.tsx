@@ -59,6 +59,11 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
     return init;
   });
   const [notes, setNotes] = useState('');
+  // HVA-303: courier details. Optional — the courier is often booked after
+  // the package is packed, so support can leave these blank here and fill
+  // them in on the shipment card later.
+  const [courierName, setCourierName] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   const mutation = useServerMutation(addDispatchAction, {
@@ -89,6 +94,8 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
     void mutation.mutate({
       items: parsed.map((p) => ({ lineItemId: p.item.lineItemId, qty: p.qty })),
       notes: notes.trim() || undefined,
+      courierName: courierName.trim() || undefined,
+      trackingNumber: trackingNumber.trim() || undefined,
     });
   }
 
@@ -211,6 +218,39 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
           })}
         </div>
 
+        {/* HVA-303: courier details as their own fields. They used to be
+            typed into Notes as free text, which meant the exec had nothing
+            reliable to read back. Both optional — fill them in on the
+            shipment card later if the courier isn't booked yet. */}
+        <div className="grid gap-3 pt-2 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="dispatch-courier" className="text-sm">
+              Courier <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="dispatch-courier"
+              value={courierName}
+              onChange={(e) => setCourierName(e.target.value.slice(0, 120))}
+              placeholder="e.g. Delhivery"
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="dispatch-tracking" className="text-sm">
+              Tracking number{' '}
+              <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="dispatch-tracking"
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value.slice(0, 100))}
+              placeholder="e.g. 1234567890"
+              disabled={busy}
+              className="font-mono"
+            />
+          </div>
+        </div>
+
         <div className="space-y-2 pt-2">
           <Label htmlFor="dispatch-notes" className="text-sm">
             Notes <span className="text-muted-foreground">(optional)</span>
@@ -219,7 +259,7 @@ export function DispatchDialog({ items, onClose, onSuccess }: Props) {
             id="dispatch-notes"
             value={notes}
             onChange={(e) => setNotes(e.target.value.slice(0, 2000))}
-            placeholder="Tracking ID, courier name, comments…"
+            placeholder="Anything the exec or captain should know…"
             disabled={busy}
             rows={2}
             className="resize-none"

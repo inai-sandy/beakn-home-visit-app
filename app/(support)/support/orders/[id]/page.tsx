@@ -90,9 +90,12 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
             createdAtIso: d.createdAt.toISOString(),
             dispatchedByName: d.dispatchedByName,
             notes: d.notes,
+            courierName: d.courierName,
+            trackingNumber: d.trackingNumber,
             currentStage: d.currentStage,
             items: d.items,
           }))}
+          canEditTracking={canDispatch}
         />
       </section>
 

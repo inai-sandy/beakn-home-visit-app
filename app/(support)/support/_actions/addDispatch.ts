@@ -122,6 +122,11 @@ export async function addDispatchAction(
         .values({
           dispatchedByUserId: user.id,
           notes: data.notes?.trim() ?? null,
+          // HVA-303: optional at creation — the courier is often booked
+          // after the package is packed. updateDispatchTrackingAction
+          // fills these in later.
+          courierName: data.courierName?.trim() ?? null,
+          trackingNumber: data.trackingNumber?.trim() ?? null,
         })
         .returning({ id: dispatches.id });
 

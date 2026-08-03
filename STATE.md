@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-08-03 (HVA-302 — exec + captain now see per-product shipped vs pending on /requests/[id]; closes the unmet HVA-231 acceptance criterion "X of Y dispatched, Z left everywhere they're displayed")
+**Last updated:** 2026-08-03 (HVA-302 — exec + captain now see per-product shipped vs pending on /requests/[id], closing the unmet HVA-231 acceptance criterion "X of Y dispatched, Z left everywhere they're displayed"; + HVA-303 — courier name + tracking number recorded per shipment instead of free-texted into notes)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -30,6 +30,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Requests tab with 5 buckets, mirrors captain pattern (HVA-65)
 - Request detail with customer info + status timeline (HVA-66)
 - Request detail → Order tab → **Dispatch**: per-product Ordered / Shipped / Pending with a Not-shipped / Partly-shipped / Shipped pill, plus a Shipments list. Read-only; support does the dispatching. Orders ship in installments, so this answers "which products have gone out and which are still pending" without phoning support (HVA-302)
+- Each shipment shows its own courier name + tracking number, with a copy button on the AWB. Tracking is done manually on the courier's site — the app stores the details, it does not generate tracking links (HVA-303)
 - Contacts/Leads with unified form (Customer/Business toggle) (HVA-73)
 - Mobile hamburger drawer mirrors captain pattern; 8 items: Dashboard / Today / Tasks / Contacts / Requests / Resources / Announcements / Profile (HVA-51, HVA-156)
 - Resources surface (admin-published sales scripts / pricing / brand assets / training, grouped by category) (HVA-156)

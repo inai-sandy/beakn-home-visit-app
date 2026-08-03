@@ -7,11 +7,14 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useServerMutation } from '@/lib/hooks/use-server-mutation';
 import { cn } from '@/lib/utils';
 import { NEXT_STAGE, type DispatchStage } from '@/lib/validators/dispatch-stage';
 
 import { advanceDispatchStageAction } from '../../../_actions/advanceDispatchStage';
+import { updateDispatchTrackingAction } from '../../../_actions/updateDispatchTracking';
 
 // =============================================================================
 // HVA-239 (HVA-231 Phase 2 PR-B): dispatch history block on /support/orders/[id]
@@ -22,6 +25,11 @@ interface DispatchEntry {
   createdAtIso: string;
   dispatchedByName: string | null;
   notes: string | null;
+  /** HVA-303: courier carrying this package + its tracking number. Null
+   *  until support records them. Tracking is done manually on the
+   *  courier's own site — we deliberately derive no link from these. */
+  courierName: string | null;
+  trackingNumber: string | null;
   currentStage: DispatchStage;
   items: Array<{ lineItemId: string; productName: string; qty: number }>;
 }
@@ -31,6 +39,9 @@ interface Props {
   /** False on /requests/[id] (read-only mirror for exec/captain). Hides
    *  the Mark packed / Mark handed off button. Default true (support page). */
   canAdvance?: boolean;
+  /** HVA-303: support-only inline edit of courier + tracking number.
+   *  Defaults to `canAdvance` — both mean "this is the support view". */
+  canEditTracking?: boolean;
 }
 
 const STAGE_LABEL: Record<DispatchStage, string> = {
@@ -50,7 +61,13 @@ const ADVANCE_LABEL: Partial<Record<DispatchStage, string>> = {
   packed: 'Mark handed off',
 };
 
-export function DispatchHistoryBlock({ dispatches, canAdvance = true }: Props) {
+export function DispatchHistoryBlock({
+  dispatches,
+  canAdvance = true,
+  canEditTracking,
+}: Props) {
+  const mayEditTracking = canEditTracking ?? canAdvance;
+
   if (dispatches.length === 0) {
     return (
       <div className="rounded-2xl border bg-muted/30 p-6 text-center space-y-1">
@@ -71,6 +88,7 @@ export function DispatchHistoryBlock({ dispatches, canAdvance = true }: Props) {
           entry={d}
           index={idx + 1}
           canAdvance={canAdvance}
+          canEditTracking={mayEditTracking}
         />
       ))}
     </ol>
@@ -81,10 +99,12 @@ function DispatchCard({
   entry,
   index,
   canAdvance,
+  canEditTracking,
 }: {
   entry: DispatchEntry;
   index: number;
   canAdvance: boolean;
+  canEditTracking: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -170,11 +190,205 @@ function DispatchCard({
         ))}
       </ul>
 
+      <CourierLine entry={entry} canEdit={canEditTracking} />
+
       {entry.notes && (
         <p className="text-xs whitespace-pre-wrap text-foreground/80 bg-muted/40 rounded px-2 py-1">
           {entry.notes}
         </p>
       )}
     </li>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// HVA-303: courier + tracking number for one shipment
+// -----------------------------------------------------------------------------
+//
+// Read-only for exec/captain, editable inline for support. No "Track"
+// button and no generated URL: per Sandeep the team tracks manually on the
+// courier's own site, so the useful affordance is copying the AWB, not a
+// link we'd have to keep correct for every courier.
+// -----------------------------------------------------------------------------
+
+function CourierLine({
+  entry,
+  canEdit,
+}: {
+  entry: DispatchEntry;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [courierName, setCourierName] = useState(entry.courierName ?? '');
+  const [trackingNumber, setTrackingNumber] = useState(
+    entry.trackingNumber ?? '',
+  );
+  const [copied, setCopied] = useState(false);
+
+  const mutation = useServerMutation(updateDispatchTrackingAction, {
+    successMessage: 'Courier details saved',
+    onSuccess: () => {
+      setEditing(false);
+      router.refresh();
+    },
+    onError: (err) => {
+      toast.error(err);
+    },
+    suppressErrorToast: true,
+  });
+
+  const hasAny = Boolean(entry.courierName || entry.trackingNumber);
+
+  async function copyTracking() {
+    if (!entry.trackingNumber) return;
+    try {
+      await navigator.clipboard.writeText(entry.trackingNumber);
+      setCopied(true);
+      toast.success('Tracking number copied');
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Couldn't copy", {
+        description: 'Long-press the number to copy manually.',
+      });
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="rounded-xl border bg-muted/30 px-3 py-2.5 space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label
+              htmlFor={`courier-${entry.dispatchId}`}
+              className="text-[11px]"
+            >
+              Courier
+            </Label>
+            <Input
+              id={`courier-${entry.dispatchId}`}
+              value={courierName}
+              onChange={(e) => setCourierName(e.target.value.slice(0, 120))}
+              placeholder="e.g. Delhivery"
+              disabled={mutation.isPending}
+              className="h-9"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label
+              htmlFor={`tracking-${entry.dispatchId}`}
+              className="text-[11px]"
+            >
+              Tracking number
+            </Label>
+            <Input
+              id={`tracking-${entry.dispatchId}`}
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value.slice(0, 100))}
+              placeholder="e.g. 1234567890"
+              disabled={mutation.isPending}
+              className="h-9 font-mono"
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              // Discard edits — reset to what's actually stored.
+              setCourierName(entry.courierName ?? '');
+              setTrackingNumber(entry.trackingNumber ?? '');
+              setEditing(false);
+            }}
+            disabled={mutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() =>
+              void mutation.mutate({
+                dispatchId: entry.dispatchId,
+                courierName,
+                trackingNumber,
+              })
+            }
+            disabled={mutation.isPending}
+          >
+            {mutation.isPending ? (
+              <>
+                <Icon
+                  name="progress_activity"
+                  size="xs"
+                  className="animate-spin"
+                />
+                <span>Saving…</span>
+              </>
+            ) : (
+              'Save'
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasAny) {
+    return canEdit ? (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8"
+        onClick={() => setEditing(true)}
+      >
+        <Icon name="local_shipping" size="xs" />
+        <span>Add courier details</span>
+      </Button>
+    ) : (
+      <p className="text-[11px] text-muted-foreground">
+        Courier details not recorded yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap text-xs">
+      <Icon
+        name="local_shipping"
+        size="xs"
+        className="text-muted-foreground shrink-0"
+      />
+      {entry.courierName && (
+        <span className="font-medium">{entry.courierName}</span>
+      )}
+      {entry.trackingNumber && (
+        <>
+          <span className="font-mono text-muted-foreground break-all">
+            {entry.trackingNumber}
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={copyTracking}
+            aria-label="Copy tracking number"
+          >
+            <Icon name={copied ? 'check' : 'content_copy'} size="xs" />
+            <span className="text-[11px]">{copied ? 'Copied' : 'Copy'}</span>
+          </Button>
+        </>
+      )}
+      {canEdit && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-[11px]"
+          onClick={() => setEditing(true)}
+        >
+          Edit
+        </Button>
+      )}
+    </div>
   );
 }

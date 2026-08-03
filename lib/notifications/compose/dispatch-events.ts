@@ -134,72 +134,13 @@ export function composeDispatchAdvancedInApp(
 }
 
 // =============================================================================
-// WhatsApp templates (UTILITY; submitted to Meta separately)
+// HVA-306: the WhatsApp composers that used to live here are gone.
 // =============================================================================
 //
-// Each returns the template_key + components per the HVA-45/46 Libromi
-// API contract. Templates ship `enabled=false` in notification_rules
-// until Meta approves them. Body templates below match what we'll
-// submit to Meta — keep them in sync.
+// They were never registered in WHATSAPP_COMPOSERS and returned a shape the
+// channel adapter does not accept ({ templateName, language: 'en' } rather
+// than { name, language: { code } }), so nothing could ever have sent them.
+// The real composers now live beside every other template in
+// lib/notifications/compose/whatsapp-events.ts, keyed by template_key —
+// which is how the adapter looks them up.
 // =============================================================================
-
-export interface WhatsAppComponent {
-  type: 'body';
-  parameters: Array<{ type: 'text'; text: string }>;
-}
-
-export interface WhatsAppMessage {
-  templateName: string;
-  language: string;
-  components: WhatsAppComponent[];
-}
-
-// Template body submitted to Meta:
-//   "Hi {{1}}, items dispatched for {{2}} ({{3}} units). Recorded by {{4}}.
-//    Open: https://visits.beakn.in/requests/{{5}}"
-export function composeDispatchRecordedWhatsApp(
-  ctx: DispatchRecordedContext,
-  recipientName: string,
-): WhatsAppMessage {
-  return {
-    templateName: 'internal_items_dispatched_v1',
-    language: 'en',
-    components: [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: recipientName },
-          { type: 'text', text: ctx.customerName },
-          { type: 'text', text: String(ctx.totalItemsInDispatch) },
-          { type: 'text', text: ctx.dispatchedByName },
-          { type: 'text', text: ctx.requestId },
-        ],
-      },
-    ],
-  };
-}
-
-// Template body submitted to Meta:
-//   "Hi {{1}}, dispatch for {{2}} is now {{3}} (updated by {{4}}).
-//    Open: https://visits.beakn.in/requests/{{5}}"
-export function composeDispatchAdvancedWhatsApp(
-  ctx: DispatchAdvancedContext,
-  recipientName: string,
-): WhatsAppMessage {
-  return {
-    templateName: 'internal_dispatch_advanced_v1',
-    language: 'en',
-    components: [
-      {
-        type: 'body',
-        parameters: [
-          { type: 'text', text: recipientName },
-          { type: 'text', text: ctx.customerName },
-          { type: 'text', text: WHATSAPP_STAGE_WORD[ctx.newStage] },
-          { type: 'text', text: ctx.changedByName },
-          { type: 'text', text: ctx.requestId },
-        ],
-      },
-    ],
-  };
-}

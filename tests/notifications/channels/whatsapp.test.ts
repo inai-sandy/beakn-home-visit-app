@@ -260,7 +260,7 @@ describe('production composer registry (HVA-49)', () => {
   // Snapshot then restore (the suite above wipes the registry per test).
   beforeEach(() => restoreRegistry());
 
-  it('registers all 23 templates by template_key', () => {
+  it('registers all 25 templates by template_key', () => {
     expect(Object.keys(WHATSAPP_COMPOSERS).sort()).toEqual(
       [
         // Customer-facing (8)
@@ -292,6 +292,10 @@ describe('production composer registry (HVA-49)', () => {
         // customer.support_ticket_resolved (composer ready; rule ships
         // disabled until the Meta template is approved)
         'support_ticket_resolved',
+        // HVA-306: dispatch → exec + captain. Composers ready; rules stay
+        // disabled until the two templates are drafted + Meta-approved.
+        'internal_items_dispatched_v1',
+        'internal_dispatch_advanced_v1',
       ].sort(),
     );
   });

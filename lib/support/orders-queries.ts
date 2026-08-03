@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
+import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
 import {
   cities,
   dispatchItems,
@@ -119,7 +120,10 @@ export async function loadAllOrders(
         WHERE di.quotation_line_item_id IN (
           SELECT id FROM quotation_line_items WHERE quotation_id = ${quotations}.id
         )
-          AND latest.stage <> 'handed_off'
+          -- HVA-304: was a bare <> 'handed_off'. 'delivered' must count as
+          -- closed too, or every delivered shipment reads as still-open and
+          -- drags a finished order back to in_progress.
+          AND latest.stage NOT IN (${sql.raw(CLOSED_DISPATCH_STAGES_SQL)})
       )`.as('has_open_dispatch'),
       // HVA-245 fix: postgres-js returns raw timestamp values as strings
       // when the SQL is wrapped in a raw `sql\`\`` template. The Date

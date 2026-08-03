@@ -9,6 +9,7 @@ import {
   statusStages,
   visitRequests,
 } from '@/db/schema';
+import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
 
 // =============================================================================
 // HVA-238 (HVA-231 Phase 2 PR-A): support dispatch queue queries
@@ -114,7 +115,8 @@ const HAS_OPEN_DISPATCH_SQL = sql<boolean>`EXISTS (
     LIMIT 1
   ) latest ON TRUE
   WHERE di.quotation_line_item_id = ${quotationLineItems.id}
-    AND latest.stage <> 'handed_off'
+    -- HVA-304: 'delivered' is closed too — see CLOSED_DISPATCH_STAGES.
+    AND latest.stage NOT IN (${sql.raw(CLOSED_DISPATCH_STAGES_SQL)})
 )`;
 
 export async function loadDispatchQueue(

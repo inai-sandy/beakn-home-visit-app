@@ -13,6 +13,7 @@ import {
   users,
   visitRequests,
 } from '@/db/schema';
+import type { DispatchStage } from '@/lib/validators/dispatch-stage';
 
 // =============================================================================
 // HVA-239 (HVA-231 Phase 2 PR-B): support order detail loader
@@ -46,7 +47,7 @@ export interface DispatchHistoryEntry {
    *  courier's own site, so no URL is derived from these. */
   courierName: string | null;
   trackingNumber: string | null;
-  currentStage: 'created' | 'packed' | 'handed_off';
+  currentStage: DispatchStage;
   items: Array<{
     lineItemId: string;
     productName: string;
@@ -226,10 +227,7 @@ export async function loadOrderDetail(
       // Resolve latest stage per dispatch by taking the row with the
       // greatest changedAt. Mostly there will be 1–3 history rows per
       // dispatch so a JS sort is fine.
-      const latestStageByDispatch = new Map<
-        string,
-        'created' | 'packed' | 'handed_off'
-      >();
+      const latestStageByDispatch = new Map<string, DispatchStage>();
       const sortedStages = [...stageRows].sort(
         (a, b) => b.changedAt.getTime() - a.changedAt.getTime(),
       );

@@ -1,0 +1,26 @@
+-- HVA-304: add 'delivered' to the dispatch_stage enum
+--
+-- Until now `handed_off` was terminal ("handed_off is terminal in v1"), so
+-- the system recorded that a package left us but never that the customer
+-- actually received it. The exec could answer "has it shipped" but not
+-- "has my customer got it" — which is the question they're usually asked.
+--
+-- HVA-231 locked created → packed → handed_off explicitly as a v1 decision
+-- ("no customer acknowledgement in v1"). This is that v2 extension.
+--
+-- DELIBERATELY ALONE IN THIS FILE.
+--
+-- scripts/migrate.ts runs each migration inside a transaction, and Postgres
+-- forbids *using* an enum value in the same transaction that added it. So
+-- this file may only add the label — no INSERT, no comparison, no CHECK
+-- against 'delivered'. Anything that reads or writes the new value belongs
+-- in a later migration or in application code. Precedent: migration 0064
+-- added 'support' to user_role the same way.
+--
+-- Note for whoever touches the derived dispatch state next: "still open"
+-- is expressed as `latest.stage <> 'handed_off'` in lib/support/*, and both
+-- occurrences were widened to NOT IN ('handed_off','delivered') alongside
+-- this migration. Miss one and delivered shipments count as still-open,
+-- dragging completed orders back to in_progress.
+
+ALTER TYPE dispatch_stage ADD VALUE IF NOT EXISTS 'delivered';

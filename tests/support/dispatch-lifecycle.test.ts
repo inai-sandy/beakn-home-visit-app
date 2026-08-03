@@ -179,7 +179,10 @@ describe('advanceDispatchStageAction', () => {
     if (!r.ok) expect(r.error.toLowerCase()).toContain('next allowed step is packed');
   });
 
-  it('rejects already-handed-off (no further stage)', async () => {
+  // HVA-304: handed_off is no longer terminal — 'delivered' follows it, so
+  // the "no further stage" assertion moved down one step. Kept as two cases
+  // so a backwards step and a past-the-end step stay separately covered.
+  it('rejects a backwards step from handed_off', async () => {
     const captain = await seedCaptain({ phone: '+919960000020' });
     const city = await getOrCreateCity('Bangalore');
     const exec = await seedExecutive(captain.id, {
@@ -201,6 +204,36 @@ describe('advanceDispatchStageAction', () => {
     const dispatchId = dispatch.data!.dispatchId;
     await advanceDispatchStageAction({ dispatchId, toStage: 'packed' });
     await advanceDispatchStageAction({ dispatchId, toStage: 'handed_off' });
+    const r = await advanceDispatchStageAction({ dispatchId, toStage: 'packed' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.toLowerCase()).toContain('next allowed step is delivered');
+    }
+  });
+
+  it('rejects already-delivered (no further stage)', async () => {
+    const captain = await seedCaptain({ phone: '+919960000022' });
+    const city = await getOrCreateCity('Bangalore');
+    const exec = await seedExecutive(captain.id, {
+      phone: '+919960000023',
+      fullName: 'Exec Delivered',
+    });
+    const support = await seedSupportUser();
+    const sess = await loginByPhone(support.phone, support.password);
+    currentCookieHeader = sess.cookieHeader;
+    const order = await seedOrderWithItem({
+      cityId: city.id,
+      execId: exec.id,
+      captainId: captain.id,
+    });
+    const dispatch = await addDispatchAction({
+      items: [{ lineItemId: order.lineItemId, qty: 1 }],
+    });
+    if (!dispatch.ok) throw new Error('seed dispatch failed');
+    const dispatchId = dispatch.data!.dispatchId;
+    await advanceDispatchStageAction({ dispatchId, toStage: 'packed' });
+    await advanceDispatchStageAction({ dispatchId, toStage: 'handed_off' });
+    await advanceDispatchStageAction({ dispatchId, toStage: 'delivered' });
     const r = await advanceDispatchStageAction({ dispatchId, toStage: 'packed' });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.toLowerCase()).toContain('final stage');

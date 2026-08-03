@@ -48,17 +48,22 @@ const STAGE_LABEL: Record<DispatchStage, string> = {
   created: 'Created',
   packed: 'Packed',
   handed_off: 'Handed off',
+  delivered: 'Delivered',
 };
 
 const STAGE_TONE: Record<DispatchStage, string> = {
   created: 'border-amber-500/30 text-amber-700 bg-amber-500/10',
   packed: 'border-sky-500/30 text-sky-700 bg-sky-500/10',
-  handed_off: 'border-emerald-500/30 text-emerald-700 bg-emerald-500/10',
+  // HVA-304: handed_off is now in-transit rather than the end of the line,
+  // so it steps back to indigo and delivered takes the "finished" green.
+  handed_off: 'border-indigo-500/30 text-indigo-700 bg-indigo-500/10',
+  delivered: 'border-emerald-500/30 text-emerald-700 bg-emerald-500/10',
 };
 
 const ADVANCE_LABEL: Partial<Record<DispatchStage, string>> = {
   created: 'Mark packed',
   packed: 'Mark handed off',
+  handed_off: 'Mark delivered',
 };
 
 export function DispatchHistoryBlock({

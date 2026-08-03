@@ -232,11 +232,19 @@ export const dispatches = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
     notes: text('notes'),
+    // HVA-303: courier details for this package. Plain text by design —
+    // the team records who is carrying it and the tracking number, then
+    // tracks manually on the courier's own site. Both nullable: a dispatch
+    // can be recorded before the courier is booked, and the tracking number
+    // is usually only known at handoff.
+    courierName: text('courier_name'),
+    trackingNumber: text('tracking_number'),
     ...timestamps(),
   },
   (table) => [
     index('dispatches_dispatched_by_idx').on(table.dispatchedByUserId),
     index('dispatches_created_at_idx').on(table.createdAt),
+    index('dispatches_tracking_number_idx').on(table.trackingNumber),
   ],
 );
 

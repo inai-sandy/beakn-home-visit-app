@@ -7,11 +7,13 @@
 //   icon-192x192.png        — any-purpose, downscaled from 512.
 //   icon-512x512.png        — any-purpose, passthrough re-encode.
 //   icon-512x512-maskable.png — maskable per W3C spec: logo scaled to ~80% (410px)
-//                               and centered on a 512x512 canvas filled with the
-//                               manifest theme_color #0F766E. Android adaptive icon
-//                               crops the outer 10% — the safe-zone padding makes
-//                               the logo fully visible regardless of mask shape.
-//   apple-touch-icon.png    — 180x180 iOS Add-to-Home-Screen.
+//                               and centered on a 512x512 white canvas. Android
+//                               adaptive icon crops the outer 10% — the safe-zone
+//                               padding makes the logo fully visible regardless of
+//                               mask shape. White (not the teal theme_color) so the
+//                               home-screen icon matches iOS's white background.
+//   apple-touch-icon.png    — 180x180 iOS Add-to-Home-Screen, flattened onto white
+//                               (iOS composites PNG alpha onto black otherwise).
 //   favicon.ico             — multi-size ICO (16/32/48) with PNG-encoded entries.
 
 import { promises as fs } from 'node:fs';
@@ -22,15 +24,27 @@ import sharp from 'sharp';
 const PUBLIC_DIR = path.join(process.cwd(), 'public');
 const MASTER = path.join(PUBLIC_DIR, 'beakn-logo-master.png');
 
-// Deep Teal — matches manifest theme_color; locked in HVA-12.
-const PADDING_FILL = { r: 0x0f, g: 0x76, b: 0x6e, alpha: 1 };
+// Solid white — home-screen icon background. iOS ignores PNG alpha on
+// Add-to-Home-Screen icons and composites transparency onto BLACK, so any
+// icon that can land on a home screen must carry an opaque background. White
+// keeps the teal "b" mark reading cleanly on both iOS and Android.
+const WHITE = { r: 0xff, g: 0xff, b: 0xff, alpha: 1 };
 
-async function generateAnyPurpose(size: number, outName: string) {
+async function generateAnyPurpose(
+  size: number,
+  outName: string,
+  // When set, the transparent master is flattened onto this opaque colour.
+  // Used for apple-touch-icon (iOS home screen) so the logo isn't shown on
+  // black. Omitted for the manifest "any" icons, which stay transparent so
+  // they float cleanly on the login page and the white PWA splash.
+  background?: { r: number; g: number; b: number; alpha: number },
+) {
   const out = path.join(PUBLIC_DIR, outName);
-  await sharp(MASTER)
-    .resize(size, size, { fit: 'cover', kernel: 'lanczos3' })
-    .png({ compressionLevel: 9 })
-    .toFile(out);
+  let pipeline = sharp(MASTER).resize(size, size, { fit: 'cover', kernel: 'lanczos3' });
+  if (background) {
+    pipeline = pipeline.flatten({ background });
+  }
+  await pipeline.png({ compressionLevel: 9 }).toFile(out);
   return out;
 }
 
@@ -49,7 +63,7 @@ async function generateMaskable512(): Promise<string> {
       width: 512,
       height: 512,
       channels: 4,
-      background: PADDING_FILL,
+      background: WHITE,
     },
   })
     .composite([{ input: inner, left: offset, top: offset }])
@@ -111,7 +125,7 @@ async function main() {
   const outputs = await Promise.all([
     generateAnyPurpose(192, 'icon-192x192.png'),
     generateAnyPurpose(512, 'icon-512x512.png'),
-    generateAnyPurpose(180, 'apple-touch-icon.png'),
+    generateAnyPurpose(180, 'apple-touch-icon.png', WHITE),
     generateMaskable512(),
     generateFaviconIco(),
   ]);

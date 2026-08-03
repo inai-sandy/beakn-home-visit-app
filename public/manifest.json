@@ -2,7 +2,7 @@
   "name": "Beakn Home Visit",
   "short_name": "Beakn",
   "description": "Beakn home automation visit app",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

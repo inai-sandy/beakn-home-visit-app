@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  deriveOrderDispatchSummary,
+  formatDispatchPill,
   formatFulfilmentSummary,
+  isDispatchVisible,
   itemFulfilmentState,
   summariseFulfilment,
 } from '@/lib/dispatch/fulfilment';
@@ -112,5 +115,110 @@ describe('formatFulfilmentSummary', () => {
     expect(formatFulfilmentSummary(summary, 1)).toBe(
       '1 of 1 unit shipped · 1 shipment',
     );
+  });
+});
+
+// =============================================================================
+// HVA-305: order-level roll-up for the list pill
+// =============================================================================
+
+describe('isDispatchVisible', () => {
+  it('hides dispatch state before ORDER_CONFIRMED', () => {
+    expect(isDispatchVisible(5)).toBe(false); // QUOTATION_GIVEN
+  });
+
+  it('shows it from ORDER_CONFIRMED onward', () => {
+    expect(isDispatchVisible(6)).toBe(true); // ORDER_CONFIRMED
+  });
+
+  it('keeps showing it at the stages the old code list missed', () => {
+    // The original gate listed a non-existent 'INSTALLATION_DONE' and so
+    // skipped INSTALLATION_CONFIGURATION_DONE (8) and
+    // PENDING_CAPTAIN_APPROVAL (9) entirely.
+    expect(isDispatchVisible(8)).toBe(true);
+    expect(isDispatchVisible(9)).toBe(true);
+    expect(isDispatchVisible(10)).toBe(true);
+  });
+});
+
+describe('deriveOrderDispatchSummary', () => {
+  it('reads a part-shipped order as partial', () => {
+    const s = deriveOrderDispatchSummary({
+      unitsTotal: 8,
+      unitsShipped: 3,
+      shipmentCount: 1,
+      deliveredShipmentCount: 0,
+    });
+    expect(s.state).toBe('partial');
+    expect(s.unitsPending).toBe(5);
+    expect(s.fullyDelivered).toBe(false);
+    expect(formatDispatchPill(s)).toBe('3 of 8 shipped');
+  });
+
+  it('reads an untouched order as pending', () => {
+    const s = deriveOrderDispatchSummary({
+      unitsTotal: 8,
+      unitsShipped: 0,
+      shipmentCount: 0,
+      deliveredShipmentCount: 0,
+    });
+    expect(s.state).toBe('pending');
+    expect(formatDispatchPill(s)).toBe('Not shipped');
+  });
+
+  it('separates all-shipped from actually-delivered', () => {
+    const shipped = deriveOrderDispatchSummary({
+      unitsTotal: 5,
+      unitsShipped: 5,
+      shipmentCount: 2,
+      deliveredShipmentCount: 1,
+    });
+    expect(shipped.state).toBe('complete');
+    expect(shipped.fullyDelivered).toBe(false);
+    expect(formatDispatchPill(shipped)).toBe('All shipped');
+
+    const delivered = deriveOrderDispatchSummary({
+      unitsTotal: 5,
+      unitsShipped: 5,
+      shipmentCount: 2,
+      deliveredShipmentCount: 2,
+    });
+    expect(delivered.fullyDelivered).toBe(true);
+    expect(formatDispatchPill(delivered)).toBe('Delivered');
+  });
+
+  it('does not claim delivered while units are still outstanding', () => {
+    // Every shipment SO FAR is delivered, but the order isn't fully out.
+    const s = deriveOrderDispatchSummary({
+      unitsTotal: 8,
+      unitsShipped: 3,
+      shipmentCount: 1,
+      deliveredShipmentCount: 1,
+    });
+    expect(s.fullyDelivered).toBe(false);
+    expect(formatDispatchPill(s)).toBe('3 of 8 shipped');
+  });
+
+  it('clamps an over-dispatch instead of rendering "7 of 5"', () => {
+    const s = deriveOrderDispatchSummary({
+      unitsTotal: 5,
+      unitsShipped: 7,
+      shipmentCount: 1,
+      deliveredShipmentCount: 0,
+    });
+    expect(s.unitsShipped).toBe(5);
+    expect(s.unitsPending).toBe(0);
+    expect(formatDispatchPill(s)).toBe('All shipped');
+  });
+
+  it('survives an order with no line items', () => {
+    const s = deriveOrderDispatchSummary({
+      unitsTotal: 0,
+      unitsShipped: 0,
+      shipmentCount: 0,
+      deliveredShipmentCount: 0,
+    });
+    expect(s.unitsTotal).toBe(0);
+    expect(s.state).toBe('pending');
   });
 });

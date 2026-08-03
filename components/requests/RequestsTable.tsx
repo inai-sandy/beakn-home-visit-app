@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { Icon } from '@/components/ui/icon';
 import { maskCustomerPhone } from '@/lib/format/phone';
 
+import { DispatchPill } from './DispatchPill';
 import { RequestStatusBadge } from './RequestStatusBadge';
 import type { RequestRow, RequestsViewMode } from './types';
 
@@ -48,6 +49,9 @@ export function RequestsTable({ rows, mode, renderActions }: Props) {
             <th className="text-left px-4 py-3 font-medium">Phone</th>
             <th className="text-left px-4 py-3 font-medium">City</th>
             <th className="text-left px-4 py-3 font-medium">Status</th>
+            {/* HVA-305: dispatch progress, so "which orders have shipped"
+                is answerable without opening each one. */}
+            <th className="text-left px-4 py-3 font-medium">Dispatch</th>
             {showExecColumn && (
               <th className="text-left px-4 py-3 font-medium">Assigned exec</th>
             )}
@@ -92,6 +96,9 @@ export function RequestsTable({ rows, mode, renderActions }: Props) {
                 <td className="px-4 py-3 text-muted-foreground">{row.cityName}</td>
                 <td className="px-4 py-3">
                   <RequestStatusBadge row={row} />
+                </td>
+                <td className="px-4 py-3">
+                  <DispatchPill summary={row.dispatch} />
                 </td>
                 {showExecColumn && (
                   <td className="px-4 py-3 text-muted-foreground">

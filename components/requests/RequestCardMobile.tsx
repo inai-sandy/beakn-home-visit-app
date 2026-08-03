@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Icon } from '@/components/ui/icon';
 import { maskCustomerPhone } from '@/lib/format/phone';
 
+import { DispatchPill } from './DispatchPill';
 import { RequestStatusBadge } from './RequestStatusBadge';
 import type { RequestRow, RequestsViewMode } from './types';
 
@@ -50,10 +51,18 @@ export function RequestCardMobile({ row, mode, renderActions }: Props) {
           <h3 className="text-sm font-semibold tracking-tight min-w-0 truncate">
             {row.customerName}
           </h3>
-          <div className="shrink-0">
+          <div className="shrink-0 flex items-center gap-1.5">
             <RequestStatusBadge row={row} />
           </div>
         </div>
+
+        {/* HVA-305: dispatch progress on its own line — on a phone it would
+            crowd the status badge, and it's the thing the exec scans for. */}
+        {row.dispatch && row.dispatch.unitsTotal > 0 && (
+          <div className="mt-1.5">
+            <DispatchPill summary={row.dispatch} />
+          </div>
+        )}
 
         {mode === 'exec' && (
           <div className="mt-1.5">

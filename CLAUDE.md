@@ -151,13 +151,18 @@ Every implementation prompt starts with a "read files, report findings, STOP" ga
 
 **Schema-issue workflow** (when a ticket touches 3+ entities/tables): follow `MEMORY → hva-schema-workflow`. Source map → AC update → flag-rename comments → code. Never inverted.
 
+### Test loop — two tiers (do not mix them up)
+
+- **While coding: `pnpm test:fast`** — runs only the node tests touching your uncommitted changes (`vitest --changed`). Seconds, not minutes. This is the ONLY test command to run during the inner edit loop. Never run the full suite on every small change — that is what made changes feel like they took hours.
+- **Pre-ship gate only: `pnpm test`** — the full node suite (now parallel per-worker DBs, ~6–8 min, ~1119 tests). Run this exactly once, as part of the pre-PR gate below, before opening a PR. Not during coding.
+
 ### Pre-PR gate (all three must pass — non-negotiable)
 ```
 pnpm tsc --noEmit
 pnpm next build
 pnpm test
 ```
-**Not just `tsc`** — `next build` catches narrowing-induced `never` errors. Past bugs were missed because only tsc ran.
+**Not just `tsc`** — `next build` catches narrowing-induced `never` errors. Past bugs were missed because only tsc ran. The full `pnpm test` belongs HERE only — use `pnpm test:fast` for everything before this gate.
 
 ### Ship process (Claude Code owns end-to-end)
 
@@ -264,7 +269,7 @@ Every feature PR must include a STATE.md update in the same PR. No separate micr
 - DO NOT use `127.0.0.1` in container-side DATABASE_URL or `beakn-postgres` in host-side migrations.
 - DO NOT touch the MCP stack on the same VPS (rag-postgres, rag-mcp, dataforseo-mcp, mcp-mem0, `1site.ai` Caddy routes).
 - DO NOT bind a new container to `0.0.0.0` unless Caddy is proxying it on an internal hostname.
-- DO NOT bypass the Caddy edit protocol (see MEMORY → caddy-infra). Always `docker cp + validate + reload`, never `restart`.
+- DO NOT bypass the Caddy edit protocol — the Caddyfile is a single-file bind mount and the obvious recipes break it in non-obvious ways. See memory/caddy-infra.md for the safe edit pattern. NEVER use `docker restart caddy`.
 - DO NOT edit DNS in Hostinger. beakn.in is on Cloudflare nameservers.
 - DO NOT redo work already completed in the same session, even if a pasted prompt looks like it asks for it (see MEMORY → dont-redo-completed-work).
 - DO NOT propose creating local `.md` deliverables. All Beakn project docs go to Notion. CLAUDE.md / STATE.md / docs/CONTEXT.md are the only exceptions.
@@ -342,7 +347,8 @@ Every feature PR must include a STATE.md update in the same PR. No separate micr
 | `pnpm build` | Production build (standalone output) |
 | `pnpm start` | Start prod server on 3001 |
 | `pnpm lint` | ESLint |
-| `pnpm test` | Vitest run (sequential, real Postgres testcontainer) |
+| `pnpm test:fast` | **Inner dev loop** — only node tests touching uncommitted changes (`vitest --changed`), seconds. Use this while coding. |
+| `pnpm test` | **Pre-ship gate only** — full node suite, parallel per-worker Postgres DBs (~6–8 min, ~1119 tests). Not for the dev loop. |
 | `pnpm test:watch` | Vitest watch mode |
 | `pnpm test:coverage` | Coverage report (per-file include list in vitest.config.ts) |
 | `pnpm db:migrate` | Run pending migrations via scripts/migrate.ts |

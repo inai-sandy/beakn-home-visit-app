@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-08-03 (HVA-302 — exec + captain now see per-product shipped vs pending on /requests/[id], closing the unmet HVA-231 acceptance criterion "X of Y dispatched, Z left everywhere they're displayed"; + HVA-303 — courier name + tracking number recorded per shipment instead of free-texted into notes)
+**Last updated:** 2026-08-03 (dispatch visibility batch HVA-302→306 — exec + captain now see per-product shipped vs pending on /requests/[id] and a dispatch pill on both request lists; courier + tracking number per shipment; new `delivered` stage; WhatsApp dispatch composers registered, rules still pending Meta approval)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -124,6 +124,7 @@ WhatsApp provider activation (Libromi) shipped HVA-45 (2026-05-31). 8 customer-f
 - **HVA-50** — admin-editable rule UI for notification_rules
 - **HVA-79** — opt-in checkbox on customer /request form
 - **HVA-155 Part C** — 9:30 PM WhatsApp day-close reminder
+- **HVA-306** — dispatch WhatsApp alerts. Composers now registered and unit-tested (HVA-306), so the code side is done. Rules stay `enabled=false` because `internal_items_dispatched_v1` and `internal_dispatch_advanced_v1` were **never drafted or submitted to Meta** — `support-portal-v1.md` still lists "who drafts the copy" as an open question. Draft bodies are in PR #339; once Meta approves, flip the rules at /admin/settings/notifications/rules. Until then exec + captain still get in-app + push, which are live.
 
 ---
 

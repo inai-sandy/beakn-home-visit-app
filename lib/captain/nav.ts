@@ -26,6 +26,9 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // HVA-127: surfaces every request in the captain's cities across all
   // statuses. Placed second since this is the captain's primary workflow.
   { href: '/captain/requests', label: 'Requests', icon: 'list_alt' },
+  // HVA-308: centralized pending-to-ship list across the whole team, so
+  // "what do we still owe customers" doesn't mean opening every order.
+  { href: '/captain/dispatch', label: 'Dispatch', icon: 'local_shipping' },
   { href: '/captain/team', label: 'My Team', icon: 'groups' },
   // 2026-06-05: team-wide task list with sort/filter/pagination.
   { href: '/captain/tasks', label: 'Tasks', icon: 'task' },

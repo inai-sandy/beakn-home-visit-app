@@ -66,6 +66,9 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Tasks', icon: 'checklist', href: '/tasks' },
   { label: 'Contacts', icon: 'person_add', href: '/leads' },
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
+  // HVA-308: centralized pending-to-ship list across all my orders.
+  // Drawer-only, not bottom-nav — D10 locks the bottom nav at 5 items.
+  { label: 'Dispatch', icon: 'local_shipping', href: '/dispatch' },
   // HVA-255 (HVA-232 Phase 2): customer support tickets queue.
   { label: 'Tickets', icon: 'help_center', href: '/tickets' },
   // HVA-199: assist requests — exec submits material requests; captain

@@ -9,6 +9,7 @@ import {
   statusStages,
   visitRequests,
 } from '@/db/schema';
+import { buildRequestsScopeWhere } from '@/lib/captain/requests-queries';
 import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
 
 // =============================================================================
@@ -64,9 +65,29 @@ export interface QueueRow {
   itemCreatedAt: Date;
 }
 
+/**
+ * HVA-308: who is allowed to see these rows.
+ *
+ * Support is a global pool and passes nothing — they see every order.
+ * Exec and captain get their own Dispatch section and must be scoped to
+ * exactly the orders their Requests list already shows, or the two
+ * screens would disagree about what they own.
+ */
+export type DispatchQueueScope =
+  | { kind: 'all' }
+  | { kind: 'exec'; execUserId: string }
+  | {
+      kind: 'captain';
+      captainUserId?: string;
+      cityIds: string[];
+      isSuperAdmin: boolean;
+    };
+
 export interface QueueOptions {
   search?: string;
   limit?: number;
+  /** HVA-308: role scoping. Defaults to unscoped (support). */
+  scope?: DispatchQueueScope;
   /**
    * HVA-245: filter to a specific dispatch-state bucket.
    *   - 'all'          (default — backwards-compat with HVA-238)
@@ -119,16 +140,16 @@ const HAS_OPEN_DISPATCH_SQL = sql<boolean>`EXISTS (
     AND latest.stage NOT IN (${sql.raw(CLOSED_DISPATCH_STAGES_SQL)})
 )`;
 
-export async function loadDispatchQueue(
-  options: QueueOptions = {},
-): Promise<QueueResult> {
-  const limit = options.limit ?? 200;
+/**
+ * HVA-308: every WHERE clause for the queue, in one place.
+ *
+ * Extracted so the row query and the summary tiles can never diverge —
+ * a summary that counts a different set than the list below it is worse
+ * than no summary at all.
+ */
+function buildQueueConditions(options: QueueOptions) {
   const trimmedSearch = options.search?.trim().toLowerCase() ?? '';
   const mode = options.mode ?? 'all';
-  const page = Math.max(1, options.page ?? 1);
-  const pageSize = Math.max(1, options.pageSize ?? 25);
-  const sortKey = options.sort;
-  const dir = options.dir ?? (sortKey ? 'asc' : 'asc');
 
   const conditions = [
     gte(statusStages.sequenceNumber, ORDER_CONFIRMED_SEQ),
@@ -173,6 +194,35 @@ export async function loadDispatchQueue(
   if (options.customerPhone) {
     conditions.push(eq(visitRequests.customerPhone, options.customerPhone));
   }
+
+  // HVA-308: role scope. Applied last so it always narrows, never widens.
+  const scope = options.scope;
+  if (scope && scope.kind === 'exec') {
+    conditions.push(eq(visitRequests.assignedExecUserId, scope.execUserId));
+  } else if (scope && scope.kind === 'captain' && !scope.isSuperAdmin) {
+    // Reuse the Requests-list predicate verbatim so a captain's Dispatch
+    // section covers exactly the orders their Requests tab covers.
+    const captainWhere = buildRequestsScopeWhere({
+      captainUserId: scope.captainUserId,
+      cityIds: scope.cityIds,
+      isSuperAdmin: false,
+    });
+    if (captainWhere) conditions.push(captainWhere);
+  }
+
+  return conditions;
+}
+
+export async function loadDispatchQueue(
+  options: QueueOptions = {},
+): Promise<QueueResult> {
+  const limit = options.limit ?? 200;
+  const page = Math.max(1, options.page ?? 1);
+  const pageSize = Math.max(1, options.pageSize ?? 25);
+  const sortKey = options.sort;
+  const dir = options.dir ?? (sortKey ? 'asc' : 'asc');
+
+  const conditions = buildQueueConditions(options);
 
   // HVA-246: sort selection. Defaults match HVA-238 behaviour (priority
   // desc → target asc → created asc). User-driven sort keys override the
@@ -313,4 +363,51 @@ export async function loadRemainingQuantities(
       },
     ]),
   );
+}
+
+// =============================================================================
+// HVA-308: summary tiles for the exec / captain Dispatch section
+// =============================================================================
+//
+// Shares buildQueueConditions with loadDispatchQueue, so the totals always
+// describe exactly the rows listed underneath them — including the active
+// mode filter and role scope.
+//
+// Counts are DISTINCT on order and product because a single order can have
+// several outstanding products and the same product can be outstanding on
+// several orders; summing rows would double-count both.
+// =============================================================================
+
+export interface DispatchQueueSummary {
+  /** Units still to go out across every matching line item. */
+  unitsPending: number;
+  /** Orders with at least one outstanding line item. */
+  ordersPending: number;
+  /** Distinct product names still to ship. */
+  productsPending: number;
+}
+
+export async function loadDispatchQueueSummary(
+  options: QueueOptions = {},
+): Promise<DispatchQueueSummary> {
+  const conditions = buildQueueConditions(options);
+
+  const [row] = await db
+    .select({
+      unitsPending: sql<number>`COALESCE(SUM(${REMAINING_QTY_SQL}), 0)::int`,
+      ordersPending: sql<number>`COUNT(DISTINCT ${visitRequests.id})::int`,
+      productsPending: sql<number>`COUNT(DISTINCT ${quotationLineItems.productName})::int`,
+    })
+    .from(quotationLineItems)
+    .innerJoin(quotations, eq(quotations.id, quotationLineItems.quotationId))
+    .innerJoin(visitRequests, eq(visitRequests.id, quotations.visitRequestId))
+    .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    .innerJoin(cities, eq(cities.id, visitRequests.cityId))
+    .where(and(...conditions));
+
+  return {
+    unitsPending: Number(row?.unitsPending ?? 0),
+    ordersPending: Number(row?.ordersPending ?? 0),
+    productsPending: Number(row?.productsPending ?? 0),
+  };
 }

@@ -1,6 +1,6 @@
 # Beakn HVA — Current State
 
-**Last updated:** 2026-08-03 (dispatch visibility batch HVA-302→306 — exec + captain now see per-product shipped vs pending on /requests/[id] and a dispatch pill on both request lists; courier + tracking number per shipment; new `delivered` stage; WhatsApp dispatch composers registered, rules still pending Meta approval)
+**Last updated:** 2026-08-03 (dispatch visibility batch HVA-302→306 + HVA-308 — exec + captain get a new **Dispatch** section listing every product still to be shipped across all their orders, plus per-product shipped/pending inside each order, a pill on both request lists, courier + tracking per shipment, and a new `delivered` stage; WhatsApp dispatch composers registered, rules still pending Meta approval)
 
 This file captures what's live, what's next, what's blocked, what's deferred. Update after every PR merge.
 
@@ -22,6 +22,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Approvals queue, Collections queue, Unassigned requests bucket
 - Same per-product dispatch view as the exec on any team member's order detail (HVA-302)
 - Same dispatch pill on /captain/requests, team-wide (HVA-305)
+- **Dispatch** section (`/captain/dispatch`) — same centralized pending-to-ship list, scoped to the captain's team using the identical predicate as their Requests tab (HVA-308)
 
 ### Sales exec portal (11 pages)
 - Day plan: Start My Day → visit tasks → close day workflow (HVA-60, HVA-64)
@@ -29,6 +30,7 @@ None yet. Customers raise requests via beakn.in main site, not via HVA. HVA is i
 - Tasks page with Pending / Postponed / Completed accordion (HVA-170)
 - Tasks: move semantics for Pending+Postponed, clone for Completed (HVA-170-FIX1)
 - Requests tab with 5 buckets, mirrors captain pattern (HVA-65)
+- **Dispatch** section (`/dispatch`, drawer nav) — one centralized product-level list of everything still to ship across all the exec's orders, with units/products/orders summary tiles and Not-shipped / Partly-shipped filters, sorted most-urgent first. Read-only; support dispatches (HVA-308)
 - Requests list shows a dispatch pill per order — Not shipped / "3 of 8 shipped" / All shipped / Delivered — so "which of my orders have gone out" is answerable without opening each one (HVA-305)
 - Request detail with customer info + status timeline (HVA-66)
 - Request detail → Order tab → **Dispatch**: per-product Ordered / Shipped / Pending with a Not-shipped / Partly-shipped / Shipped pill, plus a Shipments list. Read-only; support does the dispatching. Orders ship in installments, so this answers "which products have gone out and which are still pending" without phoning support (HVA-302)

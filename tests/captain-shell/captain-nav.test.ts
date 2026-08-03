@@ -49,6 +49,11 @@ describe('HVA-152: shared captain nav config', () => {
           "label": "Requests",
         },
         {
+          "href": "/captain/dispatch",
+          "icon": "local_shipping",
+          "label": "Dispatch",
+        },
+        {
           "href": "/captain/team",
           "icon": "groups",
           "label": "My Team",

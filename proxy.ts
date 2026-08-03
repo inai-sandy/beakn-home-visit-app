@@ -161,7 +161,10 @@ function canAccess(pathname: string, role: string): boolean {
     pathname === '/resources' || pathname.startsWith('/resources/') ||
     pathname === '/announcements' || pathname.startsWith('/announcements/') ||
     pathname === '/assist' || pathname.startsWith('/assist/') ||
-    pathname === '/tickets' || pathname.startsWith('/tickets/')
+    pathname === '/tickets' || pathname.startsWith('/tickets/') ||
+    // HVA-308: exec Dispatch section. Captain has /captain/dispatch;
+    // support has /support. super_admin is escape-hatched above.
+    pathname === '/dispatch' || pathname.startsWith('/dispatch/')
   ) {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }

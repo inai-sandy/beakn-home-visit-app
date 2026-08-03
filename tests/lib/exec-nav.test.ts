@@ -81,6 +81,8 @@ describe('EXEC_DRAWER_NAV', () => {
     // HVA-199: 'Assist' inserted between Requests and Finance.
     // HVA-201: 'Leaderboard' inserted between Finance and Resources.
     // HVA-255: 'Tickets' inserted between Requests and Assist.
+    // HVA-308: 'Dispatch' inserted directly after Requests — it's the
+    // cross-order view of what those requests still owe customers.
     expect(EXEC_DRAWER_NAV.map((i) => i.label)).toEqual([
       'Dashboard',
       'Today',
@@ -88,6 +90,7 @@ describe('EXEC_DRAWER_NAV', () => {
       'Tasks',
       'Contacts',
       'Requests',
+      'Dispatch',
       'Tickets',
       'Assist',
       'Finance',

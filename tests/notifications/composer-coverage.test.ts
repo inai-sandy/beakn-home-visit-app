@@ -127,8 +127,16 @@ describe('in-app / push / email composer coverage', () => {
  * entry means a real notification is silently going nowhere.
  */
 const KNOWN_UNWIRED_TRANSITION_EVENTS: readonly string[] = [
-  'request.rejected_by_captain',
-  'status_rolled_back',
+  // HVA-316 emptied this list (migration 0087). Both entries —
+  // request.rejected_by_captain and status_rolled_back — were duplicate names
+  // for events the route handlers already dispatch (request.rejected and
+  // request.rolled_back), so their emits_event was cleared rather than
+  // repointed: the route dispatches carry context the generic path cannot
+  // build, notably supportPhone for the we_had_to_cancel template.
+  //
+  // Keep this empty. A new entry means a real transition event is firing at
+  // nothing, which is quieter than a missing composer — rulesMatched=0
+  // delivers nothing and leaves no failed-delivery breadcrumb.
 ];
 
 describe('every status_transitions.emits_event has a rule behind it', () => {

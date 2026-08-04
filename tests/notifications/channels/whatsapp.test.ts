@@ -260,15 +260,22 @@ describe('production composer registry (HVA-49)', () => {
   // Snapshot then restore (the suite above wipes the registry per test).
   beforeEach(() => restoreRegistry());
 
-  it('registers all 25 templates by template_key', () => {
+  // The title used to say "25" while the list held 27 — it had drifted twice
+  // before anyone noticed. Counts stated in prose rot; the list below is the
+  // actual assertion, so the name no longer claims a number.
+  it('registers exactly the expected set of templates by template_key', () => {
     expect(Object.keys(WHATSAPP_COMPOSERS).sort()).toEqual(
       [
-        // Customer-facing (8)
+        // Customer-facing
         'tracking_link_confirmation',
         'visit_scheduled',
         'visit_rescheduled',
         'quotation_ready',
         'order_confirmed',
+        // HVA-319: installation date to the customer. Composer registered and
+        // unit-tested; the notification_rules row ships disabled until Meta
+        // approves the `installation_scheduled` template.
+        'installation_scheduled',
         'installation_complete',
         'customer_cancellation_received',
         'we_had_to_cancel',

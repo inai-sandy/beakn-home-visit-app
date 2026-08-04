@@ -588,3 +588,151 @@ describe('terminalBadgeMeta — actor-aware title + label', () => {
     });
   });
 });
+
+// =============================================================================
+// HVA-310: the UI must obey the transition config the engine enforces
+// =============================================================================
+//
+// computeActionVisibility used to receive nothing from `status_transitions`.
+// The page loaded the row (for requires_datetime) and threw the rest away,
+// so `allowed_role` and `is_active` — both enforced server-side — had no
+// bearing on what rendered. Two consequences, one latent and one imminent:
+//
+//   - an admin disabling a transition at /admin/settings/workflow/transitions
+//     left a live button that 400s TRANSITION_INACTIVE;
+//   - the moment HVA-313 scopes a rollback to super_admin, captain and exec
+//     would keep seeing the button and get a 403 on click.
+//
+// `undefined` (field omitted) stays permissive on purpose, so every existing
+// call site and the cases above keep their meaning — this closes a gap
+// rather than silently changing who can do what.
+// =============================================================================
+
+const ANY_ACTIVE = { allowedRole: 'any', isActive: true };
+
+describe('computeActionVisibility — transition config gates (HVA-310)', () => {
+  it('omitting the config leaves behaviour unchanged (back-compat)', () => {
+    const withoutConfig = computeActionVisibility(baseInput());
+    const withPermissiveConfig = computeActionVisibility({
+      ...baseInput(),
+      nextTransition: ANY_ACTIVE,
+      previousTransition: ANY_ACTIVE,
+    });
+    expect(withoutConfig).toEqual(withPermissiveConfig);
+  });
+
+  it('hides Advance when the admin has deactivated the transition', () => {
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      nextTransition: { allowedRole: 'any', isActive: false },
+    });
+    expect(vis.showAdvance).toBe(false);
+  });
+
+  it('hides Rollback when the rollback row is deactivated', () => {
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      previousTransition: { allowedRole: 'any', isActive: false },
+    });
+    expect(vis.showRollback).toBe(false);
+  });
+
+  it('hides an unconfigured pair — the engine answers FORWARD_ONLY', () => {
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      nextTransition: null,
+      previousTransition: null,
+    });
+    expect(vis.showAdvance).toBe(false);
+    expect(vis.showRollback).toBe(false);
+  });
+
+  it('scoping a rollback to super_admin hides it from the assigned exec', () => {
+    // The HVA-313 shape: Order Confirmed becomes a one-way door for
+    // everyone but super_admin. Without this gate the exec kept the button
+    // and learned about the rule from a 403 toast.
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'ORDER_CONFIRMED',
+      previousTransition: { allowedRole: 'super_admin', isActive: true },
+    });
+    expect(vis.showRollback).toBe(false);
+  });
+
+  it('scoping a rollback to super_admin hides it from the city captain', () => {
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      currentStageCode: 'ORDER_CONFIRMED',
+      previousTransition: { allowedRole: 'super_admin', isActive: true },
+    });
+    expect(vis.showRollback).toBe(false);
+  });
+
+  it('still shows that rollback to super_admin', () => {
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      currentStageCode: 'ORDER_CONFIRMED',
+      previousTransition: { allowedRole: 'super_admin', isActive: true },
+    });
+    expect(vis.showRollback).toBe(true);
+  });
+
+  it('super_admin bypasses a captain-scoped transition, exec does not', () => {
+    // Mirrors the engine, where super_admin short-circuits the role check
+    // before allowed_role is consulted at all.
+    const asExec = computeActionVisibility({
+      ...baseInput(),
+      nextTransition: { allowedRole: 'captain', isActive: true },
+    });
+    expect(asExec.showAdvance).toBe(false);
+
+    const asAdmin = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      nextTransition: { allowedRole: 'captain', isActive: true },
+    });
+    expect(asAdmin.showAdvance).toBe(true);
+  });
+
+  it('treats an unrecognised allowed_role as super_admin-only', () => {
+    // allowed_role is a free varchar with no CHECK constraint, so a typo is
+    // possible (HVA-313 adds the constraint). The engine matches it against
+    // the actor's role, nothing matches, and only the super_admin bypass
+    // gets through — the UI must not offer a button that would then 403.
+    const asCaptain = computeActionVisibility({
+      ...baseInput(),
+      role: 'captain',
+      userId: CAPTAIN_ID,
+      nextTransition: { allowedRole: 'captian', isActive: true },
+    });
+    expect(asCaptain.showAdvance).toBe(false);
+
+    const asAdmin = computeActionVisibility({
+      ...baseInput(),
+      role: 'super_admin',
+      userId: ADMIN_ID,
+      nextTransition: { allowedRole: 'captian', isActive: true },
+    });
+    expect(asAdmin.showAdvance).toBe(true);
+  });
+
+  it('does not resurrect a button the page-level rules already hide', () => {
+    // A permissive transition row must not override the route-mirroring
+    // guards. PENDING_CAPTAIN_APPROVAL goes through /approve and /reject,
+    // and the generic status route 409s WRONG_ROUTE there — so a live
+    // config row must still render nothing.
+    const vis = computeActionVisibility({
+      ...baseInput(),
+      currentStageCode: 'PENDING_CAPTAIN_APPROVAL',
+      nextTransition: ANY_ACTIVE,
+      previousTransition: ANY_ACTIVE,
+    });
+    expect(vis.showAdvance).toBe(false);
+    expect(vis.showRollback).toBe(false);
+  });
+});

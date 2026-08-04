@@ -318,6 +318,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const [previousStage] = await db
     .select({
       id: statusStages.id,
+      code: statusStages.code,
       name: statusStages.name,
       sequenceNumber: statusStages.sequenceNumber,
     })
@@ -388,6 +389,13 @@ export default async function RequestDetailPage({ params }: PageProps) {
     ? await loadTransitionByPair(reqRow.currentStageCode, nextStage.code)
     : null;
   const nextRequiresDatetime = nextTransition?.requiresDatetime ?? false;
+  // HVA-310: the rollback pair's own config. The page previously loaded
+  // only the forward pair, so the Rollback button was decided with no
+  // reference to `status_transitions` at all — it ignored both the row's
+  // allowed_role and an admin's is_active toggle.
+  const previousTransition = previousStage
+    ? await loadTransitionByPair(reqRow.currentStageCode, previousStage.code)
+    : null;
   const mapsUrl = buildMapsUrl(reqRow.latitude, reqRow.longitude);
   const interest = Array.isArray(reqRow.interest) ? reqRow.interest : [];
 
@@ -402,6 +410,8 @@ export default async function RequestDetailPage({ params }: PageProps) {
     cancelledAt: reqRow.cancelledAt,
     hasNextStage: !!nextStage,
     hasPreviousStage: !!previousStage,
+    nextTransition,
+    previousTransition,
   });
 
   // HVA-139: when the Assign Sales Executive button will render, also

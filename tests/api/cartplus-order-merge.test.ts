@@ -206,6 +206,82 @@ describe('HVA-282: order merges into the existing request', () => {
     expect(q1!.rid).not.toBe(q2!.rid);
   });
 
+  it('HVA-315: TWO open quote-less requests → creates a new one, touches neither', async () => {
+    // Sandeep's rule: with several candidates we cannot know which request
+    // the order belongs to, so we must not guess. The old behaviour picked
+    // the newest by created_at, silently attaching the order to an
+    // unrelated request and leaving the real one looking untouched.
+    const { execId, cityId } = await seedMappedCityAndExec(9305, 5305);
+    const phone = `+9195${uniq()}0000`;
+    const { contactId, requestId: firstId } = await seedWebRequest(
+      phone,
+      cityId,
+      execId,
+    );
+
+    // A second open, quote-less request for the SAME contact — the exact
+    // shape that makes the merge ambiguous.
+    const submitted = await getStatusStage('SUBMITTED');
+    const [second] = await db
+      .insert(visitRequests)
+      .values({
+        customerName: 'Merge Customer',
+        customerPhone: phone,
+        address: 'second web addr',
+        cityId,
+        bhk: '3BHK',
+        interest: [],
+        trackingToken: `web2_${Math.random().toString(36).slice(2, 18)}`,
+        source: 'web',
+        contactId,
+        statusStageId: submitted.id,
+      })
+      .returning({ id: visitRequests.id });
+
+    const res = await fire(
+      envelope({
+        eventId: 'evt_m5',
+        storeId: 9305,
+        portalExecId: 5305,
+        portalOrderId: 8306,
+        phone,
+        total: 4000,
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // A third request exists — the order claimed neither candidate.
+    const reqs = await db
+      .select({ id: visitRequests.id })
+      .from(visitRequests)
+      .where(eq(visitRequests.contactId, contactId));
+    expect(reqs).toHaveLength(3);
+
+    // The quotation landed on the NEW request, not on either candidate.
+    const [q] = await db
+      .select({ rid: quotations.visitRequestId })
+      .from(quotations)
+      .where(eq(quotations.portalQuotationId, '8306'));
+    expect(q).toBeDefined();
+    expect(q!.rid).not.toBe(firstId);
+    expect(q!.rid).not.toBe(second!.id);
+
+    // Both originals are untouched: still at SUBMITTED, still quote-less.
+    for (const id of [firstId, second!.id]) {
+      const [row] = await db
+        .select({ stage: visitRequests.statusStageId })
+        .from(visitRequests)
+        .where(eq(visitRequests.id, id));
+      expect(row!.stage).toBe(submitted.id);
+
+      const quotes = await db
+        .select({ id: quotations.id })
+        .from(quotations)
+        .where(eq(quotations.visitRequestId, id));
+      expect(quotes).toHaveLength(0);
+    }
+  });
+
   it('no existing request → creates a new request (unchanged)', async () => {
     const { } = await seedMappedCityAndExec(9303, 5303);
     const phone = `+9196${uniq()}0000`;

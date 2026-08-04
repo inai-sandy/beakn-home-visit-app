@@ -1,10 +1,11 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 
 import { db } from '@/db/client';
 import {
   auditLog,
   requestStatusHistory,
+  statusTransitions,
   visitRequests,
 } from '@/db/schema';
 import { transitionRequestStatus } from '@/lib/status-transition';
@@ -28,14 +29,23 @@ import {
 // test means the full vertical works.
 // =============================================================================
 
+// HVA-309: seedCaptain/seedExecutive default to FIXED phone numbers and
+// users.phone is UNIQUE, so a test that builds two scenarios (needed to
+// assert one role is refused while another is allowed under the same
+// config) would die on a duplicate key. Give every call its own phone.
+// Single-scenario tests are unaffected — nothing asserts on these values.
+let scenarioSeq = 0;
+
 async function makeAssignableRequest(): Promise<{
   requestId: string;
   captainId: string;
   execId: string;
 }> {
+  scenarioSeq += 1;
+  const suffix = String(scenarioSeq).padStart(8, '0');
   const city = await getOrCreateCity('Bangalore');
-  const captain = await seedCaptain();
-  const exec = await seedExecutive(captain.id);
+  const captain = await seedCaptain({ phone: `+9198${suffix}` });
+  const exec = await seedExecutive(captain.id, { phone: `+9197${suffix}` });
   // Start at SUBMITTED so we can advance forward to ASSIGNED in tests.
   const req = await seedVisitRequest({
     cityId: city.id,
@@ -485,5 +495,308 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       reason: 'Send back for rework',
     });
     expect(result.ok).toBe(true);
+  });
+});
+
+// =============================================================================
+// HVA-309: the validation ladder's permission branches
+// =============================================================================
+//
+// Before this block, four of the engine's five validation branches had no
+// test at all — a repo-wide grep for ROLE_NOT_ALLOWED, TRANSITION_INACTIVE,
+// REASON_REQUIRED and QUOTATION_REQUIRED returned zero hits across tests/.
+// `actorRole` was only ever passed as an input value, never asserted on
+// ('captain' in 20 of 21 calls above), so the role gate was effectively
+// unverified while being the thing that enforces every workflow rule.
+//
+// WHY THE SAVE/RESTORE DANCE: `status_transitions` is deliberately NOT in
+// SAFE_TRUNCATE_TABLES (tests/helpers/db.ts) — it is seeded once by
+// migrations 0060/0070 and survives truncateAll() between tests. A mutation
+// left behind here would silently change the workflow for every later test
+// in the same worker DB: green in isolation, red (or worse, wrongly green)
+// in a full run. withTransitionConfig restores in a `finally` so a failing
+// assertion still cleans up after itself.
+// =============================================================================
+
+interface TransitionConfigPatch {
+  allowedRole?: string;
+  isActive?: boolean;
+  requiresReason?: boolean;
+  requiresQuotation?: boolean;
+}
+
+async function withTransitionConfig<T>(
+  fromCode: string,
+  toCode: string,
+  patch: TransitionConfigPatch,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const from = await getStatusStage(fromCode);
+  const to = await getStatusStage(toCode);
+  const target = and(
+    eq(statusTransitions.fromStageId, from.id),
+    eq(statusTransitions.toStageId, to.id),
+  );
+
+  const [original] = await db
+    .select({
+      allowedRole: statusTransitions.allowedRole,
+      isActive: statusTransitions.isActive,
+      requiresReason: statusTransitions.requiresReason,
+      requiresQuotation: statusTransitions.requiresQuotation,
+    })
+    .from(statusTransitions)
+    .where(target)
+    .limit(1);
+  if (!original) {
+    throw new Error(
+      `status_transitions row missing for ${fromCode} → ${toCode}`,
+    );
+  }
+
+  await db.update(statusTransitions).set(patch).where(target);
+  try {
+    return await fn();
+  } finally {
+    await db.update(statusTransitions).set(original).where(target);
+  }
+}
+
+describe('HVA-309 validation ladder: allowed_role', () => {
+  it('allowed_role=super_admin refuses a captain with ROLE_NOT_ALLOWED', async () => {
+    const { requestId, captainId } = await makeAssignableRequest();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { allowedRole: 'super_admin' },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: captainId,
+          actorRole: 'captain',
+        });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok && result.error === 'ROLE_NOT_ALLOWED') {
+          expect(result.status).toBe(403);
+          expect(result.requiredRole).toBe('super_admin');
+        } else {
+          throw new Error(
+            `expected ROLE_NOT_ALLOWED, got ${result.ok ? 'ok' : result.error}`,
+          );
+        }
+      },
+    );
+
+    // The stage must not have moved.
+    const [vr] = await db
+      .select({ statusStageId: visitRequests.statusStageId })
+      .from(visitRequests)
+      .where(eq(visitRequests.id, requestId))
+      .limit(1);
+    expect(vr.statusStageId).not.toBe(assigned.id);
+  });
+
+  it('allowed_role=super_admin still lets super_admin through', async () => {
+    const { requestId } = await makeAssignableRequest();
+    const admin = await seedSuperAdmin();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { allowedRole: 'super_admin' },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: admin.id,
+          actorRole: 'super_admin',
+        });
+        expect(result.ok).toBe(true);
+      },
+    );
+  });
+
+  it('allowed_role=captain refuses a sales_executive but allows the captain', async () => {
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { allowedRole: 'captain' },
+      async () => {
+        const refused = await makeAssignableRequest();
+        const execResult = await transitionRequestStatus({
+          requestId: refused.requestId,
+          nextStatusId: assigned.id,
+          actorUserId: refused.execId,
+          actorRole: 'sales_executive',
+        });
+        expect(execResult.ok).toBe(false);
+        if (!execResult.ok && execResult.error === 'ROLE_NOT_ALLOWED') {
+          expect(execResult.requiredRole).toBe('captain');
+        } else {
+          throw new Error(
+            `expected ROLE_NOT_ALLOWED for exec, got ${
+              execResult.ok ? 'ok' : execResult.error
+            }`,
+          );
+        }
+
+        const allowed = await makeAssignableRequest();
+        const captainResult = await transitionRequestStatus({
+          requestId: allowed.requestId,
+          nextStatusId: assigned.id,
+          actorUserId: allowed.captainId,
+          actorRole: 'captain',
+        });
+        expect(captainResult.ok).toBe(true);
+      },
+    );
+  });
+
+  it('super_admin bypasses even a captain-scoped transition', async () => {
+    const { requestId } = await makeAssignableRequest();
+    const admin = await seedSuperAdmin();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { allowedRole: 'captain' },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: admin.id,
+          actorRole: 'super_admin',
+        });
+        expect(result.ok).toBe(true);
+      },
+    );
+  });
+});
+
+describe('HVA-309 validation ladder: is_active / reason / quotation', () => {
+  it('is_active=false yields TRANSITION_INACTIVE, even for super_admin', async () => {
+    const { requestId } = await makeAssignableRequest();
+    const admin = await seedSuperAdmin();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { isActive: false },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: admin.id,
+          actorRole: 'super_admin',
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toBe('TRANSITION_INACTIVE');
+          expect(result.status).toBe(400);
+        }
+      },
+    );
+  });
+
+  it('requires_reason=true rejects a missing reason and a whitespace-only one', async () => {
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { requiresReason: true },
+      async () => {
+        const missing = await makeAssignableRequest();
+        const noReason = await transitionRequestStatus({
+          requestId: missing.requestId,
+          nextStatusId: assigned.id,
+          actorUserId: missing.captainId,
+          actorRole: 'captain',
+        });
+        expect(noReason.ok).toBe(false);
+        if (!noReason.ok) expect(noReason.error).toBe('REASON_REQUIRED');
+
+        const blank = await makeAssignableRequest();
+        const whitespace = await transitionRequestStatus({
+          requestId: blank.requestId,
+          nextStatusId: assigned.id,
+          actorUserId: blank.captainId,
+          actorRole: 'captain',
+          reason: '   \t  ',
+        });
+        expect(whitespace.ok).toBe(false);
+        if (!whitespace.ok) expect(whitespace.error).toBe('REASON_REQUIRED');
+
+        const ok = await makeAssignableRequest();
+        const withReason = await transitionRequestStatus({
+          requestId: ok.requestId,
+          nextStatusId: assigned.id,
+          actorUserId: ok.captainId,
+          actorRole: 'captain',
+          reason: 'Assigning to the on-call exec',
+        });
+        expect(withReason.ok).toBe(true);
+      },
+    );
+  });
+
+  it('requires_quotation=true rejects a request with no quotation row', async () => {
+    const { requestId, captainId } = await makeAssignableRequest();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { requiresQuotation: true },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: captainId,
+          actorRole: 'captain',
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toBe('QUOTATION_REQUIRED');
+          expect(result.status).toBe(400);
+        }
+      },
+    );
+  });
+
+  it('restores the seeded config after each mutation (no bleed into later tests)', async () => {
+    const from = await getStatusStage('SUBMITTED');
+    const to = await getStatusStage('ASSIGNED');
+    const [row] = await db
+      .select({
+        allowedRole: statusTransitions.allowedRole,
+        isActive: statusTransitions.isActive,
+        requiresReason: statusTransitions.requiresReason,
+        requiresQuotation: statusTransitions.requiresQuotation,
+      })
+      .from(statusTransitions)
+      .where(
+        and(
+          eq(statusTransitions.fromStageId, from.id),
+          eq(statusTransitions.toStageId, to.id),
+        ),
+      )
+      .limit(1);
+
+    expect(row).toEqual({
+      allowedRole: 'any',
+      isActive: true,
+      requiresReason: false,
+      requiresQuotation: false,
+    });
   });
 });

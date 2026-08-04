@@ -186,3 +186,46 @@ describe('dispatch composers produce a sendable template', () => {
     }
   });
 });
+
+describe('HVA-319: the installation message states a real date', () => {
+  it('renders the scheduled moment, not the generic fallback', () => {
+    // visitMoment() looks the context key up BY NAME and falls back to "the
+    // scheduled time" when it is missing. A composer wired to the wrong key
+    // would still produce a valid, sendable, entirely useless message — the
+    // customer would be told an installation is booked without being told
+    // when. This asserts the wiring, not just that a param exists.
+    const msg = WHATSAPP_COMPOSERS.installation_scheduled!({
+      target: '+919999999999',
+      context: {
+        customerName: 'Ramesh Kumar',
+        installationScheduledAt: '2026-08-12T10:00:00.000Z', // 15:30 IST
+        trackingToken: 'tok_abc123',
+      },
+      templateKey: 'installation_scheduled',
+      targetUserName: null,
+    });
+
+    expect(msg.name).toBe('installation_scheduled');
+    const params = bodyTextParams(msg);
+    for (const text of params) expect(text.length).toBeGreaterThan(0);
+
+    const moment = params[1];
+    expect(moment).not.toMatch(/the scheduled time/i);
+    // IST is UTC+5:30 and never has DST, so 10:00Z is 15:30 on the 12th.
+    expect(moment).toMatch(/12/);
+  });
+
+  it('degrades to readable copy when no date is in context', () => {
+    // Requests scheduled before HVA-317 created the column have no datetime.
+    // Meta rejects blank parameters outright, so the fallback must still be
+    // non-empty rather than an empty slot.
+    const msg = WHATSAPP_COMPOSERS.installation_scheduled!({
+      target: '+919999999999',
+      context: { customerName: 'Ramesh Kumar' },
+      templateKey: 'installation_scheduled',
+      targetUserName: null,
+    });
+    const params = bodyTextParams(msg);
+    for (const text of params) expect(text.length).toBeGreaterThan(0);
+  });
+});

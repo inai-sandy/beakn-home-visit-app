@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { db } from '@/db/client';
 import {
   auditLog,
+  quotations,
   requestStatusHistory,
   statusTransitions,
   visitRequests,
@@ -382,6 +383,21 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       'PENDING_CAPTAIN_APPROVAL',
     ];
     for (const c of stages) {
+      // HVA-314: VISIT_COMPLETED → QUOTATION_GIVEN now requires a quotation
+      // row (migration 0085). In production only the CartPlus webhook can
+      // satisfy that — it writes the quotation inside the same transaction
+      // as the advance. Mirror that here rather than weakening the gate.
+      if (c === 'QUOTATION_GIVEN') {
+        await db
+          .insert(quotations)
+          .values({
+            visitRequestId: requestId,
+            totalOrderValuePaise: 100_000,
+            submittedByUserId: captainId,
+            source: 'portal',
+          })
+          .onConflictDoNothing();
+      }
       const target = await getStatusStage(c);
       const result = await transitionRequestStatus({
         requestId,

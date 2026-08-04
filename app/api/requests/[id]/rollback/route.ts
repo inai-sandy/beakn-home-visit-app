@@ -170,7 +170,14 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       { status: 409 },
     );
   }
-  if (reqRow.statusStageCode === 'PENDING_CAPTAIN_APPROVAL') {
+  // HVA-313: Pending Captain Approval is a one-way door for exec and captain
+  // — Reject is their path back, and it carries the mandatory reason plus the
+  // notification fan-out this route doesn't. super_admin keeps an escape
+  // hatch, gated by the transition row itself (allowed_role='super_admin',
+  // requires_reason=true, set in migration 0085), so the engine still refuses
+  // a reasonless reversal. Blocking super_admin here would have made that
+  // config unreachable — dead config of exactly the kind HVA-310 removed.
+  if (reqRow.statusStageCode === 'PENDING_CAPTAIN_APPROVAL' && !isAdmin) {
     return NextResponse.json(
       {
         ok: false,

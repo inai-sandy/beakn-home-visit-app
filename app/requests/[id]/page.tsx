@@ -389,6 +389,15 @@ export default async function RequestDetailPage({ params }: PageProps) {
     ? await loadTransitionByPair(reqRow.currentStageCode, nextStage.code)
     : null;
   const nextRequiresDatetime = nextTransition?.requiresDatetime ?? false;
+  // HVA-314: the engine refuses this transition with QUOTATION_REQUIRED when
+  // the row demands a quotation and none exists. Surface that as a disabled
+  // button carrying the reason, rather than letting the exec click into a
+  // 400. Quotations are raised and revised in CartPlus; the portal never
+  // mints one, so the only way to satisfy this is an incoming order.
+  const advanceBlockedReason =
+    nextTransition?.requiresQuotation && !quotationMeta
+      ? "Quotation must come from CartPlus"
+      : null;
   // HVA-310: the rollback pair's own config. The page previously loaded
   // only the forward pair, so the Rollback button was decided with no
   // reference to `status_transitions` at all — it ignored both the row's
@@ -622,6 +631,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
           name: nextStage.name,
         }}
         requiresDatetime={nextRequiresDatetime}
+        blockedReason={advanceBlockedReason}
       />
     );
   } else if (actionVis.showAssignExec) {

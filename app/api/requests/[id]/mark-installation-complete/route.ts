@@ -197,15 +197,62 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     );
   }
 
-  // 7. Run the transition. allowForwardSkip=true so a seq 7 → 9 jump
-  //    works (still forward-only). reason flows to request_status_history.
+  // 7. HVA-313: step THROUGH "installation finished", not over it.
+  //
+  //    This used to be a single seq 7 → 9 jump via the HVA-68 forward_skip
+  //    row. Migration 0085 deactivates that row (locked decision 21): a
+  //    captain must never be asked to approve work nobody recorded as
+  //    finished, and the skip left no INSTALLATION_CONFIGURATION_DONE row in
+  //    request_status_history at all — the timeline showed the installation
+  //    going straight from scheduled to awaiting approval.
+  //
+  //    The exec still taps once. From INSTALLATION_SCHEDULED we run 7 → 8 and
+  //    then 8 → 9. From INSTALLATION_CONFIGURATION_DONE (already finished)
+  //    only the second hop runs, exactly as before.
+  //
+  //    Notifications are unchanged: 7 → 8 carries no emits_event and 8 → 9
+  //    carries request.pending_approval, so the captain is still told once.
+  if (reqRow.statusStageCode === 'INSTALLATION_SCHEDULED') {
+    const [finishedStage] = await db
+      .select({ id: statusStages.id })
+      .from(statusStages)
+      .where(eq(statusStages.code, 'INSTALLATION_CONFIGURATION_DONE'))
+      .limit(1);
+    if (!finishedStage) {
+      reqLog.error({}, 'installation_configuration_done_stage_not_seeded');
+      return NextResponse.json(
+        { ok: false, error: 'Service temporarily unavailable.' },
+        { status: 503 },
+      );
+    }
+
+    const finishResult = await transitionRequestStatus({
+      requestId: requestUuid,
+      nextStatusId: finishedStage.id,
+      actorUserId,
+      actorRole,
+      reason: note ?? null,
+      ipAddress:
+        reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+      userAgent: reqHeaders.get('user-agent'),
+    });
+    if (!finishResult.ok) {
+      reqLog.info(
+        { requestUuid, transitionError: finishResult.error },
+        'mark_installation_finished_transition_failed',
+      );
+      const { status, ...body } = finishResult;
+      return NextResponse.json(body, { status });
+    }
+  }
+
+  // 7b. Hand off to the captain. reason flows to request_status_history.
   const result = await transitionRequestStatus({
     requestId: requestUuid,
     nextStatusId: targetStage.id,
     actorUserId,
     actorRole,
     reason: note ?? null,
-    allowForwardSkip: true,
     ipAddress: reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
     userAgent: reqHeaders.get('user-agent'),
   });

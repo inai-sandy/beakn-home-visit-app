@@ -14,6 +14,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
+import { checkTokenRateLimit } from '@/lib/rate-limit';
 import { cancelLinkedVisitTask } from '@/lib/visit-schedule/task-sync';
 import {
   TRACK_CANCEL_REASON_LABELS,
@@ -49,6 +50,11 @@ import {
 //   - notification engine: 'request.cancelled_by_customer' event for
 //     fan-out to captain + admin (HVA-50 will seed rules)
 // =============================================================================
+
+// HVA-322: a real customer cancels once. This only ever catches abuse or a
+// client stuck in a retry loop.
+const RATE_LIMIT_WINDOW = '24 hours';
+const RATE_LIMIT_MAX = 10;
 
 const paramsSchema = z.object({
   token: z
@@ -104,6 +110,41 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     );
   }
   const { reason, note } = bodyParsed.data;
+
+  // HVA-322: same story as the reschedule endpoint — no session, the token in
+  // the URL is the only credential. Cancelling is terminal and fires a
+  // customer WhatsApp plus in-app and push to exec, captain and every
+  // super_admin, so an unquotaed link is both a data-integrity and a
+  // notification-amplification hazard. Checked before any write.
+  const rate = await checkTokenRateLimit({
+    scope: 'track_cancel',
+    token: paramsParsed.data.token,
+    window: RATE_LIMIT_WINDOW,
+    max: RATE_LIMIT_MAX,
+    ipAddress:
+      reqHeaders.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null,
+  });
+  if (!rate.ok) {
+    // Fail closed on a DB error — a limiter that silently stops limiting is
+    // worse than a visible outage.
+    if (rate.reason === 'unavailable') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Service temporarily unavailable. Please try again shortly.',
+        },
+        { status: 503 },
+      );
+    }
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Too many attempts for this request today. Please call your executive.',
+      },
+      { status: 429 },
+    );
+  }
 
   // 3. Load request by token.
   const [reqRow] = await db

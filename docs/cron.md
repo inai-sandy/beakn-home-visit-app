@@ -17,8 +17,24 @@ re-install them after a host rebuild.
 | `0 16 * * *` | 21:30 | `/api/cron/day-close-reminder` | HVA-155 Part C | WhatsApp every exec who started a day plan today but hasn't closed it. Fires the `cron.day_close_reminder` event → `exec_day_close_reminder` template. |
 | `1 16 * * *` | 21:31 | `/api/cron/roll-over-tasks` | HVA-169 | Stamp `rolled_over_at` on pending tasks whose `task_date` < today IST. |
 | `25 18 * * *` | 23:55 | `/api/cron/auto-close-day` | HVA-293 | Auto-close any day plan still open (`plan_date <= today IST`), setting `auto_closed = true`. Unupdated tasks stay `pending` — next-day roll-over picks them up. |
+| `15 * * * *` | hourly | `/api/cron/escalate-stale-approvals` | HVA-224, scheduled by HVA-312 | Escalate requests sitting at `PENDING_CAPTAIN_APPROVAL` past `pending_captain_approval_timeout_hours`. Fires `request.approval_overdue` → in-app + push to the owning city captain. Deduped via an `approval_escalated` audit row, so one breach escalates once. |
+| `0 21 * * *` | 02:30 | `/api/cron/prune-audit-log` | HVA-224, scheduled by HVA-312 | Delete `audit_log` rows older than `audit_log_retention_months`. `0` disables pruning. |
 
 Add new rows above as new cron-fired endpoints ship.
+
+> **This table is not documentation — it is the install checklist.**
+>
+> `escalate-stale-approvals` and `prune-audit-log` shipped with HVA-224:
+> job module, route, config knob, composer, passing tests. Neither was added
+> here, and neither was added to the crontab. They sat dead for months while
+> `pending_captain_approval_timeout_hours` and `audit_log_retention_months`
+> sat in the admin settings UI doing nothing, and two code comments claimed
+> the jobs "run hourly" and "run daily at 02:30 IST".
+>
+> HVA-312 found them by diffing `lib/cron/*` against `crontab -l`. A green
+> test suite cannot tell you that nobody is calling your endpoint. **Adding
+> the row here and the crontab line is part of shipping a cron job, not
+> paperwork afterwards.**
 
 ---
 

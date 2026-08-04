@@ -66,7 +66,7 @@ export default defineConfig({
       // HVA-261: the golden journey MUTATES its seeded request (assign →
       // schedule → quote → pay); running it per-viewport would race three
       // browsers over one row. Desktop runs it; the other viewports skip.
-      testIgnore: /golden-journey/,
+      testIgnore: /golden-journey|workflow-gates/,
     },
     {
       name: 'mobile',
@@ -81,7 +81,7 @@ export default defineConfig({
         isMobile: true,
         hasTouch: true,
       },
-      testIgnore: /golden-journey/,
+      testIgnore: /golden-journey|workflow-gates/,
     },
   ],
   // NOTE: no `webServer` block. The runner script in scripts/run-e2e.ts

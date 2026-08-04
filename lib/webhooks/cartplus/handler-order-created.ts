@@ -140,7 +140,18 @@ export async function handleCartplusOrderCreated(
       //     order for the same customer finds none (the first order
       //     claimed it — it now has a quotation) and falls through to a
       //     brand-new request, which is exactly the desired behaviour.
-      const [mergeTarget] = await tx
+      //
+      // HVA-315: merge ONLY when there is exactly one candidate. Sandeep's
+      // rule — when a customer has several open quote-less requests, we
+      // cannot know which one the order belongs to, so we must not guess.
+      // Picking the newest (the previous behaviour) silently attached the
+      // order to an unrelated request and left the real one looking
+      // untouched. Two or more candidates now falls through to create-new,
+      // leaving every existing request exactly as it was.
+      //
+      // LIMIT 2 is deliberate: we only need to distinguish "exactly one"
+      // from "more than one", not count them.
+      const mergeCandidates = await tx
         .select({
           id: visitRequests.id,
           currentStageId: visitRequests.statusStageId,
@@ -160,7 +171,21 @@ export async function handleCartplusOrderCreated(
           ),
         )
         .orderBy(desc(visitRequests.createdAt))
-        .limit(1);
+        .limit(2);
+
+      const mergeTarget =
+        mergeCandidates.length === 1 ? mergeCandidates[0] : undefined;
+
+      if (mergeCandidates.length > 1) {
+        handlerLog.info(
+          {
+            webhookEventId,
+            contactId,
+            candidateCount: mergeCandidates.length,
+          },
+          'cartplus_merge_ambiguous_creating_new_request',
+        );
+      }
 
       let requestId: string;
       let merged: boolean;

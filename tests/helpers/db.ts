@@ -1,5 +1,5 @@
 import { hashPassword } from 'better-auth/crypto';
-import { eq, sql as sqlBuilder } from 'drizzle-orm';
+import { and, eq, sql as sqlBuilder } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
@@ -8,6 +8,7 @@ import {
   cities,
   salesExecutives,
   statusStages,
+  statusTransitions,
   users,
   visitRequests,
 } from '@/db/schema';
@@ -342,4 +343,90 @@ export async function seedVisitRequest(
     })
     .returning({ id: visitRequests.id });
   return row;
+}
+
+// -----------------------------------------------------------------------------
+// status_transitions config helpers (HVA-309 / HVA-317)
+// -----------------------------------------------------------------------------
+//
+// `status_transitions` is deliberately NOT in SAFE_TRUNCATE_TABLES — it is
+// migration-seeded and survives truncateAll(). So any test that mutates it
+// must restore, or the change bleeds into every later test in the same worker
+// DB: green in isolation, wrong (or wrongly green) in a full run.
+//
+// These live here rather than in one test file because four suites now need
+// them, and the house rule is not to duplicate constants across files.
+
+export interface TransitionFlagPatch {
+  allowedRole?: string;
+  isActive?: boolean;
+  requiresReason?: boolean;
+  requiresQuotation?: boolean;
+  requiresDatetime?: boolean;
+}
+
+/** Apply flags to one transition for the duration of `fn`, then restore them.
+ *  Restores in a `finally` so a failing assertion still cleans up. */
+export async function withTransitionFlags<T>(
+  fromCode: string,
+  toCode: string,
+  patch: TransitionFlagPatch,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const from = await getStatusStage(fromCode);
+  const to = await getStatusStage(toCode);
+  const target = and(
+    eq(statusTransitions.fromStageId, from.id),
+    eq(statusTransitions.toStageId, to.id),
+  );
+
+  const [original] = await db
+    .select({
+      allowedRole: statusTransitions.allowedRole,
+      isActive: statusTransitions.isActive,
+      requiresReason: statusTransitions.requiresReason,
+      requiresQuotation: statusTransitions.requiresQuotation,
+      requiresDatetime: statusTransitions.requiresDatetime,
+    })
+    .from(statusTransitions)
+    .where(target)
+    .limit(1);
+  if (!original) {
+    throw new Error(`status_transitions row missing for ${fromCode} → ${toCode}`);
+  }
+
+  await db.update(statusTransitions).set(patch).where(target);
+  try {
+    return await fn();
+  } finally {
+    await db.update(statusTransitions).set(original).where(target);
+  }
+}
+
+/**
+ * Run `fn` with the two datetime-gated transitions temporarily ungated.
+ *
+ * HVA-317 made the engine enforce `requires_datetime`, which it had always
+ * read and never acted on. Production reaches those transitions through
+ * scheduleVisitAction — the date picker, which owns the datetime write and
+ * the auto-task — and never through transitionRequestStatus.
+ *
+ * Several fixtures use the engine purely to PARK a request at a later stage
+ * so a backward transition can be exercised. They clear the gate for the walk
+ * rather than weakening it, which would hide the very bug the gate exists to
+ * prevent.
+ */
+export async function withDatetimeGatesOff<T>(fn: () => Promise<T>): Promise<T> {
+  return withTransitionFlags(
+    'ASSIGNED',
+    'VISIT_SCHEDULED',
+    { requiresDatetime: false },
+    () =>
+      withTransitionFlags(
+        'ORDER_CONFIRMED',
+        'INSTALLATION_SCHEDULED',
+        { requiresDatetime: false },
+        fn,
+      ),
+  );
 }

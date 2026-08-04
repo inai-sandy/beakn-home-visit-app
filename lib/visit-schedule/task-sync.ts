@@ -25,7 +25,27 @@ import { VISIT_TASK_TYPES } from '@/lib/metrics/constants';
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-const VISIT_TYPES = VISIT_TASK_TYPES as unknown as readonly (typeof VISIT_TASK_TYPES)[number][];
+// HVA-318: task types that represent a SCHEDULED APPOINTMENT attached to a
+// request — the set every helper in this file operates on.
+//
+// This was previously VISIT_TASK_TYPES, which omits 'Installation &
+// Activation'. That made all three helpers below silent no-ops for
+// installation tasks: reassigning an exec did not move their installation
+// work, cancelling a request did not cancel the installation task, and
+// rescheduling left it anchored to the old day.
+//
+// It is deliberately NOT the same list as VISIT_TASK_TYPES. That constant is
+// a METRICS concept — "what counts as a visit" for conversion and visit
+// counts — and it is duplicated across six report/dashboard files. Widening
+// it would silently change reported numbers, which is a different decision
+// from fixing task sync.
+const APPOINTMENT_TASK_TYPES = [
+  ...VISIT_TASK_TYPES,
+  'Installation & Activation',
+] as const;
+
+const VISIT_TYPES =
+  APPOINTMENT_TASK_TYPES as unknown as readonly (typeof VISIT_TASK_TYPES)[number][];
 
 /** Find (or create) the OPEN day plan for an exec on an IST date. Returns the
  *  plan id, or null when the matching plan exists but is closed (we never move

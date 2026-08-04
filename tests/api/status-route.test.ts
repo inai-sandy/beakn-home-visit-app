@@ -129,7 +129,23 @@ describe('POST /api/requests/[id]/status — HVA-139 Submitted→Assigned guard'
     expect(body.error).toBe('WRONG_ROUTE');
   });
 
-  it('lets an assigned exec advance ASSIGNED → VISIT_SCHEDULED unchanged (regression)', async () => {
+  // HVA-317 CHANGES THIS TEST'S EXPECTATION ON PURPOSE.
+  //
+  // It previously asserted the generic status route advanced
+  // ASSIGNED → VISIT_SCHEDULED. That transition has carried
+  // requires_datetime=true since the workflow table was seeded, but the
+  // engine read the flag and never enforced it — so the route would happily
+  // move the stage with NO date, leaving a "scheduled" visit that was
+  // scheduled for nothing. That is the same class of bug as the installation
+  // stage having no date at all.
+  //
+  // Visits and installations are scheduled through scheduleVisitAction, which
+  // owns the picker, writes the datetime and creates the auto-task. The UI
+  // already routes there: AdvanceStatusButton opens the dialog instead of
+  // POSTing when requires_datetime is on. So no user-facing path regresses —
+  // what changes is that the bare HTTP call is now refused instead of
+  // silently doing the wrong thing.
+  it('refuses a dateless ASSIGNED → VISIT_SCHEDULED with DATETIME_REQUIRED (HVA-317)', async () => {
     const city = await getOrCreateCity('Bangalore');
     const captain = await seedCaptain();
     await db
@@ -155,13 +171,19 @@ describe('POST /api/requests/[id]/status — HVA-139 Submitted→Assigned guard'
       buildReq({ nextStatusId: visitScheduled.id }),
       buildCtx(req.id),
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      ok: boolean;
-      currentStage?: { sequenceNumber: number };
-    };
-    expect(body.ok).toBe(true);
-    expect(body.currentStage?.sequenceNumber).toBe(3);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { ok: boolean; error: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe('DATETIME_REQUIRED');
+
+    // And the stage must NOT have moved — a refusal that still mutated would
+    // be worse than the original bug.
+    const [after] = await db
+      .select({ statusStageId: visitRequests.statusStageId })
+      .from(visitRequests)
+      .where(eq(visitRequests.id, req.id))
+      .limit(1);
+    expect(after!.statusStageId).not.toBe(visitScheduled.id);
   });
 });
 

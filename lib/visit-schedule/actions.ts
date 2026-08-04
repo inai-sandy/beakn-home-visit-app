@@ -18,6 +18,9 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import { log } from '@/lib/logger';
+
+const scheduleActionLog = log.child({ component: 'visit-schedule.action' });
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { dispatchNotification } from '@/lib/notifications/engine';
@@ -148,6 +151,11 @@ export async function scheduleVisitAction(
       whatsappOptIn: visitRequests.whatsappOptIn,
       address: visitRequests.address,
       statusStageId: visitRequests.statusStageId,
+      // HVA-317: the audit before-state used to hardcode scheduledAt: null,
+      // so an audit row claimed there had been no previous date even when
+      // one was being replaced. Read the real values.
+      visitScheduledAt: visitRequests.visitScheduledAt,
+      installationScheduledAt: visitRequests.installationScheduledAt,
       currentStageCode: statusStages.code,
       currentStageSeq: statusStages.sequenceNumber,
       cityName: cities.name,
@@ -197,6 +205,7 @@ export async function scheduleVisitAction(
       toStageSeq: toStage.sequenceNumber,
       isActive: statusTransitions.isActive,
       requiresDatetime: statusTransitions.requiresDatetime,
+      writesDatetimeColumn: statusTransitions.writesDatetimeColumn,
       autoTaskType: statusTransitions.autoTaskType,
       emitsEvent: statusTransitions.emitsEvent,
     })
@@ -245,8 +254,37 @@ export async function scheduleVisitAction(
     )
     .limit(1);
 
-  const writesVisitScheduledAt =
-    transitionRow.toStageCode === 'VISIT_SCHEDULED';
+  // HVA-317: which datetime column this transition writes is now config, not
+  // a hardcoded stage check. The old line was:
+  //
+  //   const writesVisitScheduledAt = transitionRow.toStageCode === 'VISIT_SCHEDULED';
+  //
+  // which meant the installation transition could never store its date — the
+  // reason installations had no date at all despite migration 0070 wiring up
+  // their auto-task.
+  //
+  // The allow-list is deliberate. writes_datetime_column is admin-visible
+  // data and this value reaches a Drizzle `.set()`, so an arbitrary string
+  // must never become a column name. Anything unrecognised schedules the
+  // stage move without a datetime rather than failing the exec's action.
+  const DATETIME_COLUMNS = {
+    visit_scheduled_at: 'visitScheduledAt',
+    installation_scheduled_at: 'installationScheduledAt',
+  } as const;
+  const datetimeColumn = transitionRow.writesDatetimeColumn
+    ? DATETIME_COLUMNS[
+        transitionRow.writesDatetimeColumn as keyof typeof DATETIME_COLUMNS
+      ] ?? null
+    : null;
+  if (transitionRow.writesDatetimeColumn && !datetimeColumn) {
+    scheduleActionLog.warn(
+      {
+        requestId: data.requestId,
+        writesDatetimeColumn: transitionRow.writesDatetimeColumn,
+      },
+      'schedule_unknown_datetime_column',
+    );
+  }
   const taskTypeDisplay = transitionRow.autoTaskType
     ? TASK_TYPE_DISPLAY[transitionRow.autoTaskType] ?? null
     : null;
@@ -255,13 +293,14 @@ export async function scheduleVisitAction(
   let taskId: string | null = null;
   try {
     await db.transaction(async (tx) => {
-      // 1) status flip — write visit_scheduled_at only on the visit move
+      // 1) status flip — write whichever datetime column this transition
+      //    owns (visit_scheduled_at, installation_scheduled_at, or none).
       const updateValues: Record<string, unknown> = {
         statusStageId: transitionRow.toStageId,
         updatedAt: now,
       };
-      if (writesVisitScheduledAt) {
-        updateValues.visitScheduledAt = target;
+      if (datetimeColumn) {
+        updateValues[datetimeColumn] = target;
       }
       await tx
         .update(visitRequests)
@@ -314,17 +353,20 @@ export async function scheduleVisitAction(
 
   // Audit (always — every scheduling action is recordable)
   await logEvent({
+    // Keep 'visit_scheduled' for the visit path so existing audit queries and
+    // the allow-list keep working; everything else is a status_change.
     eventType:
-      transitionRow.toStageCode === 'VISIT_SCHEDULED'
-        ? 'visit_scheduled'
-        : 'status_change',
+      datetimeColumn === 'visitScheduledAt' ? 'visit_scheduled' : 'status_change',
     actorUserId: actor.id,
     actorRole: actor.role as 'sales_executive' | 'captain' | 'super_admin',
     targetEntityType: 'visit_request',
     targetEntityId: data.requestId,
     beforeState: {
       statusStageCode: reqRow.currentStageCode,
-      scheduledAt: null,
+      scheduledAt:
+        datetimeColumn === 'installationScheduledAt'
+          ? (reqRow.installationScheduledAt?.toISOString() ?? null)
+          : (reqRow.visitScheduledAt?.toISOString() ?? null),
     },
     afterState: {
       statusStageCode: transitionRow.toStageCode,
@@ -352,11 +394,21 @@ export async function scheduleVisitAction(
         cityCaptainUserId: reqRow.cityCaptainUserId,
         execUserId: reqRow.assignedExecUserId,
       };
-      // Preserve the existing field name for the visit-scheduled event
-      // so the WhatsApp template body params keep resolving (the template
-      // composer reads visitScheduledAt by name).
-      if (writesVisitScheduledAt) {
+      // Preserve the existing field name for the visit-scheduled event so the
+      // WhatsApp template body params keep resolving (the composer reads
+      // visitScheduledAt by name), and expose the installation date under its
+      // own key.
+      //
+      // HVA-317: `scheduledAt` is also always present, so a composer for any
+      // future scheduled thing has one stable key to read and does not need a
+      // new branch here. Without this the installation composer would render
+      // visitMoment()'s fallback string — "the scheduled time" — on every
+      // send, telling the customer nothing.
+      if (datetimeColumn === 'visitScheduledAt') {
         context.visitScheduledAt = target.toISOString();
+      }
+      if (datetimeColumn === 'installationScheduledAt') {
+        context.installationScheduledAt = target.toISOString();
       }
       await dispatchNotification(transitionRow.emitsEvent, context);
     } catch {

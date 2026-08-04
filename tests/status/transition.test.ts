@@ -30,6 +30,36 @@ import {
 // test means the full vertical works.
 // =============================================================================
 
+/**
+ * HVA-317 fixture helper.
+ *
+ * Two transitions carry requires_datetime — ASSIGNED → VISIT_SCHEDULED and,
+ * since migration 0086, ORDER_CONFIRMED → INSTALLATION_SCHEDULED. The engine
+ * now refuses both with DATETIME_REQUIRED, because production reaches them
+ * through scheduleVisitAction (which owns the picker, the datetime write and
+ * the auto-task) and never through transitionRequestStatus.
+ *
+ * The fixtures below only need a request PARKED at a later stage so a
+ * backward transition can be exercised. Rather than weaken the gate, they
+ * clear it for the duration of the walk and restore it afterwards — the same
+ * save/restore discipline the rest of this file uses, because
+ * status_transitions survives truncateAll().
+ */
+async function withDatetimeGatesOff<T>(fn: () => Promise<T>): Promise<T> {
+  return withTransitionConfig(
+    'ASSIGNED',
+    'VISIT_SCHEDULED',
+    { requiresDatetime: false },
+    () =>
+      withTransitionConfig(
+        'ORDER_CONFIRMED',
+        'INSTALLATION_SCHEDULED',
+        { requiresDatetime: false },
+        fn,
+      ),
+  );
+}
+
 // HVA-309: seedCaptain/seedExecutive default to FIXED phone numbers and
 // users.phone is UNIQUE, so a test that builds two scenarios (needed to
 // assert one role is refused while another is allowed under the same
@@ -251,17 +281,19 @@ describe('HVA-141 transition service: allowRollback', () => {
     const { requestId, captainId } = await makeAssignableRequest();
     const assigned = await getStatusStage('ASSIGNED');
     const visitScheduled = await getStatusStage('VISIT_SCHEDULED');
-    await transitionRequestStatus({
-      requestId,
-      nextStatusId: assigned.id,
-      actorUserId: captainId,
-      actorRole: 'captain',
-    });
-    await transitionRequestStatus({
-      requestId,
-      nextStatusId: visitScheduled.id,
-      actorUserId: captainId,
-      actorRole: 'captain',
+    await withDatetimeGatesOff(async () => {
+      await transitionRequestStatus({
+        requestId,
+        nextStatusId: assigned.id,
+        actorUserId: captainId,
+        actorRole: 'captain',
+      });
+      await transitionRequestStatus({
+        requestId,
+        nextStatusId: visitScheduled.id,
+        actorUserId: captainId,
+        actorRole: 'captain',
+      });
     });
     return { requestId, captainId };
   }
@@ -382,6 +414,10 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
       'INSTALLATION_CONFIGURATION_DONE',
       'PENDING_CAPTAIN_APPROVAL',
     ];
+    // HVA-317: the walk crosses two datetime-gated transitions. Production
+    // reaches those through the scheduling dialog, not this function, so the
+    // fixture clears the gate for the walk and restores it afterwards.
+    await withDatetimeGatesOff(async () => {
     for (const c of stages) {
       // HVA-314: VISIT_COMPLETED → QUOTATION_GIVEN now requires a quotation
       // row (migration 0085). In production only the CartPlus webhook can
@@ -421,6 +457,7 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
         throw new Error(`fixture: failed to advance to ${c}: ${result.error}`);
       if (c === code) break;
     }
+    });
     return { requestId, captainId, execId };
   }
 
@@ -539,6 +576,9 @@ interface TransitionConfigPatch {
   isActive?: boolean;
   requiresReason?: boolean;
   requiresQuotation?: boolean;
+  /** HVA-317. Must also be in the save/restore select below, or a test that
+   *  patches it leaks the flag into every later test in this worker DB. */
+  requiresDatetime?: boolean;
 }
 
 async function withTransitionConfig<T>(
@@ -560,6 +600,7 @@ async function withTransitionConfig<T>(
       isActive: statusTransitions.isActive,
       requiresReason: statusTransitions.requiresReason,
       requiresQuotation: statusTransitions.requiresQuotation,
+      requiresDatetime: statusTransitions.requiresDatetime,
     })
     .from(statusTransitions)
     .where(target)
@@ -814,5 +855,50 @@ describe('HVA-309 validation ladder: is_active / reason / quotation', () => {
       requiresReason: false,
       requiresQuotation: false,
     });
+  });
+});
+
+describe('HVA-317 validation ladder: requires_datetime', () => {
+  it('refuses a dateless advance when the transition needs a picked date', async () => {
+    // requires_datetime was selected by the engine but NEVER enforced — its
+    // only reference was the SELECT. A transition marked "needs a date" could
+    // still be advanced through the generic /status route, leaving the stage
+    // moved and nothing scheduled. That is exactly the hole the installation
+    // stage sat in: migration 0070 wired up its auto_task_type and
+    // emits_event, and neither ever fired, because the only path honouring
+    // them is the date picker.
+    //
+    // Scheduling runs through scheduleVisitAction, which does not come back
+    // through this function, so arriving here with requires_datetime on means
+    // the caller took the wrong path.
+    const { requestId, captainId } = await makeAssignableRequest();
+    const assigned = await getStatusStage('ASSIGNED');
+
+    await withTransitionConfig(
+      'SUBMITTED',
+      'ASSIGNED',
+      { requiresDatetime: true },
+      async () => {
+        const result = await transitionRequestStatus({
+          requestId,
+          nextStatusId: assigned.id,
+          actorUserId: captainId,
+          actorRole: 'captain',
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error).toBe('DATETIME_REQUIRED');
+          expect(result.status).toBe(400);
+        }
+      },
+    );
+
+    // The stage must not have moved.
+    const [vr] = await db
+      .select({ statusStageId: visitRequests.statusStageId })
+      .from(visitRequests)
+      .where(eq(visitRequests.id, requestId))
+      .limit(1);
+    expect(vr.statusStageId).not.toBe(assigned.id);
   });
 });

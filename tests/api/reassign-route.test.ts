@@ -33,6 +33,7 @@ import {
   seedExecutive,
   seedSuperAdmin,
   seedVisitRequest,
+  withDatetimeGatesOff,
 } from '../helpers/db';
 
 // =============================================================================
@@ -121,12 +122,18 @@ async function setupAssignedAtVisitScheduled() {
         .where(eq(visitRequests.id, req.id));
     },
   });
+  // HVA-317: this hop is datetime-gated and the engine now refuses it —
+  // production schedules a visit through the date picker, not this path. The
+  // fixture only needs the request parked at VISIT_SCHEDULED so REASSIGN can
+  // be tested, so it ungates the hop and restores afterwards.
   const visitScheduled = await getStatusStage('VISIT_SCHEDULED');
-  await transitionRequestStatus({
-    requestId: req.id,
-    nextStatusId: visitScheduled.id,
-    actorUserId: execA.id,
-    actorRole: 'sales_executive',
+  await withDatetimeGatesOff(async () => {
+    await transitionRequestStatus({
+      requestId: req.id,
+      nextStatusId: visitScheduled.id,
+      actorUserId: execA.id,
+      actorRole: 'sales_executive',
+    });
   });
 
   return { city, captain, execA, execB, request: req };

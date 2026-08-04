@@ -29,12 +29,20 @@ describe('loadAllTransitions', () => {
     expect(byKind.specific_backward).toBe(1);
   });
 
-  it('only ASSIGNED -> VISIT_SCHEDULED has requires_datetime=true after seed', async () => {
+  it('the two scheduled transitions have requires_datetime=true after seed', async () => {
+    // HVA-317 added the second. Installation had auto_task_type and
+    // emits_event wired since migration 0070 but requires_datetime=false, so
+    // the picker never appeared, the date had nowhere to be stored, and the
+    // Installation & Activation task was never created.
     const all = await loadAllTransitions();
-    const datetimeRows = all.filter((t) => t.requiresDatetime);
-    expect(datetimeRows.length).toBe(1);
-    expect(datetimeRows[0]!.fromCode).toBe('ASSIGNED');
-    expect(datetimeRows[0]!.toCode).toBe('VISIT_SCHEDULED');
+    const datetimeRows = all
+      .filter((t) => t.requiresDatetime)
+      .map((t) => `${t.fromCode} → ${t.toCode}`)
+      .sort();
+    expect(datetimeRows).toEqual([
+      'ASSIGNED → VISIT_SCHEDULED',
+      'ORDER_CONFIRMED → INSTALLATION_SCHEDULED',
+    ]);
   });
 
   it('HVA-68 forward_skip pair is INSTALLATION_SCHEDULED -> PENDING_CAPTAIN_APPROVAL', async () => {

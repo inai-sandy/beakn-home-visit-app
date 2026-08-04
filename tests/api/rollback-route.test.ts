@@ -32,6 +32,7 @@ import {
   seedExecutive,
   seedSuperAdmin,
   seedVisitRequest,
+  withDatetimeGatesOff,
 } from '../helpers/db';
 
 // =============================================================================
@@ -82,7 +83,14 @@ async function setupWithExecAtVisitCompleted() {
 
   // Advance through to VISIT_COMPLETED via the service so history rows
   // exist for each transition.
+  //
+  // HVA-317: the ASSIGNED → VISIT_SCHEDULED hop is datetime-gated and the
+  // engine now refuses it — production schedules through the date picker,
+  // not this path. This fixture only needs the request parked at
+  // VISIT_COMPLETED so the ROLLBACK can be tested, so it ungates the walk
+  // and restores afterwards rather than weakening the gate.
   const stages = ['ASSIGNED', 'VISIT_SCHEDULED', 'VISIT_COMPLETED'] as const;
+  await withDatetimeGatesOff(async () => {
   for (const code of stages) {
     const target = await getStatusStage(code);
     const result = await transitionRequestStatus({
@@ -108,6 +116,7 @@ async function setupWithExecAtVisitCompleted() {
       throw new Error(`fixture: failed to advance to ${code}: ${result.error}`);
     }
   }
+  });
 
   return { city, captain, exec, request: req };
 }

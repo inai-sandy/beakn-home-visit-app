@@ -1,0 +1,158 @@
+import { asc, eq } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import { describe, expect, it } from 'vitest';
+
+import { db } from '@/db/client';
+import { statusStages, statusTransitions } from '@/db/schema';
+import { computeActionVisibility } from '@/lib/request-detail';
+
+// =============================================================================
+// HVA-310: the UI's button rules must agree with the seeded workflow config
+// =============================================================================
+//
+// The unit tests in request-detail.test.ts prove the gate logic works for
+// hand-written config. This file runs it against the REAL seeded
+// `status_transitions` rows, which is where drift actually happens: someone
+// changes a row in a migration (or an admin flips it at
+// /admin/settings/workflow/transitions) and the UI silently disagrees.
+//
+// `status_transitions` is not in SAFE_TRUNCATE_TABLES, so the migration seed
+// is present here and these assertions run against production-shaped data.
+//
+// Two guards:
+//   1. every row's allowed_role is a value the app actually understands —
+//      the column is a free varchar with no CHECK constraint (HVA-313 adds
+//      one), and a typo would silently lock the transition to super_admin;
+//   2. an explicit inventory of every row that is NOT wide open. Changing
+//      the workflow is fine, but it must be a deliberate, reviewed edit to
+//      this list rather than something that lands unnoticed.
+// =============================================================================
+
+const EXEC_ID = '11111111-1111-7111-8111-111111111111';
+const CAPTAIN_ID = '22222222-2222-7222-8222-222222222222';
+
+/** Values the engine and the admin UI both understand. */
+const KNOWN_ALLOWED_ROLES = new Set([
+  'any',
+  'sales_executive',
+  'captain',
+  'super_admin',
+]);
+
+interface SeededTransition {
+  fromCode: string;
+  toCode: string;
+  kind: string;
+  allowedRole: string;
+  isActive: boolean;
+}
+
+async function loadSeededTransitions(): Promise<SeededTransition[]> {
+  const fromStage = alias(statusStages, 'from_stage');
+  const toStage = alias(statusStages, 'to_stage');
+  return db
+    .select({
+      fromCode: fromStage.code,
+      toCode: toStage.code,
+      kind: statusTransitions.kind,
+      allowedRole: statusTransitions.allowedRole,
+      isActive: statusTransitions.isActive,
+    })
+    .from(statusTransitions)
+    .innerJoin(fromStage, eq(fromStage.id, statusTransitions.fromStageId))
+    .innerJoin(toStage, eq(toStage.id, statusTransitions.toStageId))
+    .orderBy(asc(fromStage.sequenceNumber), asc(toStage.sequenceNumber));
+}
+
+describe('seeded status_transitions are expressible by the UI', () => {
+  it('finds the seeded workflow at all', async () => {
+    // Canary — status_transitions survives truncateAll, so an empty result
+    // means the harness changed and every assertion below is vacuous.
+    const rows = await loadSeededTransitions();
+    expect(rows.length).toBeGreaterThan(15);
+  });
+
+  it('uses only allowed_role values the engine understands', async () => {
+    const rows = await loadSeededTransitions();
+    const unknown = rows
+      .filter((r) => !KNOWN_ALLOWED_ROLES.has(r.allowedRole))
+      .map((r) => `${r.fromCode} → ${r.toCode}: '${r.allowedRole}'`);
+    // A value outside this set matches no actor role, so the transition
+    // becomes super_admin-only by accident rather than by decision.
+    expect(unknown).toEqual([]);
+  });
+
+  it('inventories every transition that is restricted or disabled', async () => {
+    const rows = await loadSeededTransitions();
+    const restricted = rows
+      .filter((r) => r.allowedRole !== 'any' || !r.isActive)
+      .map(
+        (r) =>
+          `${r.fromCode} → ${r.toCode} [${r.kind}] role=${r.allowedRole} active=${r.isActive}`,
+      );
+
+    // Deliberately an exact-match assertion. Widening or narrowing who can
+    // move a request is a product decision; it should surface in review as
+    // a diff to this list, not slip through because nothing asserted on it.
+    //
+    // HVA-313 will add the one-way-door rows here (Order Confirmed and
+    // Pending Captain Approval rollbacks → super_admin, forward_skip → off).
+    expect(restricted).toEqual([
+      'PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED [specific_backward] role=captain active=true',
+    ]);
+  });
+});
+
+describe('UI visibility agrees with the seeded config', () => {
+  it('never offers Rollback for a row the engine would refuse', async () => {
+    const rows = await loadSeededTransitions();
+    const offenders: string[] = [];
+    let offeredCount = 0;
+
+    for (const row of rows) {
+      // Only backward pairs can drive the Rollback button.
+      if (row.kind !== 'rollback') continue;
+
+      for (const actor of [
+        { role: 'sales_executive' as const, userId: EXEC_ID },
+        { role: 'captain' as const, userId: CAPTAIN_ID },
+      ]) {
+        const vis = computeActionVisibility({
+          role: actor.role,
+          userId: actor.userId,
+          currentStageCode: row.fromCode,
+          assignedExecUserId: EXEC_ID,
+          cityCaptainUserId: CAPTAIN_ID,
+          cancelledAt: null,
+          hasNextStage: true,
+          hasPreviousStage: true,
+          previousTransition: {
+            allowedRole: row.allowedRole,
+            isActive: row.isActive,
+          },
+        });
+
+        const engineWouldRefuse =
+          !row.isActive ||
+          (row.allowedRole !== 'any' && row.allowedRole !== actor.role);
+
+        if (vis.showRollback) offeredCount += 1;
+        if (vis.showRollback && engineWouldRefuse) {
+          offenders.push(
+            `${actor.role} offered rollback ${row.fromCode} → ${row.toCode} (role=${row.allowedRole}, active=${row.isActive})`,
+          );
+        }
+      }
+    }
+
+    // Positive control. Every seeded rollback is currently allowed_role='any'
+    // and active, so `offenders` would be empty even if the gate were wired
+    // up wrong — or not wired at all. Asserting the loop actually produced
+    // visible buttons is what stops this passing vacuously until HVA-313
+    // introduces the first restricted rollback.
+    expect(offeredCount).toBeGreaterThan(0);
+
+    // Each entry here is a button that renders and then 403s or 400s.
+    expect(offenders).toEqual([]);
+  });
+});

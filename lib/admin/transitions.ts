@@ -73,7 +73,12 @@ export async function loadAllTransitions(): Promise<TransitionRow[]> {
 
 /** Cached lookup by (fromCode, toCode) pair. Returns null if no row
  *  exists (transition not seeded — should not happen in practice but
- *  defensive default = false on requires_datetime). */
+ *  defensive default = false on requires_datetime).
+ *
+ *  HVA-310: now also returns `allowedRole` and `requiresReason`. The engine
+ *  (lib/status-transition.ts) has always enforced both, but the request
+ *  detail page never read them, so the UI offered buttons the server would
+ *  reject — and hid nothing when an admin disabled a transition. */
 export const loadTransitionByPair = cache(
   async (
     fromCode: string,
@@ -81,6 +86,8 @@ export const loadTransitionByPair = cache(
   ): Promise<{
     requiresDatetime: boolean;
     isActive: boolean;
+    allowedRole: string;
+    requiresReason: boolean;
     autoTaskType: string | null;
     emitsEvent: string | null;
   } | null> => {
@@ -91,6 +98,8 @@ export const loadTransitionByPair = cache(
       .select({
         requiresDatetime: statusTransitions.requiresDatetime,
         isActive: statusTransitions.isActive,
+        allowedRole: statusTransitions.allowedRole,
+        requiresReason: statusTransitions.requiresReason,
         autoTaskType: statusTransitions.autoTaskType,
         emitsEvent: statusTransitions.emitsEvent,
       })

@@ -65,6 +65,56 @@ export interface ActionVisibilityInput {
    * Passed from the page so the helper doesn't have to know about the
    * status_stages query shape. */
   hasPreviousStage: boolean;
+  /** HVA-310: the `status_transitions` row for current → next stage.
+   * `null` = the pair isn't configured, which the engine answers with
+   * FORWARD_ONLY, so the button must not render. Omitted entirely = the
+   * caller predates this field; treated as permissive so this helper never
+   * hides a button the engine would have allowed. */
+  nextTransition?: TransitionGate | null;
+  /** HVA-310: the `status_transitions` row for current → previous stage,
+   * i.e. the rollback pair. Same null/undefined semantics as above. */
+  previousTransition?: TransitionGate | null;
+}
+
+/**
+ * The parts of a `status_transitions` row that decide whether a button may
+ * render. Deliberately a subset — this helper stays pure and has no need
+ * for the rest of the row.
+ */
+export interface TransitionGate {
+  /** 'any' | 'sales_executive' | 'captain' | 'super_admin'. This is a free
+   * varchar in the DB with no CHECK constraint, so an unrecognised value
+   * falls through to "super_admin only" — exactly what the engine does. */
+  allowedRole: string;
+  isActive: boolean;
+}
+
+/**
+ * Mirror of the engine's role check in lib/status-transition.ts:
+ *
+ *   actorRole !== SUPER_ADMIN && allowedRole !== 'any' && allowedRole !== actorRole
+ *     → 403 ROLE_NOT_ALLOWED
+ *
+ * Kept deliberately identical. When these two disagree the UI either offers
+ * an action the server refuses (a dead button and a 403 toast) or hides one
+ * the server would accept (a feature that silently vanishes) — the failure
+ * mode HVA-310 exists to remove. The conformance test asserts they agree
+ * for every row in `status_transitions`.
+ */
+function roleSatisfies(allowedRole: string, role: Role | undefined): boolean {
+  if (role === USER_ROLES.SUPER_ADMIN) return true;
+  if (allowedRole === 'any') return true;
+  return allowedRole === role;
+}
+
+function transitionPermits(
+  gate: TransitionGate | null | undefined,
+  role: Role | undefined,
+): boolean {
+  if (gate === undefined) return true;
+  if (gate === null) return false;
+  if (!gate.isActive) return false;
+  return roleSatisfies(gate.allowedRole, role);
 }
 
 export interface ActionVisibility {
@@ -185,23 +235,41 @@ export function computeActionVisibility(
   //   - PENDING_CAPTAIN_APPROVAL for all roles (HVA-137 — Approve/Reject
   //     replace it; the previous HVA-68 gate covered exec only)
   //   - captain/admin at SUBMITTED (HVA-139 — Assign Exec takes over)
+  //   - HVA-310: whatever `status_transitions` says about this pair. The
+  //     engine enforces allowed_role and is_active; before this the page
+  //     loaded the row for `requires_datetime` alone and discarded the rest,
+  //     so an admin disabling a transition left a live button that 400s.
   const isEligibleForAdvance = isAdmin || isAssignedExec || isCityCaptain;
   const showAdvance =
     isEligibleForAdvance &&
     !hideGenericAtPendingApproval &&
-    !hideGenericAtSubmittedForCaptainOrAdmin;
+    !hideGenericAtSubmittedForCaptainOrAdmin &&
+    transitionPermits(input.nextTransition, input.role);
 
   // HVA-141: rollback is allowed at any non-SUBMITTED, non-PENDING_CAPTAIN_APPROVAL,
   // non-terminal stage, for the assigned exec, the city captain, or super_admin.
   // PENDING_CAPTAIN_APPROVAL has its own Reject path. SUBMITTED has nothing
   // to roll back to (hasPreviousStage gates that case as a defence too).
   // Terminal cancellation is already short-circuited above.
+  //
+  // HVA-310: the role set below is the *page's* rule about who may ever see
+  // a rollback control. It is now intersected with the transition's own
+  // `allowed_role` / `is_active`, which the engine enforces and this helper
+  // previously ignored entirely. That mattered the moment a rollback was
+  // scoped to super_admin: without this, captain and exec kept seeing the
+  // button and got a 403 on click.
+  //
+  // The PENDING_CAPTAIN_APPROVAL hard stop stays. It agrees with
+  // rollback/route.ts step 5, and the DB row that contradicts it is dead
+  // config being deactivated in HVA-313 — the fix belongs in the data, not
+  // in un-hiding a button the route refuses.
   const isAtRollbackHardStop =
     isSubmitted || input.currentStageCode === 'PENDING_CAPTAIN_APPROVAL';
   const showRollback =
     !isAtRollbackHardStop &&
     input.hasPreviousStage &&
-    (isAdmin || isAssignedExec || isCityCaptain);
+    (isAdmin || isAssignedExec || isCityCaptain) &&
+    transitionPermits(input.previousTransition, input.role);
 
   // HVA-140: Reassign Exec — captain-of-city / super_admin at any stage
   // where an exec is currently assigned. The action carries operational

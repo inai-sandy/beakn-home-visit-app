@@ -12,6 +12,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { log } from '@/lib/logger';
 import { transitionRequestStatus } from '@/lib/status-transition';
 
@@ -118,6 +119,8 @@ export async function POST(
       code: statusStages.code,
       cancelledAt: visitRequests.cancelledAt,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityCaptainUserId: cities.captainUserId,
     })
     .from(visitRequests)
@@ -154,9 +157,20 @@ export async function POST(
   // (approve/reject/rollback). NOTE: this uses city-captain ownership to
   // match those routes; the broader city-vs-assigned-captain model
   // inconsistency is tracked separately.
+  // HVA-321: one predicate, shared with the page and the action buttons
+  // (lib/captain/request-scope.ts). The old check was city-only, so a captain
+  // who accepted the request or whose exec is on it could open the page and
+  // then get a 403 from every button on it.
   if (
     actorRole === USER_ROLES.CAPTAIN &&
-    currentRow?.cityCaptainUserId !== actorUserId
+    !(await captainOwnsRequest(
+      {
+        assignedCaptainUserId: currentRow?.assignedCaptainUserId ?? null,
+        cityCaptainUserId: currentRow?.cityCaptainUserId ?? null,
+        assignedExecUserId: currentRow?.assignedExecUserId ?? null,
+      },
+      actorUserId,
+    ))
   ) {
     return NextResponse.json(
       {

@@ -13,6 +13,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { transitionRequestStatus } from '@/lib/status-transition';
@@ -129,6 +130,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       id: visitRequests.id,
       customerName: visitRequests.customerName,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityCaptainUserId: cities.captainUserId,
       cancelledAt: visitRequests.cancelledAt,
       statusStageId: visitRequests.statusStageId,
@@ -192,7 +195,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
   if (!isAdmin) {
     let allowed = false;
     if (actorRole === USER_ROLES.CAPTAIN) {
-      allowed = reqRow.cityCaptainUserId === actorUserId;
+      // HVA-321: shared predicate — see lib/captain/request-scope.ts.
+      allowed = await captainOwnsRequest(reqRow, actorUserId);
     } else if (actorRole === USER_ROLES.SALES_EXECUTIVE) {
       allowed = reqRow.assignedExecUserId === actorUserId;
     }

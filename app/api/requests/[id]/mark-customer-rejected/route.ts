@@ -18,6 +18,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { log } from '@/lib/logger';
 import {
   REJECTION_REASONS,
@@ -154,6 +155,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     .select({
       id: visitRequests.id,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityCaptainUserId: cities.captainUserId,
       cancelledAt: visitRequests.cancelledAt,
       statusStageCode: statusStages.code,
@@ -176,7 +179,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     if (actorRole === USER_ROLES.SALES_EXECUTIVE) {
       allowed = reqRow.assignedExecUserId === actorUserId;
     } else if (actorRole === USER_ROLES.CAPTAIN) {
-      allowed = reqRow.cityCaptainUserId === actorUserId;
+      // HVA-321: shared predicate — see lib/captain/request-scope.ts.
+      allowed = await captainOwnsRequest(reqRow, actorUserId);
     }
     if (!allowed) {
       return NextResponse.json(

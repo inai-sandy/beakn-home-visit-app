@@ -21,6 +21,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { reassignSchema } from '@/lib/validators/reassign';
@@ -143,6 +144,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       id: visitRequests.id,
       customerName: visitRequests.customerName,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       cityId: visitRequests.cityId,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
@@ -204,7 +207,14 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
 
   // 7. Per-row authorization. super_admin bypasses; captain must own
   //    the request's city.
-  if (!isAdmin && reqRow.cityCaptainUserId !== actorUserId) {
+  // HVA-321: one predicate, shared with the page and the action buttons
+  // (lib/captain/request-scope.ts). The old check was city-only, so a captain
+  // who accepted the request or whose exec is on it could open the page and
+  // then get a 403 from every button on it.
+  if (
+    !isAdmin &&
+    !(await captainOwnsRequest(reqRow, actorUserId))
+  ) {
     return NextResponse.json(
       { ok: false, error: 'This request is not in your assigned city.' },
       { status: 403 },

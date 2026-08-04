@@ -7,6 +7,7 @@ import { logEvent } from '@/lib/audit';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { transitionRequestStatus } from '@/lib/status-transition';
 
 // =============================================================================
@@ -74,6 +75,8 @@ export async function approveRequest(
       id: visitRequests.id,
       customerName: visitRequests.customerName,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       execName: users.fullName,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
@@ -105,7 +108,11 @@ export async function approveRequest(
       currentStage: reqRow.statusStageCode,
     };
   }
-  if (!isAdmin && reqRow.cityCaptainUserId !== actor.userId) {
+  // HVA-321: one predicate, shared with the page, the buttons and the other
+  // request routes (lib/captain/request-scope.ts). City-only meant a captain
+  // who accepted the request, or whose exec is on it, could see the Approve
+  // button and be refused by it.
+  if (!isAdmin && !(await captainOwnsRequest(reqRow, actor.userId))) {
     return {
       ok: false,
       code: 'NOT_OWNER',

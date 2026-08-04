@@ -13,6 +13,7 @@ import {
   UnauthorizedError,
 } from '@/lib/auth-server';
 import { USER_ROLES, type Role } from '@/lib/auth/roles';
+import { captainOwnsRequest } from '@/lib/captain/request-scope';
 import { getConfig } from '@/lib/config';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
@@ -109,6 +110,8 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       trackingToken: visitRequests.trackingToken,
       whatsappOptIn: visitRequests.whatsappOptIn,
       assignedExecUserId: visitRequests.assignedExecUserId,
+      // HVA-321: needed by captainOwnsRequest().
+      assignedCaptainUserId: visitRequests.assignedCaptainUserId,
       execName: users.fullName,
       cityName: cities.name,
       cityCaptainUserId: cities.captainUserId,
@@ -142,7 +145,14 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
     );
   }
 
-  if (!isAdmin && reqRow.cityCaptainUserId !== actorUserId) {
+  // HVA-321: one predicate, shared with the page and the action buttons
+  // (lib/captain/request-scope.ts). The old check was city-only, so a captain
+  // who accepted the request or whose exec is on it could open the page and
+  // then get a 403 from every button on it.
+  if (
+    !isAdmin &&
+    !(await captainOwnsRequest(reqRow, actorUserId))
+  ) {
     return NextResponse.json(
       { ok: false, error: 'This request is not in your assigned city.' },
       { status: 403 },

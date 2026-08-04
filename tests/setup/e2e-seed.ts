@@ -35,6 +35,12 @@ export interface SeededE2EUsers {
    *  quotation → payment → ticket via the real UI, so it must start
    *  untouched. Other specs must NOT mutate this row. */
   journeyRequest: { id: string; customerName: string; trackingToken: string };
+  /** HVA-314: parked at VISIT_COMPLETED with NO quotation — the advance to
+   *  Quotation Given must render disabled. */
+  gateQuotationRequest: { id: string; customerName: string; trackingToken: string };
+  /** HVA-317: parked at ORDER_CONFIRMED — advancing must open the date
+   *  picker rather than moving the stage in one tap. */
+  gateInstallRequest: { id: string; customerName: string; trackingToken: string };
 }
 
 interface UserSeed {
@@ -152,6 +158,66 @@ export async function seedE2EUsers(
       RETURNING id, tracking_token
     `;
 
+    // HVA-321/HVA-314/HVA-317: two requests parked at the stages the workflow
+    // GATES guard, so tests/e2e/workflow-gates.spec.ts can assert in a real
+    // browser that the buttons refuse.
+    //
+    // This is the gap that produced the whole batch: the suite asserted that
+    // functions return what the code intends, and nothing asserted that a
+    // person in a role sees and can use the right control on screen. Both are
+    // assigned to the exec so they show up on their request list.
+    const [visitCompletedStage] = await sql<{ id: string }[]>`
+      SELECT id FROM status_stages WHERE code = 'VISIT_COMPLETED' LIMIT 1
+    `;
+    const [orderConfirmedStage] = await sql<{ id: string }[]>`
+      SELECT id FROM status_stages WHERE code = 'ORDER_CONFIRMED' LIMIT 1
+    `;
+    if (!visitCompletedStage || !orderConfirmedStage) {
+      throw new Error(
+        'status_stages seed missing — VISIT_COMPLETED / ORDER_CONFIRMED absent. Migrations may be incomplete.',
+      );
+    }
+
+    // Deliberately has NO quotation: that is exactly the state where the
+    // advance to Quotation Given must be refused.
+    const [gateQuotation] = await sql<{ id: string; tracking_token: string }[]>`
+      INSERT INTO visit_requests (
+        customer_name, customer_phone, address, city_id,
+        bhk, interest, tracking_token, source,
+        status_stage_id, assigned_exec_user_id, assigned_captain_user_id, assigned_at
+      ) VALUES (
+        'Gate Quotation Customer', '+919876500003', '7 Gate Road, Hyderabad', ${city.id},
+        '2BHK'::bhk_type, '["Complete Lighting"]'::jsonb, 'e2egatequote123456789a', 'web',
+        ${visitCompletedStage.id}, ${veeraId}, ${arjunId}, NOW()
+      )
+      RETURNING id, tracking_token
+    `;
+
+    const [gateInstall] = await sql<{ id: string; tracking_token: string }[]>`
+      INSERT INTO visit_requests (
+        customer_name, customer_phone, address, city_id,
+        bhk, interest, tracking_token, source,
+        status_stage_id, assigned_exec_user_id, assigned_captain_user_id, assigned_at
+      ) VALUES (
+        'Gate Install Customer', '+919876500004', '9 Gate Road, Hyderabad', ${city.id},
+        '3BHK'::bhk_type, '["Automation"]'::jsonb, 'e2egateinstall12345678', 'web',
+        ${orderConfirmedStage.id}, ${veeraId}, ${arjunId}, NOW()
+      )
+      RETURNING id, tracking_token
+    `;
+
+    // The install-gate request needs a quotation to be a realistic
+    // ORDER_CONFIRMED row (it got there through CartPlus in real life).
+    await sql`
+      INSERT INTO quotations (
+        visit_request_id, quotation_number, total_order_value_paise,
+        submitted_by_user_id, source, portal_quotation_id, store_id, last_webhook_at
+      ) VALUES (
+        ${gateInstall.id}, 'CP-GATE-1', 2500000,
+        ${veeraId}, 'portal', 'gate-portal-1', 1, NOW()
+      )
+    `;
+
     // HVA-281: the journey's order carries a CartPlus (portal) quotation —
     // real quotations now come from CartPlus; a Beakn request carries only
     // a Target. The order/collection steps run against this synced
@@ -195,6 +261,16 @@ export async function seedE2EUsers(
         id: journey.id,
         customerName: 'Journey Customer',
         trackingToken: journey.tracking_token,
+      },
+      gateQuotationRequest: {
+        id: gateQuotation.id,
+        customerName: 'Gate Quotation Customer',
+        trackingToken: gateQuotation.tracking_token,
+      },
+      gateInstallRequest: {
+        id: gateInstall.id,
+        customerName: 'Gate Install Customer',
+        trackingToken: gateInstall.tracking_token,
       },
     };
   } finally {

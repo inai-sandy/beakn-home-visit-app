@@ -86,6 +86,14 @@ export type StatusTransitionError =
       error: 'QUOTATION_REQUIRED';
       message: string;
     }
+  // HVA-317 — transition needs a picked date; caller must use the scheduling
+  // dialog (scheduleVisitAction), not the plain advance.
+  | {
+      ok: false;
+      status: 400;
+      error: 'DATETIME_REQUIRED';
+      message: string;
+    }
   | { ok: false; status: 503; error: 'TX_FAILED'; message: string };
 
 export interface StageRef {
@@ -399,6 +407,26 @@ export async function transitionRequestStatus(
           'This transition requires a quotation to be submitted first.',
       };
     }
+  }
+
+  // HVA-317: requires_datetime was selected by this function but never
+  // enforced — its only reference was the SELECT above. So a transition
+  // marked "needs a date" could still be advanced dateless through the
+  // generic /status route, leaving the stage moved and nothing scheduled.
+  // That is exactly the hole the installation stage sat in.
+  //
+  // Scheduling runs through scheduleVisitAction (which owns the picker, the
+  // datetime write and the auto-task) and does NOT come back through here,
+  // so reaching this point with requires_datetime on means the caller took
+  // the wrong path.
+  if (transitionRow.requiresDatetime) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'DATETIME_REQUIRED',
+      message:
+        'This transition needs a date and time — use the scheduling dialog rather than the plain advance.',
+    };
   }
 
   // 5. Single transaction:

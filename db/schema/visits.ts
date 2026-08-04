@@ -77,6 +77,12 @@ export const statusTransitions = pgTable(
     requiresQuotation: boolean('requires_quotation').notNull().default(false),
     requiresDatetime: boolean('requires_datetime').notNull().default(false),
     autoTaskType: varchar('auto_task_type', { length: 64 }),
+    // HVA-317: which visit_requests column the picked datetime lands in, or
+    // NULL when the transition schedules nothing. Replaces a hardcoded
+    // `toStageCode === 'VISIT_SCHEDULED'` check in the schedule action —
+    // the same class of duplicated rule HVA-310 removed from the UI.
+    // Code-controlled: only allow-listed values are honoured.
+    writesDatetimeColumn: varchar('writes_datetime_column', { length: 64 }),
     emitsEvent: varchar('emits_event', { length: 100 }),
     description: text('description'),
     isActive: boolean('is_active').notNull().default(true),
@@ -173,6 +179,12 @@ export const visitRequests = pgTable(
     assignedAt: timestamp('assigned_at', { withTimezone: true }),
 
     visitScheduledAt: timestamp('visit_scheduled_at', { withTimezone: true }),
+    // HVA-317: the installation appointment, distinct from the home visit
+    // above. Written by the date picker on ORDER_CONFIRMED →
+    // INSTALLATION_SCHEDULED via status_transitions.writes_datetime_column.
+    installationScheduledAt: timestamp('installation_scheduled_at', {
+      withTimezone: true,
+    }),
     rescheduleCount: integer('reschedule_count').notNull().default(0),
 
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
@@ -199,6 +211,9 @@ export const visitRequests = pgTable(
     index('visit_requests_phone_idx').on(table.customerPhone),
     index('visit_requests_created_idx').on(table.createdAt),
     index('visit_requests_visit_scheduled_idx').on(table.visitScheduledAt),
+    index('visit_requests_installation_scheduled_idx').on(
+      table.installationScheduledAt,
+    ),
     // HVA-73 PR 1: drives "all requests for this contact" on /leads/[id].
     index('visit_requests_contact_idx').on(table.contactId),
   ],

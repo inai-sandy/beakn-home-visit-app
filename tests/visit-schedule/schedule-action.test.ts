@@ -177,6 +177,15 @@ describe('scheduleVisitAction — INSTALLATION_SCHEDULED path (new)', () => {
     // visit_scheduled_at must NOT be set — the column is purpose-specific
     // to the VISIT_SCHEDULED move
     expect(updated!.visitScheduledAt).toBeNull();
+    // HVA-317: the picked date must actually be STORED. Before this there was
+    // no column to store it in — the exec picked a date, the stage moved, and
+    // the installation had no date anywhere in the system. The absence of
+    // this assertion is why the gap survived: the task was created, so the
+    // test looked complete.
+    expect(updated!.installationScheduledAt).not.toBeNull();
+    expect(updated!.installationScheduledAt!.toISOString()).toBe(
+      new Date(when).toISOString(),
+    );
 
     // Installation task created with the right type
     const taskRows = await db

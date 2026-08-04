@@ -74,6 +74,16 @@ export interface ActionVisibilityInput {
   /** HVA-310: the `status_transitions` row for current → previous stage,
    * i.e. the rollback pair. Same null/undefined semantics as above. */
   previousTransition?: TransitionGate | null;
+  /** HVA-321: whether the acting captain owns this request, per the single
+   * predicate in `lib/captain/request-scope.ts` — they accepted it, the
+   * assigned exec reports to them, or they own the city.
+   *
+   * Omitting it falls back to the old city-only check, so existing call sites
+   * and tests keep their exact meaning. The page supplies it. Without it, a
+   * captain who reached the page via either of the other two access paths saw
+   * the request and NO action buttons — the "it was there before, now it's
+   * gone" report. */
+  captainOwnsRequest?: boolean;
 }
 
 /**
@@ -189,9 +199,17 @@ export function computeActionVisibility(
   const isAssignedExec =
     input.role === USER_ROLES.SALES_EXECUTIVE &&
     input.assignedExecUserId === input.userId;
+  // HVA-321: "is this the captain for this request" — one definition, matching
+  // the page's access rule (lib/captain/request-scope.ts). The old check was
+  // city-only, so a captain who accepted the request, or whose exec is on the
+  // request, could open it and see nothing actionable.
+  //
+  // `captainOwnsRequest` is resolved by the page (it needs a team lookup, and
+  // this helper is pure). Falling back to the city check when it is absent
+  // keeps every existing caller and test behaving exactly as before.
   const isCityCaptain =
     input.role === USER_ROLES.CAPTAIN &&
-    input.cityCaptainUserId === input.userId;
+    (input.captainOwnsRequest ?? input.cityCaptainUserId === input.userId);
   const isAdmin = input.role === USER_ROLES.SUPER_ADMIN;
 
   const isPendingCaptainApproval =

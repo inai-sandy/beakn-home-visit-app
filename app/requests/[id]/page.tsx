@@ -32,6 +32,7 @@ import {
   visitRequests,
 } from "@/db/schema";
 import { loadTransitionByPair } from "@/lib/admin/transitions";
+import { captainOwnsRequest } from "@/lib/captain/request-scope";
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
 import { canCaptainEditRequest } from "@/lib/captain/edit-auth";
@@ -221,6 +222,9 @@ export default async function RequestDetailPage({ params }: PageProps) {
   if (role === "sales_executive" && reqRow.assignedExecUserId !== user.id) {
     redirect(ROLE_HOME_DENIED.sales_executive);
   }
+  // HVA-321: resolved once for the captain path, then reused for the action
+  // buttons so authority to act cannot drift from authority to view.
+  let captainOwnsThisRequest = false;
   if (role === "captain") {
     // HVA-258: was city-scoped only (cityCaptainUserId === me), which
     // bounced even the request's OWN assigned captain whenever the city
@@ -230,23 +234,20 @@ export default async function RequestDetailPage({ params }: PageProps) {
     //   2. the assigned exec reports to me, OR
     //   3. I own the request's city (kept for the unassigned/SUBMITTED
     //      routing flow where no captain has accepted yet).
-    let captainAllowed =
-      reqRow.assignedCaptainUserId === user.id ||
-      reqRow.cityCaptainUserId === user.id;
-    if (!captainAllowed && reqRow.assignedExecUserId) {
-      const [teamRow] = await db
-        .select({ userId: salesExecutives.userId })
-        .from(salesExecutives)
-        .where(
-          and(
-            eq(salesExecutives.userId, reqRow.assignedExecUserId),
-            eq(salesExecutives.captainUserId, user.id),
-          ),
-        )
-        .limit(1);
-      captainAllowed = Boolean(teamRow);
-    }
-    if (!captainAllowed) {
+    // HVA-321: this rule now lives in ONE place (lib/captain/request-scope.ts)
+    // and is shared with the action buttons and the API routes. Previously the
+    // page let a captain in three ways while computeActionVisibility
+    // recognised only the third, so a captain could open a request they
+    // legitimately manage and find nothing to click.
+    captainOwnsThisRequest = await captainOwnsRequest(
+      {
+        assignedCaptainUserId: reqRow.assignedCaptainUserId,
+        cityCaptainUserId: reqRow.cityCaptainUserId,
+        assignedExecUserId: reqRow.assignedExecUserId,
+      },
+      user.id,
+    );
+    if (!captainOwnsThisRequest) {
       redirect(ROLE_HOME_DENIED.captain);
     }
   }
@@ -421,6 +422,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
     hasPreviousStage: !!previousStage,
     nextTransition,
     previousTransition,
+    captainOwnsRequest: captainOwnsThisRequest,
   });
 
   // HVA-139: when the Assign Sales Executive button will render, also

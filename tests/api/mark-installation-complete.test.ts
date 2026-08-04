@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 
 import { db } from '@/db/client';
@@ -114,7 +114,13 @@ describe('mark-installation-complete: RBAC', () => {
 });
 
 describe('mark-installation-complete: happy path', () => {
-  it('from INSTALLATION_SCHEDULED (seq 7) → PENDING_CAPTAIN_APPROVAL (seq 9) — forward skip allowed', async () => {
+  it('from INSTALLATION_SCHEDULED (seq 7) steps THROUGH installation-finished (8) to PENDING_CAPTAIN_APPROVAL (9)', async () => {
+    // HVA-313 / locked decision 21. This used to be a single 7 → 9 jump via
+    // the HVA-68 forward_skip row, which migration 0085 deactivates: a
+    // captain must never be asked to approve work nobody recorded as
+    // finished, and the skip left no INSTALLATION_CONFIGURATION_DONE row in
+    // the timeline at all. The exec still taps once — the route now runs
+    // 7 → 8 and then 8 → 9.
     const { exec, req } = await seedRequestAtStage('INSTALLATION_SCHEDULED');
     const sess = await loginByPhone(exec.phone, exec.password);
     currentCookieHeader = sess.cookieHeader;
@@ -130,7 +136,8 @@ describe('mark-installation-complete: happy path', () => {
       currentStage: { sequenceNumber: number; name: string };
     };
     expect(body.ok).toBe(true);
-    expect(body.previousStage.sequenceNumber).toBe(7);
+    // The final hop is 8 → 9, so `previous` is installation-finished.
+    expect(body.previousStage.sequenceNumber).toBe(8);
     expect(body.currentStage.sequenceNumber).toBe(9);
     expect(body.currentStage.name).toBe('Pending Captain Approval');
 
@@ -143,17 +150,25 @@ describe('mark-installation-complete: happy path', () => {
       .limit(1);
     expect(vr.statusStageId).toBe(target.id);
 
-    // request_status_history written with the note in `reason`.
+    // Two history rows now, in order, both carrying the note. The
+    // installation-finished row is the whole point of this change: the
+    // timeline must show the work was completed before the captain was
+    // asked to approve it.
+    const finished = await getStatusStage('INSTALLATION_CONFIGURATION_DONE');
     const history = await db
       .select({
         toStageId: requestStatusHistory.toStatusStageId,
         reason: requestStatusHistory.reason,
+        order: requestStatusHistory.transitionOrder,
       })
       .from(requestStatusHistory)
-      .where(eq(requestStatusHistory.requestId, req.id));
-    expect(history.length).toBe(1);
-    expect(history[0].toStageId).toBe(target.id);
+      .where(eq(requestStatusHistory.requestId, req.id))
+      .orderBy(asc(requestStatusHistory.transitionOrder));
+    expect(history.length).toBe(2);
+    expect(history[0].toStageId).toBe(finished.id);
+    expect(history[1].toStageId).toBe(target.id);
     expect(history[0].reason).toBe('All 6 switches installed, demo done.');
+    expect(history[1].reason).toBe('All 6 switches installed, demo done.');
 
     // audit_log carries both status_change AND installation_marked_complete.
     const audit = await db

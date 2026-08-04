@@ -88,6 +88,7 @@ export const loadTransitionByPair = cache(
     isActive: boolean;
     allowedRole: string;
     requiresReason: boolean;
+    requiresQuotation: boolean;
     autoTaskType: string | null;
     emitsEvent: string | null;
   } | null> => {
@@ -100,6 +101,7 @@ export const loadTransitionByPair = cache(
         isActive: statusTransitions.isActive,
         allowedRole: statusTransitions.allowedRole,
         requiresReason: statusTransitions.requiresReason,
+        requiresQuotation: statusTransitions.requiresQuotation,
         autoTaskType: statusTransitions.autoTaskType,
         emitsEvent: statusTransitions.emitsEvent,
       })

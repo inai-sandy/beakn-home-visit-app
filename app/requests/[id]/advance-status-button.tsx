@@ -22,12 +22,23 @@ interface AdvanceStatusButtonProps {
    *  When true, clicking the button opens the date+time picker
    *  dialog instead of one-tap advance. */
   requiresDatetime?: boolean;
+  /** HVA-314: why this transition cannot be taken right now, or null when it
+   *  can. Set when status_transitions.requires_quotation is on and the
+   *  request has no quotation row — the engine would answer
+   *  QUOTATION_REQUIRED.
+   *
+   *  Rendered as a DISABLED button carrying the reason, deliberately NOT
+   *  hidden: a control that silently disappears is what produced the "it was
+   *  there before, now it's gone" reports. The exec should see that the step
+   *  exists and why it isn't available. */
+  blockedReason?: string | null;
 }
 
 export function AdvanceStatusButton({
   requestId,
   nextStatus,
   requiresDatetime = false,
+  blockedReason = null,
 }: AdvanceStatusButtonProps) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -70,6 +81,25 @@ export function AdvanceStatusButton({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // HVA-314: blocked → a disabled button that states the reason, plus the
+  // reason as helper text beneath it (a `title` alone is invisible on touch,
+  // and this page is walked on a phone).
+  if (blockedReason) {
+    return (
+      <div className="w-full sm:w-auto">
+        <Button
+          type="button"
+          disabled
+          className="w-full sm:w-auto h-12 px-5 text-base font-medium"
+        >
+          <Icon name="lock" size="sm" />
+          <span>Move to {nextStatus.name}</span>
+        </Button>
+        <p className="mt-1.5 text-sm text-muted-foreground">{blockedReason}</p>
+      </div>
+    );
   }
 
   return (

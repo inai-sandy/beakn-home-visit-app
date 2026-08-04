@@ -45,6 +45,7 @@ interface SeededTransition {
   kind: string;
   allowedRole: string;
   isActive: boolean;
+  requiresQuotation: boolean;
 }
 
 async function loadSeededTransitions(): Promise<SeededTransition[]> {
@@ -57,6 +58,7 @@ async function loadSeededTransitions(): Promise<SeededTransition[]> {
       kind: statusTransitions.kind,
       allowedRole: statusTransitions.allowedRole,
       isActive: statusTransitions.isActive,
+      requiresQuotation: statusTransitions.requiresQuotation,
     })
     .from(statusTransitions)
     .innerJoin(fromStage, eq(fromStage.id, statusTransitions.fromStageId))
@@ -95,11 +97,35 @@ describe('seeded status_transitions are expressible by the UI', () => {
     // move a request is a product decision; it should surface in review as
     // a diff to this list, not slip through because nothing asserted on it.
     //
-    // HVA-313 will add the one-way-door rows here (Order Confirmed and
-    // Pending Captain Approval rollbacks → super_admin, forward_skip → off).
+    // Updated by HVA-313/HVA-314 (migration 0085), which turned the gates on
+    // after Sandeep's walk found the pipeline clickable end to end with
+    // nothing refusing. Each line below is a rule he asked for:
+    //   - Order Confirmed is a one-way door (decision 16)
+    //   - installation must be marked finished before captain approval —
+    //     the forward_skip shortcut is off (decision 21)
+    //   - captain reject is the only backward path from approval (0060)
+    //   - Captain Approval is a one-way door (decision 17)
+    //   - the terminal rollback row is unreachable, so it no longer claims
+    //     to be available (decision 3)
     expect(restricted).toEqual([
+      'ORDER_CONFIRMED → QUOTATION_GIVEN [rollback] role=super_admin active=true',
+      'INSTALLATION_SCHEDULED → PENDING_CAPTAIN_APPROVAL [forward_skip] role=any active=false',
       'PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED [specific_backward] role=captain active=true',
+      'PENDING_CAPTAIN_APPROVAL → INSTALLATION_CONFIGURATION_DONE [rollback] role=super_admin active=true',
+      'ORDER_EXECUTED_SUCCESSFULLY → PENDING_CAPTAIN_APPROVAL [rollback] role=any active=false',
     ]);
+  });
+
+  it('requires a quotation before Quotation Given (HVA-314)', async () => {
+    // The gate that would have stopped the request Sandeep walked, which
+    // reached ORDER_CONFIRMED with zero quotation rows. Quotations are
+    // raised and revised in CartPlus; the portal must never mint one.
+    const rows = await loadSeededTransitions();
+    const gate = rows.find(
+      (r) => r.fromCode === 'VISIT_COMPLETED' && r.toCode === 'QUOTATION_GIVEN',
+    );
+    expect(gate).toBeDefined();
+    expect(gate!.requiresQuotation).toBe(true);
   });
 });
 

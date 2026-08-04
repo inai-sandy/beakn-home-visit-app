@@ -144,6 +144,26 @@ export const CONFIG_SCHEMA = {
     validation: { min: 0, max: 3650 },
   },
 
+  // HVA-320: how many times the CUSTOMER may move their own appointment
+  // from the /track link before they have to call the exec. Enforced in
+  // lib/reschedule/actions.ts on the customer path only — exec and admin
+  // reschedules are never capped.
+  //
+  // Counted from request_reschedule_history rows with a NULL
+  // rescheduled_by_user_id (the existing "the customer did this" marker),
+  // NOT from visit_requests.reschedule_count — that counter includes exec
+  // reschedules, so using it would let the exec moving a date burn the
+  // customer's quota.
+  customer_reschedule_limit: {
+    type: 'number',
+    category: 'workflow',
+    description:
+      'How many times a customer may reschedule from their tracking link before they must call the executive. Set to 0 to disable the cap (unlimited).',
+    defaultValue: 3,
+    editable: true,
+    validation: { min: 0, max: 20 },
+  },
+
   // HVA-224: how long to retain audit_log rows before the nightly prune
   // job deletes them. Cron at /api/cron/prune-audit-log runs daily at
   // 02:30 IST. 0 disables pruning — rows kept forever.

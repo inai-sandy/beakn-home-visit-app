@@ -1,6 +1,6 @@
 'use server';
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 
@@ -14,6 +14,7 @@ import {
 import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
+import { getConfig } from '@/lib/config';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { reanchorVisitTaskToDate } from '@/lib/visit-schedule/task-sync';
 
@@ -156,6 +157,7 @@ export async function rescheduleByCustomerAction(
     actorUserId: null,
     actorRole: null,
     authCheck: async () => null, // token is the credential
+    isCustomer: true,
   });
 }
 
@@ -172,6 +174,11 @@ interface CommonRescheduleArgs {
   authCheck: (row: {
     assignedExecUserId: string | null;
   }) => Promise<string | null>;
+  /** HVA-320: true only on the token-authenticated /track path. Drives the
+   * customer reschedule cap. Passed explicitly rather than inferred from
+   * `actorUserId === null` so a future internal caller that happens to
+   * have no user id can't silently acquire the customer's limit. */
+  isCustomer?: boolean;
 }
 
 async function commonReschedule(
@@ -206,6 +213,43 @@ async function commonReschedule(
   }
   if (reqRow.statusStageCode === 'ORDER_EXECUTED_SUCCESSFULLY') {
     return { ok: false, error: 'Order already executed — cannot reschedule' };
+  }
+
+  // HVA-320: cap how many times the CUSTOMER may move their own date.
+  // Before this, a tracking link was an unlimited reschedule token — the
+  // endpoint has no session and the counter that existed
+  // (visit_requests.reschedule_count) was incremented and audited but
+  // never read for any decision. Each use also fires a customer WhatsApp
+  // plus in-app/push to the captain, exec and every super_admin.
+  //
+  // Counted from history rows with a NULL rescheduled_by_user_id — the
+  // established "the customer did this" marker — rather than from
+  // reschedule_count, which also counts exec reschedules and would let
+  // the exec moving a date burn the customer's quota.
+  //
+  // Caveat worth knowing: that FK is ON DELETE SET NULL, so a deleted
+  // user's row would read as a customer reschedule. Users are never hard
+  // deleted in production (no-deletes rule), so this holds today.
+  if (args.isCustomer) {
+    const limit = await getConfig('customer_reschedule_limit');
+    if (limit > 0) {
+      const [countRow] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(requestRescheduleHistory)
+        .where(
+          and(
+            eq(requestRescheduleHistory.requestId, args.requestId),
+            isNull(requestRescheduleHistory.rescheduledByUserId),
+          ),
+        );
+      if ((countRow?.n ?? 0) >= limit) {
+        const supportPhone = await getConfig('customer_support_phone');
+        return {
+          ok: false,
+          error: `You have already changed this date ${limit} times. Please call us on ${supportPhone} to arrange a new one.`,
+        };
+      }
+    }
   }
 
   const authErr = await args.authCheck({

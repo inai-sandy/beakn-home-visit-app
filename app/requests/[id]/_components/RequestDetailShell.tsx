@@ -13,7 +13,7 @@ import {
 // HVA-243: tabs-based shell for /requests/[id]
 // =============================================================================
 //
-// 4 tabs (Overview / Order / Activity / Admin), each rendered with server
+// 4 tabs (Overview / Order / Activity / Actions), each rendered with server
 // content passed in as a ReactNode child. The shell is a client component
 // only because Radix Tabs needs interaction state — its children stay
 // server-rendered.
@@ -23,7 +23,8 @@ import {
 // whether to pass `order` content; if not, the tab is hidden.
 //
 // Decisions locked 2026-06-06 with Sandeep:
-//   - Tab labels: Overview / Order / Activity / Admin
+//   - Tab labels: Overview / Order / Activity / Actions (HVA-324 renamed
+//     the last one from "Admin" — see the comment on the trigger)
 //   - Order tab shows read-only dispatch state for exec/captain too
 //   - Primary next-action stays in a sticky header above the tabs
 //     (rendered by the parent page, not by this shell)
@@ -60,7 +61,13 @@ export function RequestDetailShell({
             Order
           </TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
-          <TabsTrigger value="admin">Admin</TabsTrigger>
+          {/* HVA-324: was "Admin". An exec has no reason to tap a tab called
+              Admin, so rollback / reassign / reject / reschedule were
+              effectively invisible to the person who needs them — the "it was
+              there before, now it's gone" report. Locked decision 14: rename,
+              do not relocate. The tab VALUE stays "admin" so any existing
+              deep link keeps working. */}
+          <TabsTrigger value="admin">Actions</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="space-y-4">
           {overview}

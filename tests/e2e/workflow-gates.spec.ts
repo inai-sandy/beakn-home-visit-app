@@ -118,7 +118,8 @@ test.describe('Workflow gates refuse on screen', () => {
     ).toBeVisible({ timeout: 10_000 });
 
     // Open the tab that holds the secondary actions, if present.
-    const adminTab = page.getByRole('tab', { name: /admin/i });
+    // HVA-324 renamed this tab from "Admin" to "Actions".
+    const adminTab = page.getByRole('tab', { name: /actions|admin/i });
     if (await adminTab.count()) {
       await adminTab.first().click();
     }

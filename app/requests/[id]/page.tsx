@@ -409,6 +409,49 @@ export default async function RequestDetailPage({ params }: PageProps) {
   const mapsUrl = buildMapsUrl(reqRow.latitude, reqRow.longitude);
   const interest = Array.isArray(reqRow.interest) ? reqRow.interest : [];
 
+  // HVA-324: merge the status timeline and the reschedule trail into one
+  // chronological sequence. Two separate lists rendered back to back made the
+  // flow unreadable — June reschedules printed under an August completion.
+  //
+  // `isCurrent` stays keyed off transitionOrder rather than "last in the
+  // list", because a reschedule can be the most RECENT event while the
+  // current STAGE is still an earlier status row.
+  type TimelineEvent = {
+    kind: "status" | "reschedule";
+    id: string;
+    when: Date;
+    stageName: string;
+    changedByName: string;
+    reason: string | null;
+    isCurrent: boolean;
+  };
+  const timelineEvents: TimelineEvent[] = [
+    ...historyRows.map((h) => ({
+      kind: "status" as const,
+      id: h.id,
+      when: h.changedAt,
+      stageName: h.toStageName,
+      changedByName: h.changedByName ?? "System",
+      reason: h.reason,
+      isCurrent: h.transitionOrder === maxTransitionOrder,
+    })),
+    ...rescheduleRows.map((r) => ({
+      kind: "reschedule" as const,
+      id: `resched-${r.id}`,
+      when: r.changedAt,
+      stageName: "Visit rescheduled",
+      changedByName: r.byName ?? "Customer",
+      reason: `Now ${formatIstDateTime(r.toAt)}${r.reason ? ` — ${r.reason}` : ""}`,
+      isCurrent: false,
+    })),
+  ].sort((a, b) => {
+    const diff = a.when.getTime() - b.when.getTime();
+    if (diff !== 0) return diff;
+    // Same instant: the status change comes first, the reschedule amends it.
+    if (a.kind === b.kind) return 0;
+    return a.kind === "status" ? -1 : 1;
+  });
+
   // HVA-66: derive UI state via pure helpers in lib/request-detail.ts so the
   // visibility matrix is unit-testable without React Testing Library.
   const actionVis = computeActionVisibility({
@@ -971,31 +1014,39 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 note={skippedNote}
               />
             ))}
-            {historyRows.map((h) => {
-              const isCurrent = h.transitionOrder === maxTransitionOrder;
-              return (
+            {/* HVA-324: status changes and reschedules are ONE chronological
+                story, merged by timestamp.
+
+                They used to render as two concatenated lists — every status
+                row, then every reschedule row — so a visit rescheduled in June
+                appeared BELOW a completion in August, with the "current"
+                marker stranded mid-list. Sandeep's words: "see the total flow
+                of the order… the order is not right."
+
+                Sorted by when the thing actually happened. Ties keep status
+                before reschedule, since a reschedule always follows the
+                scheduling it amends. */}
+            {timelineEvents.map((e) =>
+              e.kind === "status" ? (
                 <TimelineRow
-                  key={h.id}
-                  stageName={h.toStageName}
-                  when={h.changedAt}
-                  changedByName={h.changedByName ?? "System"}
-                  reason={h.reason}
-                  variant={isCurrent ? "current" : "past"}
+                  key={e.id}
+                  stageName={e.stageName}
+                  when={e.when}
+                  changedByName={e.changedByName}
+                  reason={e.reason}
+                  variant={e.isCurrent ? "current" : "past"}
                 />
-              );
-            })}
-            {/* HVA-294: reschedule events — show the CURRENT visit date so the
-                rep isn't misled by the frozen "Visit Scheduled" reason. */}
-            {rescheduleRows.map((r) => (
-              <TimelineRow
-                key={`resched-${r.id}`}
-                stageName="Visit rescheduled"
-                when={r.changedAt}
-                changedByName={r.byName ?? "Customer"}
-                reason={`Now ${formatIstDateTime(r.toAt)}${r.reason ? ` — ${r.reason}` : ""}`}
-                variant="past"
-              />
-            ))}
+              ) : (
+                <TimelineRow
+                  key={e.id}
+                  stageName="Visit rescheduled"
+                  when={e.when}
+                  changedByName={e.changedByName}
+                  reason={e.reason}
+                  variant="past"
+                />
+              ),
+            )}
             {futureStages.map((s) => (
               <TimelineRow
                 key={s.id}

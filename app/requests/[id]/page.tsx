@@ -24,6 +24,7 @@ import { db } from "@/db/client";
 import {
   cities,
   quotations,
+  requestOrderChanges,
   requestRescheduleHistory,
   requestStatusHistory,
   salesExecutives,
@@ -32,6 +33,11 @@ import {
   visitRequests,
 } from "@/db/schema";
 import { loadTransitionByPair } from "@/lib/admin/transitions";
+import { describeOrderChange } from "@/lib/order-change-summary";
+import {
+  sortTimelineEvents,
+  type TimelineEventKind,
+} from "@/lib/request-timeline";
 import { captainOwnsRequest } from "@/lib/captain/request-scope";
 import { ROLE_HOME, isRole } from "@/lib/auth/roles";
 import { getServerSession } from "@/lib/auth-server";
@@ -353,6 +359,27 @@ export default async function RequestDetailPage({ params }: PageProps) {
     .where(eq(requestRescheduleHistory.requestId, requestUuid))
     .orderBy(asc(requestRescheduleHistory.rescheduledAt));
 
+  // HVA-325: CartPlus edits that landed after Order Confirmed. Confirming in
+  // the portal locks nothing in CartPlus, so the order can be rewritten
+  // underneath a request at any stage. Until now the only trace on screen was
+  // a "last synced" timestamp, which does not answer "why is this ₹8,354 when
+  // I confirmed ₹4,174".
+  const orderChangeRows = await db
+    .select({
+      id: requestOrderChanges.id,
+      changedAt: requestOrderChanges.changedAt,
+      previousTotalPaise: requestOrderChanges.previousTotalPaise,
+      newTotalPaise: requestOrderChanges.newTotalPaise,
+      previousItemCount: requestOrderChanges.previousItemCount,
+      newItemCount: requestOrderChanges.newItemCount,
+      itemsAdded: requestOrderChanges.itemsAdded,
+      itemsRemoved: requestOrderChanges.itemsRemoved,
+      itemsAmended: requestOrderChanges.itemsAmended,
+    })
+    .from(requestOrderChanges)
+    .where(eq(requestOrderChanges.visitRequestId, requestUuid))
+    .orderBy(asc(requestOrderChanges.changedAt));
+
   // HVA-288: bypassed earlier stages — active stages between Submitted
   // (seq 1) and the current stage that have NO history row. A CartPlus
   // online order is created straight at Quotation Given, so the home-visit
@@ -416,8 +443,11 @@ export default async function RequestDetailPage({ params }: PageProps) {
   // `isCurrent` stays keyed off transitionOrder rather than "last in the
   // list", because a reschedule can be the most RECENT event while the
   // current STAGE is still an earlier status row.
+  // HVA-325 adds a third source: CartPlus order edits. The sort itself lives
+  // in lib/request-timeline.ts so the test can exercise the real thing
+  // instead of keeping its own copy of the rule.
   type TimelineEvent = {
-    kind: "status" | "reschedule";
+    kind: TimelineEventKind;
     id: string;
     when: Date;
     stageName: string;
@@ -425,7 +455,7 @@ export default async function RequestDetailPage({ params }: PageProps) {
     reason: string | null;
     isCurrent: boolean;
   };
-  const timelineEvents: TimelineEvent[] = [
+  const timelineEvents: TimelineEvent[] = sortTimelineEvents<TimelineEvent>([
     ...historyRows.map((h) => ({
       kind: "status" as const,
       id: h.id,
@@ -444,13 +474,20 @@ export default async function RequestDetailPage({ params }: PageProps) {
       reason: `Now ${formatIstDateTime(r.toAt)}${r.reason ? ` — ${r.reason}` : ""}`,
       isCurrent: false,
     })),
-  ].sort((a, b) => {
-    const diff = a.when.getTime() - b.when.getTime();
-    if (diff !== 0) return diff;
-    // Same instant: the status change comes first, the reschedule amends it.
-    if (a.kind === b.kind) return 0;
-    return a.kind === "status" ? -1 : 1;
-  });
+    ...orderChangeRows.map((c) => ({
+      kind: "order_change" as const,
+      id: `orderchg-${c.id}`,
+      when: c.changedAt,
+      stageName:
+        c.previousTotalPaise === c.newTotalPaise
+          ? "Order changed in CartPlus"
+          : "Order value changed",
+      // Nobody in the portal made this happen — it arrived from CartPlus.
+      changedByName: "CartPlus",
+      reason: describeOrderChange(c),
+      isCurrent: false,
+    })),
+  ]);
 
   // HVA-66: derive UI state via pure helpers in lib/request-detail.ts so the
   // visibility matrix is unit-testable without React Testing Library.
@@ -1026,27 +1063,21 @@ export default async function RequestDetailPage({ params }: PageProps) {
                 Sorted by when the thing actually happened. Ties keep status
                 before reschedule, since a reschedule always follows the
                 scheduling it amends. */}
-            {timelineEvents.map((e) =>
-              e.kind === "status" ? (
-                <TimelineRow
-                  key={e.id}
-                  stageName={e.stageName}
-                  when={e.when}
-                  changedByName={e.changedByName}
-                  reason={e.reason}
-                  variant={e.isCurrent ? "current" : "past"}
-                />
-              ) : (
-                <TimelineRow
-                  key={e.id}
-                  stageName="Visit rescheduled"
-                  when={e.when}
-                  changedByName={e.changedByName}
-                  reason={e.reason}
-                  variant="past"
-                />
-              ),
-            )}
+            {/* HVA-325: was a two-branch ternary whose else-branch hardcoded
+                "Visit rescheduled". With a third kind that label would have
+                been wrong for every order change. Every event already carries
+                its own stageName, and only a status row can be current, so
+                one row renders them all. */}
+            {timelineEvents.map((e) => (
+              <TimelineRow
+                key={e.id}
+                stageName={e.stageName}
+                when={e.when}
+                changedByName={e.changedByName}
+                reason={e.reason}
+                variant={e.isCurrent ? "current" : "past"}
+              />
+            ))}
             {futureStages.map((s) => (
               <TimelineRow
                 key={s.id}

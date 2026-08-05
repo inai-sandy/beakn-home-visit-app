@@ -11,6 +11,14 @@ import { log } from '@/lib/logger';
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
+import {
+  diffOrder,
+  notifyOrderChanged,
+  orderChangeIsReportable,
+  recordOrderChange,
+  snapshotOrder,
+  type OrderChangeContext,
+} from './order-change';
 import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // =============================================================================
@@ -73,6 +81,14 @@ export async function handleCartplusOrderStatusChanged(
         return { matched: false };
       }
 
+      // HVA-325: read the order as it stands BEFORE we overwrite it. Order
+      // matters — snapshot after the update below and every "previous" value
+      // is the one we just wrote, every diff is empty, and nobody is ever
+      // told. The FOR UPDATE above is what makes this safe against the
+      // concurrent edit HVA-280 hardened for.
+      const before = await snapshotOrder(tx, existing.id);
+      const reportable = await orderChangeIsReportable(tx, existing.requestId);
+
       // Refresh quotation header
       await tx
         .update(quotations)
@@ -100,10 +116,42 @@ export async function handleCartplusOrderStatusChanged(
         null,
       );
 
+      // HVA-325: did anything material actually change, on a request that is
+      // already at or past Order Confirmed? Both conditions have to hold —
+      // below Order Confirmed an edit is ordinary quoting work, and a
+      // cosmetic edit (name, SKU, notes) is not worth a notification.
+      //
+      // This also handles the duplicate delivery for free: CartPlus sends
+      // `order.updated` and `order.status_changed` ~200ms apart for the same
+      // edit, and by the time the second one runs the snapshot already
+      // matches the payload, so the diff is empty and nothing fires.
+      const diff = diffOrder(
+        before,
+        Math.round(order.total_amount * 100),
+        order.items.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          unitPricePaise: Math.round(item.unit_price * 100),
+        })),
+      );
+
+      let orderChange: OrderChangeContext | null = null;
+      if (diff.material && reportable?.reportable) {
+        await recordOrderChange(tx, {
+          requestId: existing.requestId,
+          quotationId: existing.id,
+          webhookEventId,
+          stageCode: reportable.context.stageCode,
+          diff,
+        });
+        orderChange = { ...reportable.context, diff };
+      }
+
       return {
         matched: true,
         quotationId: existing.id,
         statusResult,
+        orderChange,
       };
     });
 
@@ -130,6 +178,12 @@ export async function handleCartplusOrderStatusChanged(
         result.statusResult.cancelContext,
         order.order_number,
       );
+    }
+
+    // HVA-325: the order changed under a confirmed request. Announced after
+    // the commit so we never report a change a rollback would undo.
+    if (result.orderChange) {
+      await notifyOrderChanged(result.orderChange, order.order_number);
     }
 
     await markEvent(webhookEventId, 'ok', null);

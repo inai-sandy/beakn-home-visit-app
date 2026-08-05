@@ -18,6 +18,8 @@ import {
 import { timestamps } from './_helpers';
 import { users } from './auth';
 import { visitRequests } from './visits';
+// webhooks.ts imports only auth.ts, so this direction introduces no cycle.
+import { webhookEvents } from './webhooks';
 
 // HVA-70 extends this enum with 'Card' + 'Other' via migration 0011.
 // Title Case preserved to match HVA-14's original taxonomy.
@@ -160,6 +162,76 @@ export const quotationLineItems = pgTable(
       table.targetDispatchDate,
     ),
     index('quotation_line_items_sku_idx').on(table.productSku),
+  ],
+);
+
+// =============================================================================
+// HVA-325: CartPlus order edits that landed after Order Confirmed
+// =============================================================================
+//
+// Confirming an order in the portal locks nothing in CartPlus — Beakn makes
+// no outbound calls — so the order stays editable there and every edit
+// rewrites the quotation regardless of how far the request has travelled.
+// Five production orders changed value mid-flight before this existed, one of
+// them ₹4,174 → ₹8,354, with nothing on screen but a "last synced" timestamp.
+//
+// Deliberately NOT a request_status_history row. apply-status.ts sets a
+// precedent for a from=to history row (used on cancel) and copying it would
+// have been less code, but request_status_history is read by ~30 call sites —
+// conversion metrics, leaderboards, target progress, lifecycle and geography
+// reports, the customer /track ladder. Introducing a new row KIND into a
+// table that many consumers infer meaning from is how a reporting bug ships
+// unnoticed. The request timeline merges this in as a third source instead,
+// which HVA-324's merged-and-sorted timeline already made easy.
+//
+// Append-only, per the project's no-deletes rule: a superseded change is
+// history, not a mistake to erase.
+export const requestOrderChanges = pgTable(
+  'request_order_changes',
+  {
+    id: uuid('id').primaryKey().default(sql`uuid_generate_v7()`),
+    visitRequestId: uuid('visit_request_id')
+      .notNull()
+      .references(() => visitRequests.id, { onDelete: 'cascade' }),
+    quotationId: uuid('quotation_id')
+      .notNull()
+      .references(() => quotations.id, { onDelete: 'cascade' }),
+    // Which delivery caused it. SET NULL rather than CASCADE: webhook_events
+    // is prunable audit data, and losing it must not cost us the record of
+    // the money changing.
+    webhookEventId: uuid('webhook_event_id').references(() => webhookEvents.id, {
+      onDelete: 'set null',
+    }),
+
+    // Both sides stored so a row reads on its own, without replaying every
+    // earlier change to work out where the value came from.
+    previousTotalPaise: bigint('previous_total_paise', {
+      mode: 'number',
+    }).notNull(),
+    newTotalPaise: bigint('new_total_paise', { mode: 'number' }).notNull(),
+
+    previousItemCount: integer('previous_item_count').notNull(),
+    newItemCount: integer('new_item_count').notNull(),
+
+    // All three can be non-zero for a single edit.
+    itemsAdded: integer('items_added').notNull().default(0),
+    itemsRemoved: integer('items_removed').notNull().default(0),
+    itemsAmended: integer('items_amended').notNull().default(0),
+
+    // Denormalised on purpose: the record exists to say what was true AT THE
+    // TIME, and the request will have moved on before anyone reads it.
+    stageCode: varchar('stage_code', { length: 64 }).notNull(),
+
+    changedAt: timestamp('changed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index('request_order_changes_request_idx').on(table.visitRequestId),
+    index('request_order_changes_changed_at_idx').on(table.changedAt),
   ],
 );
 

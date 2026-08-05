@@ -18,6 +18,7 @@ import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
+import { notifyCartplusCancellation } from './notify-cancelled';
 import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // drizzle's tx callback signature — same pattern as lib/status-transition.ts
@@ -338,6 +339,17 @@ export async function handleCartplusOrderCreated(
       handlerLog.warn(
         { webhookEventId, err: err instanceof Error ? err.message : String(err) },
         'notification_dispatch_failed',
+      );
+    }
+
+    // 7b. HVA-326: an order that arrives already cancelled cancels the
+    // request it just landed on. Rare, but it is still a cancellation the
+    // team needs to hear about, and it goes out through the same path as
+    // every other CartPlus cancel.
+    if (result.statusResult?.cancelContext) {
+      await notifyCartplusCancellation(
+        result.statusResult.cancelContext,
+        order.order_number,
       );
     }
 

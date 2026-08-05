@@ -109,6 +109,10 @@ import {
   composeApprovalOverdueInApp,
   type ApprovalOverdueContext,
 } from './request-approval-overdue';
+import {
+  composeRequestCancelledInCartplusInApp,
+  type RequestCancelledInCartplusContext,
+} from './request-cancelled-in-cartplus';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -329,6 +333,14 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     ),
   'request.approval_overdue': (ctx) =>
     composeApprovalOverdueInApp(ctx as unknown as ApprovalOverdueContext),
+  // HVA-326: CartPlus cancelled the order. Internal only — the customer
+  // already heard it from CartPlus. One composer for all four recipient
+  // roles; it branches on the engine-injected `recipientRole` so support
+  // gets the "stop the dispatch" wording.
+  'request.cancelled_in_cartplus': (ctx) =>
+    composeRequestCancelledInCartplusInApp(
+      ctx as unknown as RequestCancelledInCartplusContext,
+    ),
 };
 
 export const EMAIL_COMPOSERS: Record<string, EmailComposer> = {

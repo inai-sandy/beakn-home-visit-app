@@ -113,6 +113,10 @@ import {
   composeRequestCancelledInCartplusInApp,
   type RequestCancelledInCartplusContext,
 } from './request-cancelled-in-cartplus';
+import {
+  composeCartplusOrderChangedInApp,
+  type CartplusOrderChangedContext,
+} from './cartplus-order-changed';
 
 export type InAppComposer = (
   context: Record<string, unknown>,
@@ -340,6 +344,13 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   'request.cancelled_in_cartplus': (ctx) =>
     composeRequestCancelledInCartplusInApp(
       ctx as unknown as RequestCancelledInCartplusContext,
+    ),
+  // HVA-325: a CartPlus edit landed on a request already at or past Order
+  // Confirmed. Internal only — CartPlus told the customer about their own
+  // edit.
+  'webhook.cartplus.order_changed': (ctx) =>
+    composeCartplusOrderChangedInApp(
+      ctx as unknown as CartplusOrderChangedContext,
     ),
 };
 

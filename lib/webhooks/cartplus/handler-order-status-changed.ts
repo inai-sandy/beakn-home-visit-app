@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
+import { notifyCartplusCancellation } from './notify-cancelled';
 import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // =============================================================================
@@ -117,6 +118,18 @@ export async function handleCartplusOrderStatusChanged(
       );
       await markEvent(webhookEventId, 'ok', null);
       return { status: 'skipped', reason: 'no_matching_quotation' };
+    }
+
+    // HVA-326: a CartPlus edit whose status is `cancelled` cancels the
+    // request through the same shared path as the dedicated
+    // `order.cancelled` event. Announce it after the commit; the context is
+    // present only on the call that actually performed the cancellation, so
+    // the order.updated + order.cancelled pair notifies exactly once.
+    if (result.statusResult?.cancelContext) {
+      await notifyCartplusCancellation(
+        result.statusResult.cancelContext,
+        order.order_number,
+      );
     }
 
     await markEvent(webhookEventId, 'ok', null);

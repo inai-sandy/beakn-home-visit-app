@@ -1,13 +1,18 @@
 import { eq, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { requestStatusHistory, statusStages, visitRequests } from '@/db/schema';
+import {
+  cities,
+  requestStatusHistory,
+  statusStages,
+  visitRequests,
+} from '@/db/schema';
 import { cancelLinkedVisitTask } from '@/lib/visit-schedule/task-sync';
 
 import {
   PORTAL_CANCEL_REASON,
   PORTAL_CANCEL_REASON_CODE,
-} from './handler-order-cancelled';
+} from './cancel-reason';
 
 // =============================================================================
 // HVA-285: map a CartPlus order status onto a Beakn request stage
@@ -41,6 +46,33 @@ const STATUS_TO_STAGE_CODE: Record<string, string> = {
 
 const CANCEL_STATUSES = new Set(['cancelled', 'canceled']);
 
+/**
+ * HVA-326: everything the `request.cancelled_in_cartplus` notification needs,
+ * captured inside the transaction that performs the cancel.
+ *
+ * Read here rather than by the caller because the stage is what the request
+ * was at *when CartPlus cancelled it* — one query later it is still the same
+ * row, but the intent ("the stage we cancelled out of") is only unambiguous
+ * at this point.
+ *
+ * Present ONLY when this call actually performed the cancellation. An
+ * already-cancelled request returns `cancelled: false` and no context, which
+ * is what stops the `order.updated` + `order.cancelled` pair from notifying
+ * twice.
+ */
+export interface CancelNotificationContext {
+  requestId: string;
+  customerName: string;
+  cityId: string | null;
+  cityName: string | null;
+  cityCaptainUserId: string | null;
+  execUserId: string | null;
+  captainUserId: string | null;
+  /** Stage the request had reached when CartPlus cancelled it. */
+  stageCode: string;
+  stageName: string;
+}
+
 export interface ApplyStatusResult {
   /** Status stage advanced forward. */
   advanced: boolean;
@@ -50,6 +82,12 @@ export interface ApplyStatusResult {
   cancelled: boolean;
   /** Target Beakn stage code, when one applied. */
   toStageCode?: string;
+  /**
+   * Set only on the call that performed the cancellation. The caller
+   * dispatches the notification AFTER the transaction commits — notifying
+   * from inside would announce a cancellation that a later rollback undoes.
+   */
+  cancelContext?: CancelNotificationContext;
 }
 
 const NOOP: ApplyStatusResult = {
@@ -71,9 +109,20 @@ export async function applyCartplusOrderStatus(
       cancelledAt: visitRequests.cancelledAt,
       currentStageId: visitRequests.statusStageId,
       currentSeq: statusStages.sequenceNumber,
+      // HVA-326: notification context, read in the same round-trip.
+      currentStageCode: statusStages.code,
+      currentStageName: statusStages.name,
+      customerName: visitRequests.customerName,
+      cityId: visitRequests.cityId,
+      cityName: cities.name,
+      cityCaptainUserId: cities.captainUserId,
+      execUserId: visitRequests.assignedExecUserId,
+      captainUserId: visitRequests.assignedCaptainUserId,
     })
     .from(visitRequests)
     .innerJoin(statusStages, eq(statusStages.id, visitRequests.statusStageId))
+    // LEFT join: a request whose city row is missing must still cancel.
+    .leftJoin(cities, eq(cities.id, visitRequests.cityId))
     .where(eq(visitRequests.id, requestId))
     .limit(1);
   if (!req) return NOOP;
@@ -112,8 +161,26 @@ export async function applyCartplusOrderStatus(
       reason: `CANCELLED_BY_CUSTOMER: ${PORTAL_CANCEL_REASON}`,
     });
     // Clear the linked visit task so the exec's calendar/day plan updates.
+    // VISIT_TYPES is APPOINTMENT_TASK_TYPES, so this clears the
+    // "Installation & Activation" appointment too, not just visit tasks —
+    // which is the case Sandeep cares about most (a cancel landing after
+    // the captain has blocked out an installation day).
     await cancelLinkedVisitTask(tx, requestId);
-    return { ...NOOP, cancelled: true };
+    return {
+      ...NOOP,
+      cancelled: true,
+      cancelContext: {
+        requestId,
+        customerName: req.customerName,
+        cityId: req.cityId,
+        cityName: req.cityName,
+        cityCaptainUserId: req.cityCaptainUserId,
+        execUserId: req.execUserId,
+        captainUserId: req.captainUserId,
+        stageCode: req.currentStageCode,
+        stageName: req.currentStageName,
+      },
+    };
   }
 
   // ---- pending / confirmed ----

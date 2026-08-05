@@ -15,20 +15,10 @@ import { db } from '@/db/client';
 import { notificationPreferences, notificationRules } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
 import type { Role } from '@/lib/auth/roles';
-
-// Map app role → which notification_rules.recipient_role values can target
-// this user. Mirrors lib/notifications/engine.ts:resolveRecipients.
-const ROLE_TO_RECIPIENT_ROLES: Record<Role, readonly string[]> = {
-  sales_executive: ['exec_assigned', 'exec_removed'],
-  captain: ['captain_owning_city', 'captain_assigning', 'captain_acting'],
-  super_admin: ['super_admin'],
-  // HVA-235: support team has no recipient_role tags yet — they'll be
-  // added when HVA-231 Phase 2 wires up dispatch notifications.
-  // Empty array = no notification rules currently target support users
-  // (they see in-app data via direct queries, not the engine's
-  // role-based fan-out).
-  support: [],
-};
+// HVA-327: the map moved to its own module so a test can assert it stays in
+// step with engine.ts:resolveRecipients. It used to be declared here with
+// `support: []`, which hid live notifications from the support team.
+import { ROLE_TO_RECIPIENT_ROLES } from '@/lib/notifications/recipient-roles';
 
 export type PreferenceChannel = 'in_app' | 'push' | 'email';
 

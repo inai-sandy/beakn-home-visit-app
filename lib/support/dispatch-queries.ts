@@ -10,6 +10,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { buildRequestsScopeWhere } from '@/lib/captain/requests-queries';
+import { dispatchableConditions } from '@/lib/dispatch/eligibility';
 import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
 
 // =============================================================================
@@ -28,8 +29,6 @@ import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
 //
 // Filters (URL params):
 //   - q: substring on customer name OR product name (case-insensitive)
-
-const ORDER_CONFIRMED_SEQ = 6;
 
 // Priority mapping for ORDER BY: high(3) > med(2) > low(1). SQL CASE
 // pivot since PostgreSQL ENUMs sort by definition order which would
@@ -152,7 +151,9 @@ function buildQueueConditions(options: QueueOptions) {
   const mode = options.mode ?? 'all';
 
   const conditions = [
-    gte(statusStages.sequenceNumber, ORDER_CONFIRMED_SEQ),
+    // HVA-328: ORDER_CONFIRMED+ AND not cancelled. This is a work queue —
+    // a cancelled order is not work anybody should be asked to do.
+    ...dispatchableConditions(),
     // HVA-280: items a CartPlus edit removed from the order must not
     // appear as available to dispatch.
     isNull(quotationLineItems.removedAt),
@@ -335,7 +336,18 @@ export async function loadDispatchQueue(
 // to validate qty inputs against current state in one query.
 export async function loadRemainingQuantities(
   lineItemIds: string[],
-): Promise<Map<string, { quantityTotal: number; quantityRemaining: number; statusSequence: number }>> {
+): Promise<
+  Map<
+    string,
+    {
+      quantityTotal: number;
+      quantityRemaining: number;
+      statusSequence: number;
+      // HVA-328: the write guard needs cancellation, not just the stage.
+      cancelledAt: Date | null;
+    }
+  >
+> {
   if (lineItemIds.length === 0) return new Map();
   const rows = await db
     .select({
@@ -343,6 +355,7 @@ export async function loadRemainingQuantities(
       quantityTotal: quotationLineItems.quantity,
       quantityRemaining: REMAINING_QTY_SQL,
       statusSequence: statusStages.sequenceNumber,
+      cancelledAt: visitRequests.cancelledAt,
     })
     .from(quotationLineItems)
     .innerJoin(quotations, eq(quotations.id, quotationLineItems.quotationId))
@@ -360,6 +373,7 @@ export async function loadRemainingQuantities(
         quantityTotal: r.quantityTotal,
         quantityRemaining: Number(r.quantityRemaining),
         statusSequence: r.statusSequence,
+        cancelledAt: r.cancelledAt,
       },
     ]),
   );

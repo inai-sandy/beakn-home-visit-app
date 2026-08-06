@@ -10,10 +10,8 @@ import {
   type CaptainRequestBucket,
 } from '@/lib/captain/request-buckets';
 import { buildCaptainRequestVisibilityWhere } from '@/lib/captain/team-scope';
-import {
-  deriveOrderDispatchSummary,
-  isDispatchVisible,
-} from '@/lib/dispatch/fulfilment';
+import { isDispatchable } from '@/lib/dispatch/eligibility';
+import { deriveOrderDispatchSummary } from '@/lib/dispatch/fulfilment';
 import { orderDispatchSummarySelect } from '@/lib/dispatch/order-dispatch-summary';
 import { computePageRange, DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
@@ -150,7 +148,11 @@ export async function fetchCaptainRequests(
     cancelledAt: r.cancelledAt,
     createdAt: r.createdAt,
     // HVA-305: null before ORDER_CONFIRMED so pre-order rows stay quiet.
-    dispatch: isDispatchVisible(r.statusSequence)
+    // HVA-328: and null once cancelled — see lib/dispatch/eligibility.
+    dispatch: isDispatchable({
+      statusSequence: r.statusSequence,
+      cancelledAt: r.cancelledAt,
+    })
       ? deriveOrderDispatchSummary({
           unitsTotal: r.dispatchUnitsTotal,
           unitsShipped: r.dispatchUnitsShipped,

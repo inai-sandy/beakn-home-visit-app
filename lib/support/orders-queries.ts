@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { CLOSED_DISPATCH_STAGES_SQL } from '@/lib/validators/dispatch-stage';
@@ -31,7 +31,12 @@ const ORDER_CONFIRMED_SEQ = 6;
 const ORDERS_PAGE_SIZE = 50;
 const ACTIVITY_LIMIT = 200;
 
-export type OrderDispatchState = 'pending' | 'in_progress' | 'done';
+export type OrderDispatchState =
+  | 'pending'
+  | 'in_progress'
+  | 'done'
+  // HVA-328: terminal, and outranks the other three — see the derivation below.
+  | 'cancelled';
 
 export interface OrdersListRow {
   requestId: string;
@@ -180,9 +185,18 @@ export async function loadAllOrders(
   if (options.dispatchState) {
     // Same logic as the pill resolution below — expressed in SQL so the
     // count + row queries return the same set.
-    if (options.dispatchState === 'pending') {
+    //
+    // HVA-328: cancellation outranks the fulfilment flags in the derivation,
+    // so it has to outrank them here too. Without this, filtering "Pending"
+    // returned orders whose badge said "Cancelled" — the filter and the pill
+    // disagreeing is the same split-brain the derivation just removed.
+    if (options.dispatchState === 'cancelled') {
+      conditions.push(isNotNull(visitRequests.cancelledAt));
+    } else if (options.dispatchState === 'pending') {
+      conditions.push(isNull(visitRequests.cancelledAt));
       conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = FALSE`);
     } else if (options.dispatchState === 'done') {
+      conditions.push(isNull(visitRequests.cancelledAt));
       conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = TRUE`);
       conditions.push(
         sql`(${itemAggregate.qtyTotal} - ${itemAggregate.qtyDispatched}) <= 0`,
@@ -190,6 +204,7 @@ export async function loadAllOrders(
       conditions.push(sql`COALESCE(${itemAggregate.hasOpenDispatch}, FALSE) = FALSE`);
     } else {
       // in_progress
+      conditions.push(isNull(visitRequests.cancelledAt));
       conditions.push(sql`COALESCE(${itemAggregate.hasAnyDispatch}, FALSE) = TRUE`);
       conditions.push(
         sql`((${itemAggregate.qtyTotal} - ${itemAggregate.qtyDispatched}) > 0 OR COALESCE(${itemAggregate.hasOpenDispatch}, FALSE) = TRUE)`,
@@ -212,6 +227,10 @@ export async function loadAllOrders(
       requestId: visitRequests.id,
       customerName: visitRequests.customerName,
       customerPhone: visitRequests.customerPhone,
+      // HVA-328: the Orders tab deliberately KEEPS cancelled orders — it is
+      // the record, and stock already shipped has to stay visible so it can
+      // be chased back. It just has to say so.
+      cancelledAt: visitRequests.cancelledAt,
       cityName: cities.name,
       statusStageCode: statusStages.code,
       statusStageName: statusStages.name,
@@ -239,9 +258,12 @@ export async function loadAllOrders(
           ];
         }
         if (sortKey === 'state') {
-          // dispatchState ranking in SQL — pending < in_progress < done when asc.
-          // Approximate via the raw flags: no_dispatch=0, has_open=1, done=2.
+          // dispatchState ranking in SQL — pending < in_progress < done <
+          // cancelled when asc. Approximate via the raw flags:
+          // no_dispatch=0, has_open=1, done=2; HVA-328 puts cancelled last (3)
+          // and checks it first, mirroring the derivation's precedence.
           const stateRankSql = sql`CASE
+            WHEN ${visitRequests.cancelledAt} IS NOT NULL THEN 3
             WHEN NOT ${itemAggregate.hasAnyDispatch} THEN 0
             WHEN ${itemAggregate.hasOpenDispatch} THEN 1
             ELSE 2
@@ -263,7 +285,11 @@ export async function loadAllOrders(
       const qtyDispatched = Number(r.qtyDispatched ?? 0);
       const qtyRemaining = Math.max(0, qtyTotal - qtyDispatched);
       let dispatchState: OrderDispatchState;
-      if (!r.hasAnyDispatch) dispatchState = 'pending';
+      // HVA-328: cancellation outranks every fulfilment state. A cancelled
+      // order previously read as "Pending", i.e. as outstanding work — four
+      // production orders sat like that, the oldest for 50 days.
+      if (r.cancelledAt !== null) dispatchState = 'cancelled';
+      else if (!r.hasAnyDispatch) dispatchState = 'pending';
       else if (qtyRemaining === 0 && !r.hasOpenDispatch) dispatchState = 'done';
       else dispatchState = 'in_progress';
       const lastActivityAt: Date = r.lastDispatchAt

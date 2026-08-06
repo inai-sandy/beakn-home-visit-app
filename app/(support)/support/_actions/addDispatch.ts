@@ -18,6 +18,7 @@ import { logEvent } from '@/lib/audit';
 import { USER_ROLES } from '@/lib/auth/roles';
 import { getServerSession } from '@/lib/auth-server';
 import { log } from '@/lib/logger';
+import { isDispatchable } from '@/lib/dispatch/eligibility';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { loadRemainingQuantities } from '@/lib/support/dispatch-queries';
 import {
@@ -44,7 +45,6 @@ import {
 // dispatch_item_added per item), revalidates /, returns dispatch id.
 // =============================================================================
 
-const ORDER_CONFIRMED_SEQ = 6;
 const ALLOWED_ROLES = [USER_ROLES.SUPPORT, USER_ROLES.SUPER_ADMIN] as const;
 
 type ActionResult<T = undefined> =
@@ -99,11 +99,17 @@ export async function addDispatchAction(
     if (!info) {
       return { ok: false, error: `Line item ${it.lineItemId} not found.` };
     }
-    if (info.statusSequence < ORDER_CONFIRMED_SEQ) {
+    // HVA-328: stage and cancellation are one question, asked once. Checking
+    // the stage alone let a cancelled order through — it keeps whatever stage
+    // it was cancelled at, so a request cancelled at Order Confirmed still
+    // satisfies `statusSequence >= 6` forever.
+    if (!isDispatchable(info)) {
       return {
         ok: false,
         error:
-          'Cannot dispatch from a request that is not yet at Order Confirmed.',
+          info.cancelledAt !== null
+            ? 'This order was cancelled. It cannot be dispatched — raise a stock recovery instead.'
+            : 'Cannot dispatch from a request that is not yet at Order Confirmed.',
       };
     }
     if (it.qty > info.quantityRemaining) {

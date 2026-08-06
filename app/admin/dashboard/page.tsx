@@ -28,15 +28,27 @@ import { AdminRevenuePanel } from './_components/AdminRevenuePanel';
 import { FirstTimeSetupBanner } from './_components/FirstTimeSetupBanner';
 
 // =============================================================================
-// HVA-279: super_admin dashboard — one from–to picker rules every number
+// HVA-279 → HVA-290: super_admin dashboard — one window rules every number
 // =============================================================================
 //
 // Sandeep 2026-06-12: "change every dashboard… the info has to modify
 // every tile when we change the dates." The old page had NO date
 // control at all — everything was hardcoded today-vs-yesterday.
 //
+// HVA-279 answered that with a free from/to calendar. HVA-290 REPLACED it
+// with three fixed preset tabs (Today / This month / Overall) — see
+// ADMIN_TABS below. The tab is now the only way to choose the window.
+//
+// CONSEQUENCE, because this comment used to claim otherwise and misled a
+// reader into filing HVA-333: this page does NOT read `from`/`to` from the
+// URL. A hand-written or stale-bookmarked `?from=…&to=…` is ignored and the
+// active tab's window is used instead. The drill-down pages under
+// /admin/dashboard/<metric> DO accept arbitrary from/to — they are linked
+// with whatever window the tab computed — so parent and child differ on
+// purpose, not by accident.
+//
 // Composition (top → bottom):
-//   1. DashboardHeader      — title + the one from/to picker (≤365 days)
+//   1. DashboardHeader      — title + the preset tab strip
 //   2. FirstTimeSetupBanner — unchanged
 //   3. Hero                 — Collected ₹ for the window, delta vs the
 //                             previous same-length period
@@ -50,7 +62,9 @@ import { FirstTimeSetupBanner } from './_components/FirstTimeSetupBanner';
 //                             requests / Pending approvals)
 //   7. Alerts feed          — as-of-now
 //
-// Date params CLAMP into [today − 365, today] — never a silent reset.
+// (The old "date params CLAMP into [today − 365, today] — never a silent
+// reset" note described the HVA-279 calendar and has not been true since
+// HVA-290 removed it.)
 // =============================================================================
 
 export const dynamic = 'force-dynamic';

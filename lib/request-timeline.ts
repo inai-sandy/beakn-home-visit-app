@@ -18,6 +18,40 @@
 // test use the one function.
 // =============================================================================
 
+/**
+ * HVA-332: a cancellation is not a stage transition.
+ *
+ * `apply-status.ts` records a cancellation as a `from = to` row — the stage
+ * does not move, only a reason is attached (`CANCELLED_BY_CUSTOMER: …`).
+ * Every timeline labels a row by its TO-stage, so those rows rendered as a
+ * duplicate of whatever stage the request was sitting at, directly above the
+ * real "Cancelled" entry. The customer saw:
+ *
+ *     Quotation Given    28 days ago
+ *     Order Confirmed    28 days ago
+ *     Order Confirmed    28 days ago   <- the cancellation
+ *     Cancelled          28 days ago
+ *
+ * Reproduced at a different stage (cancelled at Visit Scheduled produced a
+ * duplicate "Visit Scheduled"), so it is general to every cancellation, not
+ * specific to the CartPlus path.
+ *
+ * Filter on the structural fact rather than on the reason prefix: a row whose
+ * from and to are the same stage did not move the request, so it is never a
+ * stage event, whatever wrote it. Matching on the `CANCELLED_BY_CUSTOMER:`
+ * string would miss the next writer that adopts the same shape — and
+ * HVA-325's note records that `apply-status.ts` "sets that precedent".
+ *
+ * Rows with no from-stage (the very first transition) are kept: those are
+ * real, and `fromStageId` is null rather than equal.
+ */
+export function isStageTransition(row: {
+  fromStageId: string | null;
+  toStageId: string;
+}): boolean {
+  return row.fromStageId === null || row.fromStageId !== row.toStageId;
+}
+
 export type TimelineEventKind = 'status' | 'reschedule' | 'order_change';
 
 /**

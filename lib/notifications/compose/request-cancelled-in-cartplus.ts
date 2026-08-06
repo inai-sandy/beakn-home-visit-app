@@ -20,6 +20,9 @@
 // audiences and support gets the version written for what support does.
 // =============================================================================
 
+// HVA-329: shared with the customer-cancel path so the wording cannot drift.
+import { dispatchWarning, stagePhrase } from './cancellation-phrases';
+
 import type { InAppBody } from './request-assigned';
 
 export interface RequestCancelledInCartplusContext {
@@ -35,24 +38,8 @@ export interface RequestCancelledInCartplusContext {
   recipientRole?: string | null;
 }
 
-function stagePhrase(stageName: string | null | undefined): string {
-  return stageName && stageName.trim().length > 0
-    ? ` while at ${stageName.trim()}`
-    : '';
-}
-
 function orderRef(orderNumber: string | null | undefined): string {
   return orderNumber ? ` (#${orderNumber})` : '';
-}
-
-/**
- * The part that decides whether someone has to physically chase something.
- * Deliberately blunt — a soft phrasing here costs real money.
- */
-function dispatchWarning(count: number | null | undefined): string {
-  if (typeof count !== 'number' || count <= 0) return '';
-  const unit = count === 1 ? 'item has' : 'items have';
-  return ` ${count} ${unit} already been dispatched and will need to be recovered manually.`;
 }
 
 export function composeRequestCancelledInCartplusInApp(

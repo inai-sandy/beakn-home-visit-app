@@ -38,6 +38,7 @@ import {
   composeRequestCancelledByCustomerForAdmin,
   composeRequestCancelledByCustomerForCaptain,
   composeRequestCancelledByCustomerForExec,
+  composeRequestCancelledByCustomerForSupport,
   type RequestCancelledByCustomerContext,
 } from './request-cancelled-by-customer';
 import {
@@ -176,6 +177,13 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
     }
     if (role === 'exec_assigned') {
       return composeRequestCancelledByCustomerForExec(
+        ctx as unknown as RequestCancelledByCustomerContext,
+      );
+    }
+    // HVA-329: without this branch support_team_all fell through to the
+    // captain variant, which says nothing about stopping a dispatch.
+    if (role === 'support_team_all') {
+      return composeRequestCancelledByCustomerForSupport(
         ctx as unknown as RequestCancelledByCustomerContext,
       );
     }

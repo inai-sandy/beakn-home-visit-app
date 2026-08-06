@@ -5,10 +5,8 @@ import { redirect } from 'next/navigation';
 import { db } from '@/db/client';
 import { cities, statusStages, visitRequests } from '@/db/schema';
 import { getServerSession } from '@/lib/auth-server';
-import {
-  deriveOrderDispatchSummary,
-  isDispatchVisible,
-} from '@/lib/dispatch/fulfilment';
+import { isDispatchable } from '@/lib/dispatch/eligibility';
+import { deriveOrderDispatchSummary } from '@/lib/dispatch/fulfilment';
 import { orderDispatchSummarySelect } from '@/lib/dispatch/order-dispatch-summary';
 import {
   EXEC_REQUEST_BUCKETS,
@@ -186,7 +184,12 @@ export default async function ExecRequestsPage({ searchParams }: PageProps) {
       createdAt: r.createdAt.toISOString(),
       // HVA-305: null before ORDER_CONFIRMED — a row that isn't ready to
       // ship should read as quiet, not "Not shipped".
-      dispatch: isDispatchVisible(r.statusSequence)
+      // HVA-328: and null once cancelled, for the same reason — "Not shipped"
+      // on a cancelled order reads as work still owed.
+      dispatch: isDispatchable({
+        statusSequence: r.statusSequence,
+        cancelledAt: r.cancelledAt,
+      })
         ? deriveOrderDispatchSummary({
             unitsTotal: dispatchUnitsTotal,
             unitsShipped: dispatchUnitsShipped,

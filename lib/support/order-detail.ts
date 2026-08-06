@@ -67,6 +67,11 @@ export interface OrderDetail {
     execName: string | null;
     captainName: string | null;
     createdAt: Date;
+    // HVA-328: this page is a record, so it keeps cancelled orders — but it
+    // used to render one as "Order Confirmed · 5 units remaining of 5" with
+    // no mention of the cancellation anywhere on the page.
+    cancelledAt: Date | null;
+    cancellationReason: string | null;
   };
   items: OrderItemRow[];
   dispatches: DispatchHistoryEntry[];
@@ -94,6 +99,8 @@ export async function loadOrderDetail(
       execName: execAlias.fullName,
       captainName: captainAlias.fullName,
       createdAt: visitRequests.createdAt,
+      cancelledAt: visitRequests.cancelledAt,
+      cancellationReason: visitRequests.cancellationReason,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))

@@ -34,11 +34,17 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
   if (!detail) notFound();
 
   const sessionUser = session.user as { id: string; role?: string };
-  const canDispatch =
-    sessionUser.role === USER_ROLES.SUPPORT ||
-    sessionUser.role === USER_ROLES.SUPER_ADMIN;
-
   const { request: req, items, dispatches } = detail;
+  const isCancelled = req.cancelledAt !== null;
+  // HVA-328: role alone used to decide this, so a cancelled order still
+  // rendered a working Dispatch form — quantity stepper, courier, AWB and all.
+  // The server action refuses it too (addDispatch); this stops support being
+  // offered the action in the first place.
+  const canDispatch =
+    !isCancelled &&
+    (sessionUser.role === USER_ROLES.SUPPORT ||
+      sessionUser.role === USER_ROLES.SUPER_ADMIN);
+
   const totalDispatched = items.reduce((s, i) => s + i.quantityDispatched, 0);
   const totalRemaining = items.reduce((s, i) => s + i.quantityRemaining, 0);
 
@@ -61,7 +67,32 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
           <Badge variant="outline" className="text-[10px]">
             {req.statusStageName}
           </Badge>
+          {isCancelled && (
+            <Badge variant="destructive" className="text-[10px]">
+              Cancelled
+            </Badge>
+          )}
         </div>
+        {isCancelled && (
+          <div
+            role="status"
+            className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700"
+          >
+            <p className="font-medium">
+              This order was cancelled on{' '}
+              {req.cancelledAt!.toLocaleDateString()}. Do not dispatch.
+            </p>
+            {req.cancellationReason && (
+              <p className="mt-0.5 text-xs">Reason: {req.cancellationReason}</p>
+            )}
+            {totalDispatched > 0 && (
+              <p className="mt-0.5 text-xs">
+                {totalDispatched} unit{totalDispatched === 1 ? '' : 's'} already
+                went out — recover the stock manually.
+              </p>
+            )}
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">
           {req.cityName} · {req.customerPhone}
           {req.execName && ` · Exec ${req.execName}`}

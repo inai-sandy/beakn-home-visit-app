@@ -45,12 +45,17 @@ const STATE_LABEL: Record<OrderDispatchState, string> = {
   pending: 'Pending',
   in_progress: 'In-progress',
   done: 'Done',
+  // HVA-328: these rows used to read "Pending" — i.e. as work still owed.
+  cancelled: 'Cancelled',
 };
 
 const STATE_TONE: Record<OrderDispatchState, string> = {
   pending: 'bg-amber-500/10 text-amber-700 border-amber-500/30',
   in_progress: 'bg-sky-500/10 text-sky-700 border-sky-500/30',
   done: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30',
+  // Destructive tone, not muted: a cancelled order carrying already-shipped
+  // stock is something support has to act on, just not by shipping more.
+  cancelled: 'bg-red-500/10 text-red-700 border-red-500/30',
 };
 
 function daysAgoLabel(days: number): string {

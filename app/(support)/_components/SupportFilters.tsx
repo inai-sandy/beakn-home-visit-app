@@ -29,7 +29,13 @@ import type {
 // Any change resets ?page=. Search/sort/q params are preserved.
 // =============================================================================
 
-export type DispatchStateFilter = 'pending' | 'in_progress' | 'done';
+// HVA-328: 'cancelled' is selectable on the Orders tab, which keeps cancelled
+// orders as a record. The Pending / In-progress queues never contain them.
+export type DispatchStateFilter =
+  | 'pending'
+  | 'in_progress'
+  | 'done'
+  | 'cancelled';
 
 interface Props {
   cities: CityOption[];
@@ -125,6 +131,7 @@ export function SupportFilters({
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="in_progress">In progress</SelectItem>
             <SelectItem value="done">Done</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
           </SelectContent>
         </Select>
       ) : null}

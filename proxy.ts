@@ -97,9 +97,26 @@ const PUBLIC_PAGE_ROUTES = new Set<string>([
   '/',
   '/login',
   '/forgot-password',
+  // HVA-336: the customer visit-request form. EXACT, not a prefix.
+  //
+  // It was listed in PUBLIC_PAGE_PREFIXES as '/request', and
+  // '/requests'.startsWith('/request') is true — so the exec requests LIST
+  // and every /requests/<id> DETAIL page were classified public and skipped
+  // the proxy's auth + role gates entirely. The first of the three auth
+  // layers was silently absent on the app's most data-rich route.
+  //
+  // Not an exposure: the pages call getServerSession() themselves and 307 to
+  // /login without a session, which is what kept it invisible. Verified
+  // unauthenticated before this fix — both /requests and /requests/<id>
+  // redirected to /login with no body. That is the second layer doing the
+  // first layer's job, and it only holds while every such page remembers to
+  // check for itself.
+  //
+  // `app/request/page.tsx` is the only route under this path, so an exact
+  // match loses nothing.
+  '/request',
 ]);
 const PUBLIC_PAGE_PREFIXES = [
-  '/request', // customer visit-request form (HVA-30+)
   '/submitted/', // HVA-35: post-submission confirmation (/submitted/[token])
   '/track/', // customer tracking page (HVA-1.5)
 ];
@@ -116,7 +133,13 @@ function isNoAuth(pathname: string): boolean {
   return false;
 }
 
-function isPublicPage(pathname: string): boolean {
+/**
+ * Exposed for tests alongside `canAccess`. A route silently becoming public
+ * because of a prefix collision is invisible from the outside — the pages
+ * still 307 to /login off their own session check — so it needs asserting
+ * directly. See HVA-336.
+ */
+export function isPublicPage(pathname: string): boolean {
   if (PUBLIC_PAGE_ROUTES.has(pathname)) return true;
   for (const p of PUBLIC_PAGE_PREFIXES) if (pathname.startsWith(p)) return true;
   return false;

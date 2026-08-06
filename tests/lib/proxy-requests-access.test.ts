@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { canAccess } from '@/proxy';
+import { canAccess, isPublicPage } from '@/proxy';
 
 // =============================================================================
 // HVA-336: the exec requests LIST is exec-only; the DETAIL route is shared
@@ -66,4 +66,41 @@ describe('the neighbouring exec-only routes are unchanged', () => {
       expect(canAccess(path, SUPPORT)).toBe(false);
     },
   );
+});
+
+// =============================================================================
+// HVA-336 (second pass): /requests must not be a PUBLIC page
+// =============================================================================
+//
+// The first fix added `/requests` to the exec allow-list in `canAccess` — and
+// it never ran. `isPublicPage()` short-circuits before the role gate, and
+// PUBLIC_PAGE_PREFIXES listed the customer form as the prefix `'/request'`.
+// `'/requests'.startsWith('/request')` is true, so the exec requests list and
+// every `/requests/<id>` detail page were treated as public: no auth layer,
+// no role layer.
+//
+// Not an exposure — the pages call getServerSession() themselves and 307 to
+// /login, which is exactly what kept it invisible. But that is the second of
+// three auth layers covering for the absent first, and it holds only while
+// every page under the path remembers to check for itself.
+// =============================================================================
+
+describe('the public-page allow-list', () => {
+  it('still lets the customer form through', () => {
+    expect(isPublicPage('/request')).toBe(true);
+  });
+
+  it('does NOT swallow the exec requests list', () => {
+    expect(isPublicPage('/requests')).toBe(false);
+  });
+
+  it('does NOT swallow the shared request-detail route', () => {
+    expect(isPublicPage(DETAIL)).toBe(false);
+  });
+
+  it('keeps the genuinely public customer surfaces public', () => {
+    expect(isPublicPage('/track/InfERb95ml2RLJY8hZ9ND')).toBe(true);
+    expect(isPublicPage('/submitted/InfERb95ml2RLJY8hZ9ND')).toBe(true);
+    expect(isPublicPage('/login')).toBe(true);
+  });
 });

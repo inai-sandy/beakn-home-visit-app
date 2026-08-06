@@ -126,7 +126,13 @@ function isPublicPage(pathname: string): boolean {
  * Returns true iff `role` may visit `pathname`. super_admin has access to
  * every role-prefixed area (decision documented above).
  */
-function canAccess(pathname: string, role: string): boolean {
+/**
+ * Exposed for tests so the role gate can be asserted directly, the way
+ * `buildRequestsScopeWhere` is. HVA-336 was a route quietly falling through
+ * to the catch-all `return true` — invisible from the outside, and a table
+ * of (path, role) expectations is the only cheap way to see it.
+ */
+export function canAccess(pathname: string, role: string): boolean {
   // HVA-99 (production default-deny for /dev/*). The NO_AUTH_PREFIXES guard
   // above only governs the unauthenticated path; once a session exists the
   // super_admin escape hatch below would otherwise let signed-in admins
@@ -164,7 +170,16 @@ function canAccess(pathname: string, role: string): boolean {
     pathname === '/tickets' || pathname.startsWith('/tickets/') ||
     // HVA-308: exec Dispatch section. Captain has /captain/dispatch;
     // support has /support. super_admin is escape-hatched above.
-    pathname === '/dispatch' || pathname.startsWith('/dispatch/')
+    pathname === '/dispatch' || pathname.startsWith('/dispatch/') ||
+    // HVA-336: the exec requests LIST. Exact match only, deliberately —
+    // `/requests/<id>` is the shared request-detail route that captains and
+    // admins open too, and a `startsWith('/requests/')` here would lock them
+    // out of it. Without this line the list fell through to the catch-all
+    // `return true`, so the proxy's role gate never fired: the page's own
+    // redirect bounced captain and support to their home with no `?denied=1`,
+    // and they were moved with no explanation while every other cross-role
+    // refusal in the app says "Access denied".
+    pathname === '/requests'
   ) {
     return role === USER_ROLES.SALES_EXECUTIVE;
   }

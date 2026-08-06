@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+import { Button } from '@/components/ui/button';
 import { getServerSession } from '@/lib/auth-server';
 import {
   loadPendingApprovals,
@@ -118,6 +120,45 @@ export default async function CaptainDashboardPage({ searchParams }: PageProps) 
   const user = session.user as { id: string; role?: string };
   if (user.role !== 'captain' && user.role !== 'super_admin') {
     redirect('/login');
+  }
+
+  // HVA-335: a super_admin reaching this page is scoped to THEMSELVES — no
+  // team, no cities — so every tile computed ₹0 collected, 0 visits, 0
+  // quotations, 0 orders and "Nothing waiting for you right now". Numbers an
+  // admin could read as real.
+  //
+  // The sibling routes already handle it, two different ways: /captain/team
+  // says so outright, while /captain/requests and /captain/dispatch
+  // deliberately widen to "across every city". This page is a TEAM
+  // performance view, and the org-wide version of it already exists at
+  // /admin/dashboard — so it says so and points there, rather than growing a
+  // second org-wide dashboard.
+  if (user.role === 'super_admin') {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-3xl space-y-5">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Super-admin has no team scope, so there are no team figures to
+            show here.
+          </p>
+        </header>
+        <div className="rounded-2xl border border-dashed p-6 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            To see a specific captain&apos;s numbers, open their portal from
+            Captains. For the org-wide picture, use the admin dashboard.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm">
+              <Link href="/admin/dashboard">Admin dashboard</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/admin/settings/organization/captains">Captains</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const raw = await searchParams;

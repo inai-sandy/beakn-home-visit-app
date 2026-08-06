@@ -110,6 +110,27 @@ export default async function AdminCaptainPortalLayout({
           {CAPTAIN_NAV_ITEMS.map((item) => {
             const segment = item.href.replace(/^\/captain/, '');
             const href = `${basePath}${segment}`;
+
+            // HVA-331: three captain pages have no impersonation mirror, so
+            // rewriting their href produced a link straight to the 404 page.
+            // Rendered disabled rather than hidden: an admin who knows the
+            // captain portal has a Dispatch tab should see why it is not
+            // available here, not be left wondering where it went.
+            if (item.noAdminPortalRoute) {
+              return (
+                <li key={item.href} className="shrink-0">
+                  <span
+                    aria-disabled="true"
+                    title="Not available when viewing a captain's portal — open the captain's own page instead."
+                    className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-dashed bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap"
+                  >
+                    <Icon name={item.icon} size="xs" />
+                    {item.label}
+                  </span>
+                </li>
+              );
+            }
+
             return (
               <li key={item.href} className="shrink-0">
                 <Link

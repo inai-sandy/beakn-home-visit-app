@@ -52,6 +52,7 @@ describe('HVA-152: shared captain nav config', () => {
           "href": "/captain/dispatch",
           "icon": "local_shipping",
           "label": "Dispatch",
+          "noAdminPortalRoute": true,
         },
         {
           "href": "/captain/team",
@@ -62,6 +63,7 @@ describe('HVA-152: shared captain nav config', () => {
           "href": "/captain/tasks",
           "icon": "task",
           "label": "Tasks",
+          "noAdminPortalRoute": true,
         },
         {
           "href": "/captain/calendar",
@@ -82,6 +84,7 @@ describe('HVA-152: shared captain nav config', () => {
           "href": "/captain/tickets",
           "icon": "help_center",
           "label": "Tickets",
+          "noAdminPortalRoute": true,
         },
         {
           "href": "/captain/assist",

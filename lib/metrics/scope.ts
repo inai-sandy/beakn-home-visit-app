@@ -106,3 +106,39 @@ export function scopeLabel(scope: MetricScope): string {
   if (scope.captainUserId) return `captain:${scope.captainUserId}`;
   return 'global';
 }
+
+// =============================================================================
+// HVA-334: cancelled requests are not booked business
+// =============================================================================
+//
+// Sandeep, 2026-08-06, asked whether a booked-then-cancelled order should
+// still count as booked revenue: "No."
+//
+// Until now the dashboard disagreed with itself about that. The MONEY tiles
+// said so in their own tooltips — "across all NON-CANCELLED requests",
+// "total face value of every quotation on a NON-CANCELLED request" — and
+// `outstanding.ts` filtered accordingly. But `orders.ts`, `revenue.ts` and
+// `conversion.ts` carried no cancellation filter at all, so one screen
+// answered the same question two ways. Production had Ankit's order counting
+// as ₹8,354 of Booked revenue on 2026-07-09, confirmed 17:46 IST and
+// cancelled 17:47 IST — seventy-nine seconds of business.
+//
+// CONSEQUENCE, deliberate and worth knowing: this reads the CURRENT
+// cancellation state, not the state at the end of the window. An order
+// booked in June and cancelled in August disappears from June's Booked
+// figure retroactively. That is the point — "was it really booked?" is a
+// question about now, not about what we believed in June — but it does mean
+// a historical number can change after the fact, so a screenshot from last
+// month may not reproduce.
+// =============================================================================
+
+/**
+ * AND this into any metric that answers "how much business did we win".
+ *
+ * Not applied to intake metrics (`requests.ts` counts submissions, including
+ * ones later cancelled — that is volume, not pipeline) nor to as-of-now
+ * snapshots that already filter it themselves.
+ */
+export function notCancelledFilter(): SQL {
+  return sql`${visitRequests.cancelledAt} IS NULL`;
+}

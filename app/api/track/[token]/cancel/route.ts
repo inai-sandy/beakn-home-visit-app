@@ -12,6 +12,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+import { dispatchedQuantity } from '@/lib/dispatch/dispatched-quantity';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { checkTokenRateLimit } from '@/lib/rate-limit';
@@ -153,6 +154,10 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
       cancelledAt: visitRequests.cancelledAt,
       statusStageId: visitRequests.statusStageId,
       statusStageCode: statusStages.code,
+      // HVA-329: human stage name for the support notification — "cancelled
+      // while at Installation Scheduled" is a different problem from
+      // "cancelled while at Quotation Given".
+      statusStageName: statusStages.name,
       currentStageSeq: statusStages.sequenceNumber,
       assignedExecUserId: visitRequests.assignedExecUserId,
       assignedCaptainUserId: visitRequests.assignedCaptainUserId,
@@ -274,9 +279,17 @@ export async function POST(req: Request, ctx: Ctx): Promise<NextResponse> {
   // 7. Notification fan-out. HVA-50 will seed rules for this event so the
   //    captain + admin see it via in-app + email. Until then this is a
   //    silent no-op (engine returns 0 deliveries).
+  //
+  // HVA-329: support_team_all is on this event's rules now too. The count
+  // is read AFTER the cancellation commits — support needs to know what is
+  // already out, and that number does not change by cancelling.
+  const dispatchedItemCount = await dispatchedQuantity(reqRow.id);
   try {
     await dispatchNotification('request.cancelled_by_customer', {
       requestId: reqRow.id,
+      // HVA-329: support-only inputs; ignored by the other composers.
+      stageName: reqRow.statusStageName,
+      dispatchedItemCount,
       cityId: reqRow.cityId,
       // 2026-05-29: needed for the captain_owning_city recipient resolver
       // + the composer's "in <city>" suffix.

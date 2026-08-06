@@ -27,6 +27,7 @@ import { getConfig } from "@/lib/config";
 import { loadCustomerVisibleResourcesByTag } from "@/lib/content/queries";
 import type { ResourceRow } from "@/lib/content/types";
 import { log } from "@/lib/logger";
+import { isStageTransition } from "@/lib/request-timeline";
 import { loadActiveCategories } from "@/lib/support-tickets/category-queries";
 import {
   loadTicketMessagesForRequest,
@@ -169,7 +170,7 @@ export default async function TrackPage({ params }: PageProps) {
   // the forward row it undid, not interleaved by stage seq.
   const fromStage = alias(statusStages, 'from_stage');
   const toStage = alias(statusStages, 'to_stage');
-  const cleanHistoryRows = await db
+  const historyRowsRaw = await db
     .select({
       id: requestStatusHistory.id,
       toStageCode: toStage.code,
@@ -177,6 +178,10 @@ export default async function TrackPage({ params }: PageProps) {
       toStageSeq: toStage.sequenceNumber,
       fromStageCode: fromStage.code,
       fromStageSeq: fromStage.sequenceNumber,
+      // HVA-332: identity, not sequence — two stages can never share an id,
+      // whereas a future stage could in principle share a sequence number.
+      fromStageId: requestStatusHistory.fromStatusStageId,
+      toStageId: requestStatusHistory.toStatusStageId,
       sequenceNumber: requestStatusHistory.sequenceNumber,
       changedAt: requestStatusHistory.changedAt,
     })
@@ -186,6 +191,12 @@ export default async function TrackPage({ params }: PageProps) {
     .leftJoin(fromStage, eq(fromStage.id, requestStatusHistory.fromStatusStageId))
     .where(eq(visitRequests.trackingToken, token))
     .orderBy(asc(requestStatusHistory.transitionOrder));
+
+  // HVA-332: drop the `from = to` cancellation rows. They are not stage
+  // transitions, and rendering them by their to-stage showed the customer
+  // the same stage twice. The dedicated "Cancelled" entry below already
+  // carries the cancellation, with its customer-safe reason.
+  const cleanHistoryRows = historyRowsRaw.filter(isStageTransition);
 
   // HVA-140: reassignment events live in their own table because they
   // do NOT change status_stage_id. Fetch them in the customer's

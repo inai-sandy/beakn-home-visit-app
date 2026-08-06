@@ -1,8 +1,7 @@
-import { eq, sql } from 'drizzle-orm';
-
-import { db } from '@/db/client';
-import { dispatchItems, quotationLineItems, quotations } from '@/db/schema';
 import { logEvent } from '@/lib/audit';
+// HVA-329: shared with the customer-cancel path — one definition of
+// "how much stock is already out".
+import { dispatchedQuantity } from '@/lib/dispatch/dispatched-quantity';
 import { log } from '@/lib/logger';
 
 import type { CancelNotificationContext } from './apply-status';
@@ -30,39 +29,6 @@ export const CARTPLUS_CANCELLED_EVENT = 'request.cancelled_in_cartplus';
 const AUDIT_EVENT = 'request_cancelled_in_cartplus';
 
 const notifyLog = log.child({ component: 'webhooks.cartplus.notify_cancelled' });
-
-/**
- * Total quantity already handed to a courier for this request's order.
- *
- * This is the number that decides whether someone has to physically chase
- * something back, so it counts EVERY dispatch row — including ones against
- * line items a later CartPlus edit soft-removed. Filtering those out would
- * hide exactly the stock most likely to be stranded.
- */
-async function dispatchedQuantity(requestId: string): Promise<number> {
-  try {
-    const [row] = await db
-      .select({
-        qty: sql<number>`COALESCE(SUM(${dispatchItems.qtyInThisDispatch}), 0)::int`,
-      })
-      .from(dispatchItems)
-      .innerJoin(
-        quotationLineItems,
-        eq(quotationLineItems.id, dispatchItems.quotationLineItemId),
-      )
-      .innerJoin(quotations, eq(quotations.id, quotationLineItems.quotationId))
-      .where(eq(quotations.visitRequestId, requestId));
-    return Number(row?.qty ?? 0);
-  } catch (err) {
-    // Never let the count block the notification — "cancelled" reaching the
-    // team matters more than the dispatch figure being present.
-    notifyLog.warn(
-      { requestId, err: err instanceof Error ? err.message : String(err) },
-      'dispatched_quantity_lookup_failed',
-    );
-    return 0;
-  }
-}
 
 /**
  * Notify exec + captain + support + super_admin, and write the audit row.

@@ -9,7 +9,7 @@ import {
 } from '@/db/schema';
 
 import { STATUS_CODES } from './constants';
-import { visitRequestsScopeFilter } from './scope';
+import { notCancelledFilter, visitRequestsScopeFilter } from './scope';
 import type { DateRange, MetricLoader, MetricScope } from './types';
 
 // =============================================================================
@@ -61,6 +61,8 @@ export const loadOrdersCount: MetricLoader<number> = async (
           sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,
           range.toDate,
         ),
+        // HVA-334: a cancelled order is not an order.
+        notCancelledFilter(),
         scopeFilter,
       ),
     );
@@ -83,6 +85,8 @@ export const loadOrdersValue: MetricLoader<number> = async (
     .where(
       and(
         scopeFilter,
+        // HVA-334: a cancelled order carries no booked value.
+        notCancelledFilter(),
         // HVA-281: only CartPlus quotations carry a real order value.
         eq(quotations.source, 'portal'),
         sql`EXISTS (

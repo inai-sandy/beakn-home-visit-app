@@ -56,6 +56,12 @@ export const loadVisitedRequestsCount: MetricLoader<number> = async (
     )
     .where(
       and(
+        // HVA-334 deliberately does NOT filter cancelled requests out of the
+        // DENOMINATOR. A visit that happened still happened; if the request
+        // later cancelled, that is a visit which failed to convert, and
+        // hiding it would flatter the ratio. The NUMERATOR is loadOrdersCount,
+        // which now excludes cancelled — so conversion corrects itself and
+        // means exactly "orders won per visit made".
         eq(statusStages.code, STATUS_CODES.VISIT_COMPLETED),
         gte(
           sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`,

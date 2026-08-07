@@ -24,6 +24,7 @@ import {
 
 import { STATUS_CODES, VISIT_TASK_TYPES } from '@/lib/metrics/constants';
 import { formatInrFromPaise } from '@/lib/money';
+import { notCancelledFilter } from '@/lib/metrics/scope';
 
 // =============================================================================
 // HVA-292: admin KPI-tile drill-downs
@@ -117,6 +118,11 @@ async function loadConfirmedOrders(
     eq(statusStages.code, STATUS_CODES.ORDER_CONFIRMED),
     gte(istDate(requestStatusHistory.changedAt), i.fromDate),
     lte(istDate(requestStatusHistory.changedAt), i.toDate),
+    // HVA-334: must match lib/metrics/orders.ts exactly. This backs the
+    // Booked and Orders tiles' drill-downs, so if the tile excludes
+    // cancelled orders and this list does not, the tile and the list it
+    // opens disagree — which is the failure this ticket started as.
+    notCancelledFilter(),
   );
   const searchFilter = i.search
     ? or(
@@ -202,7 +208,11 @@ async function loadVisitedRequests(i: DrilldownInput): Promise<DrilldownResult> 
       execName: users.fullName,
       cityName: cities.name,
       visited: sql<string>`MAX(${istDate(requestStatusHistory.changedAt)})`,
-      converted: sql<boolean>`EXISTS (
+      // HVA-334: a visit whose order was later cancelled did NOT convert.
+      // The row itself stays listed — the visit happened, and the conversion
+      // denominator counts it — but its Converted? cell must read no, or the
+      // list would show more conversions than the Orders tile counts.
+      converted: sql<boolean>`${visitRequests.cancelledAt} IS NULL AND EXISTS (
         SELECT 1 FROM ${requestStatusHistory} r2
         INNER JOIN ${statusStages} s2 ON s2.id = r2.to_status_stage_id
         WHERE r2.request_id = ${visitRequests.id}

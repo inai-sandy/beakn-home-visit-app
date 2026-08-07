@@ -45,6 +45,12 @@ export const loadRevenue: MetricLoader<number> = async (
     .innerJoin(visitRequests, eq(visitRequests.id, payments.visitRequestId))
     .where(
       and(
+        // HVA-334 deliberately does NOT filter cancelled requests here.
+        // This is COLLECTED CASH, not booked business. Money that actually
+        // arrived did actually arrive, and if it was returned the refund is
+        // an outbound payment already netted off by the CASE above. Adding
+        // `cancelled_at IS NULL` would erase both sides of a real cash
+        // movement and make the figure disagree with the bank.
         isNull(payments.voidedAt),
         gte(payments.paymentDate, range.fromDate),
         lte(payments.paymentDate, range.toDate),

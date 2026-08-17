@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
 import { USER_ROLES } from '@/lib/auth/roles';
+import { summariseFulfilment } from '@/lib/dispatch/fulfilment';
 import { getServerSession } from '@/lib/auth-server';
 import { loadOrderDetail } from '@/lib/support/order-detail';
 
@@ -45,8 +46,12 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
     (sessionUser.role === USER_ROLES.SUPPORT ||
       sessionUser.role === USER_ROLES.SUPER_ADMIN);
 
+  // Deliberately across ALL items, removed ones included: this feeds the
+  // "already went out — recover the stock" line on a cancelled order, and
+  // stock that physically left still has to be recovered.
   const totalDispatched = items.reduce((s, i) => s + i.quantityDispatched, 0);
-  const totalRemaining = items.reduce((s, i) => s + i.quantityRemaining, 0);
+  // HVA-340: the live order, excluding items a CartPlus edit removed.
+  const liveSummary = summariseFulfilment(items);
 
   return (
     <section className="space-y-5">
@@ -100,7 +105,12 @@ export default async function SupportOrderDetailPage({ params }: PageProps) {
         </p>
         <p className="text-xs text-muted-foreground">
           Order opened {req.createdAt.toLocaleDateString()} ·{' '}
-          {totalRemaining} units remaining of {totalRemaining + totalDispatched}
+          {/* HVA-340: through summariseFulfilment so this line counts only
+              items still on the order. Deriving it from the raw totals mixed
+              live remaining with units shipped against a since-removed item
+              and could read "3 units remaining of 5" for a three-unit order.
+              The exec's Order tab already used this helper — now both do. */}
+          {liveSummary.unitsPending} units remaining of {liveSummary.unitsTotal}
         </p>
       </header>
 

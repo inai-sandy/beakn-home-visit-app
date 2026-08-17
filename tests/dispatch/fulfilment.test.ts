@@ -18,7 +18,16 @@ import {
 // =============================================================================
 
 function item(quantityTotal: number, quantityDispatched: number) {
-  return { quantityTotal, quantityDispatched };
+  return { quantityTotal, quantityDispatched, removedAt: null };
+}
+
+/** HVA-340: a line item a CartPlus edit dropped from the order. */
+function removedItem(quantityTotal: number, quantityDispatched: number) {
+  return {
+    quantityTotal,
+    quantityDispatched,
+    removedAt: new Date('2026-08-17T10:00:00Z'),
+  };
 }
 
 describe('itemFulfilmentState', () => {
@@ -42,6 +51,21 @@ describe('itemFulfilmentState', () => {
 
   it('treats an empty line as pending rather than complete', () => {
     expect(itemFulfilmentState(item(0, 0))).toBe('pending');
+  });
+
+  // HVA-340 — removal outranks the shipped/pending axis entirely.
+  it('is removed when the customer dropped the item, even with nothing shipped', () => {
+    // This is the case that mattered: reading as "pending" is what put the
+    // row in dispatchableIds and offered support a working Dispatch form.
+    expect(itemFulfilmentState(removedItem(5, 0))).toBe('removed');
+  });
+
+  it('is removed even when some units already went out before the removal', () => {
+    expect(itemFulfilmentState(removedItem(5, 2))).toBe('removed');
+  });
+
+  it('is removed even when the whole line had already shipped', () => {
+    expect(itemFulfilmentState(removedItem(5, 5))).toBe('removed');
   });
 });
 
@@ -92,6 +116,44 @@ describe('summariseFulfilment', () => {
     expect(summary.unitsTotal).toBe(0);
     expect(summary.productsTotal).toBe(0);
     expect(summary.state).toBe('pending');
+  });
+
+  // HVA-340 — the totals describe the order as it stands NOW.
+  it('leaves a removed item out of the units and product totals', () => {
+    const summary = summariseFulfilment([
+      item(2, 2), // complete
+      item(3, 1), // partial
+      removedItem(5, 0), // customer deleted this one
+    ]);
+
+    // 2 + 3 = 5 live units, not 10. Before this, the exec's header read
+    // "3 of 10 units shipped · 2 products pending" for an order the
+    // customer had cut down to five units.
+    expect(summary.unitsTotal).toBe(5);
+    expect(summary.unitsShipped).toBe(3);
+    expect(summary.unitsPending).toBe(2);
+    expect(summary.productsTotal).toBe(2);
+    expect(summary.state).toBe('partial');
+  });
+
+  it('reads complete once every LIVE unit has shipped, ignoring a removed line', () => {
+    // The removed item has nothing shipped, so before HVA-340 this order
+    // was stuck reporting "partial" forever — an order that is, in fact,
+    // fully delivered as it currently stands.
+    const summary = summariseFulfilment([item(2, 2), removedItem(4, 0)]);
+    expect(summary.state).toBe('complete');
+    expect(summary.unitsPending).toBe(0);
+  });
+
+  it('does not count units shipped before a removal against the live total', () => {
+    // Partly shipped, then removed. Those 2 units really did go out, and
+    // the dispatch history still records them — but they are not progress
+    // against what we currently owe, and counting them here produced
+    // "2 of 0 shipped".
+    const summary = summariseFulfilment([removedItem(5, 2)]);
+    expect(summary.unitsTotal).toBe(0);
+    expect(summary.unitsShipped).toBe(0);
+    expect(summary.productsTotal).toBe(0);
   });
 });
 

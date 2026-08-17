@@ -23,21 +23,33 @@ import { visitRequests } from '@/db/schema';
 //                                                      → dispatches
 // =============================================================================
 
-/** Units the customer ordered across every line item on the order. */
+/** Units the customer ordered across every line item on the order.
+ *
+ *  HVA-340: `removed_at IS NULL`. An item a CartPlus edit dropped is no
+ *  longer part of the order, so counting it inflated the denominator — the
+ *  pill read "3 of 8 shipped" for an order that is now five units. This
+ *  pill and the detail page have to be describing the same order. */
 export const ORDER_UNITS_TOTAL_SQL = sql<number>`COALESCE((
   SELECT SUM(qli.quantity)
   FROM quotation_line_items qli
   JOIN quotations q ON q.id = qli.quotation_id
   WHERE q.visit_request_id = ${visitRequests.id}
+    AND qli.removed_at IS NULL
 ), 0)::int`;
 
-/** Units that have actually gone out, summed across every installment. */
+/** Units that have actually gone out, summed across every installment.
+ *
+ *  HVA-340: filtered to live items for the same reason. Counting units
+ *  shipped against a since-removed item, against a total that excludes it,
+ *  can produce "6 of 5 shipped" — `summariseFulfilment` clamps that on the
+ *  detail page, but the list pill reads these two numbers raw. */
 export const ORDER_UNITS_SHIPPED_SQL = sql<number>`COALESCE((
   SELECT SUM(di.qty_in_this_dispatch)
   FROM dispatch_items di
   JOIN quotation_line_items qli ON qli.id = di.quotation_line_item_id
   JOIN quotations q ON q.id = qli.quotation_id
   WHERE q.visit_request_id = ${visitRequests.id}
+    AND qli.removed_at IS NULL
 ), 0)::int`;
 
 /** How many separate packages this order has been split into. */

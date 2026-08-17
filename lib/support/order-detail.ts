@@ -21,6 +21,14 @@ import type { DispatchStage } from '@/lib/validators/dispatch-stage';
 //
 // Loads the request header, all line items (incl. fully-dispatched), and
 // the full dispatch history for /support/orders/[id].
+//
+// HVA-340: this loader also backs the exec + captain Order tab on
+// /requests/[id], so anything wrong here is wrong on three portals at once.
+// Items a CartPlus edit removed are still LISTED (this page is a record —
+// same reasoning as HVA-328 for cancelled orders, and a partly-shipped item
+// that vanished from the table while remaining in the dispatch history
+// underneath would read as a ghost). They are reported with
+// `quantityRemaining: 0` so nothing offers them for dispatch.
 // =============================================================================
 
 export interface OrderItemRow {
@@ -29,10 +37,13 @@ export interface OrderItemRow {
   productSku: string | null;
   quantityTotal: number;
   quantityDispatched: number;
+  /** HVA-340: always 0 for a removed item — we are not shipping it. */
   quantityRemaining: number;
   unitPricePaise: number;
   priority: 'low' | 'med' | 'high';
   targetDispatchDate: string | null;
+  /** HVA-340: non-null when a CartPlus edit dropped this item (HVA-280). */
+  removedAt: Date | null;
 }
 
 export interface DispatchHistoryEntry {
@@ -137,6 +148,7 @@ export async function loadOrderDetail(
         priority: quotationLineItems.priority,
         targetDispatchDate: quotationLineItems.targetDispatchDate,
         position: quotationLineItems.position,
+        removedAt: quotationLineItems.removedAt,
       })
       .from(quotationLineItems)
       .where(eq(quotationLineItems.quotationId, quoteRow.id))
@@ -144,16 +156,22 @@ export async function loadOrderDetail(
 
     items = itemRows.map((r) => {
       const dispatched = Number(r.quantityDispatched);
+      // HVA-340: a removed item has nothing outstanding — the customer
+      // deleted it. Reporting the raw difference is what kept it tickable
+      // in ItemsDispatchTable (which gates purely on quantityRemaining > 0)
+      // and countable in the page's "N units remaining" header.
+      const removed = r.removedAt !== null;
       return {
         id: r.id,
         productName: r.productName,
         productSku: r.productSku,
         quantityTotal: r.quantityTotal,
         quantityDispatched: dispatched,
-        quantityRemaining: r.quantityTotal - dispatched,
+        quantityRemaining: removed ? 0 : r.quantityTotal - dispatched,
         unitPricePaise: Number(r.unitPricePaise),
         priority: r.priority,
         targetDispatchDate: r.targetDispatchDate,
+        removedAt: r.removedAt,
       };
     });
 

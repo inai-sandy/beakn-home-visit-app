@@ -12,6 +12,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getConfig } from '@/lib/config';
+import { notCancelledFilter } from '@/lib/metrics/scope';
 
 // =============================================================================
 // Exec monthly target — progress calculator
@@ -25,9 +26,15 @@ import { getConfig } from '@/lib/config';
 //      Attribution: visit_requests.assigned_exec_user_id at the moment
 //      of the transition (Sandeep's confirmation 2026-06-02 + the
 //      saved attribution-vs-action-taker principle).
+//      HVA-339: cancelled requests are excluded — booked business only,
+//      same rule as the admin dashboard tile (HVA-334).
 //
 //   2. revenue_paise — sum of inbound payments.amount_paise for
 //      payments whose payment_date falls within the month.
+//      HVA-339: deliberately NOT filtered on cancellation. This is
+//      collected cash, not booked business — the money arrived, and a
+//      refund is an outbound payment the CASE below already nets off.
+//      Filtering here would make the meter disagree with the bank.
 //      Attribution: visit_requests.assigned_exec_user_id (NOT
 //      payments.recorded_by_user_id — captains often record on behalf
 //      of execs; the deal-owner gets the credit).
@@ -187,7 +194,17 @@ export async function loadAllExecTargetProgress(
         eq(quotations.source, 'portal'),
       ),
     )
-    .where(sql`${visitRequests.assignedExecUserId} IS NOT NULL`)
+    .where(
+      and(
+        sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
+        // HVA-339: a cancelled order is not booked business (HVA-334). That
+        // ruling reached the admin tile and stopped there, so the same exec
+        // in the same month had a target meter reading higher than the
+        // dashboard. The meter is the number an exec is judged on; it does
+        // not get its own definition of a won order.
+        notCancelledFilter(),
+      ),
+    )
     .groupBy(visitRequests.assignedExecUserId);
 
   // Step 3: revenue collected in the month, attributed to the request's
@@ -315,7 +332,15 @@ export async function loadOneExecTargetProgress(
         eq(quotations.source, 'portal'),
       ),
     )
-    .where(eq(visitRequests.assignedExecUserId, execUserId));
+    .where(
+      and(
+        eq(visitRequests.assignedExecUserId, execUserId),
+        // HVA-339: must match the roster query above exactly — an exec
+        // opening their own dashboard and a captain opening the arena view
+        // are asking the same question about the same person.
+        notCancelledFilter(),
+      ),
+    );
 
   // Sandeep 2026-06-03: revenue = net cash (inbound − outbound).
   const [revRow] = await db

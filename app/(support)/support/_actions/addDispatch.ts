@@ -112,6 +112,21 @@ export async function addDispatchAction(
             : 'Cannot dispatch from a request that is not yet at Order Confirmed.',
       };
     }
+    // HVA-340: the customer deleted this item from the order in CartPlus.
+    // Checked BEFORE the quantity test, because removal does not zero the
+    // stored quantity — a removed item still reports a non-zero raw
+    // remaining and would sail straight through it. The support queue has
+    // filtered these out since HVA-280, so nothing reachable from there
+    // lands here; but the order detail page was listing them with a working
+    // dispatch form and there was no guard on this side at all. Shipping
+    // one means real stock leaving against something nobody is paying for.
+    if (info.removedAt !== null) {
+      return {
+        ok: false,
+        error:
+          'This item was removed from the order in CartPlus. It cannot be dispatched — re-check the current order before shipping anything.',
+      };
+    }
     if (it.qty > info.quantityRemaining) {
       return {
         ok: false,

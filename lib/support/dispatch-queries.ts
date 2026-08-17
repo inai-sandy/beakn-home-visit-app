@@ -345,6 +345,12 @@ export async function loadRemainingQuantities(
       statusSequence: number;
       // HVA-328: the write guard needs cancellation, not just the stage.
       cancelledAt: Date | null;
+      // HVA-340: ...and removal, which this was not even selecting. The
+      // queue filters removed items out so they are unreachable from there,
+      // but the order detail page listed them with a working dispatch form
+      // — and this lookup was the last thing between that form and real
+      // stock leaving against an item the customer had deleted.
+      removedAt: Date | null;
     }
   >
 > {
@@ -356,6 +362,7 @@ export async function loadRemainingQuantities(
       quantityRemaining: REMAINING_QTY_SQL,
       statusSequence: statusStages.sequenceNumber,
       cancelledAt: visitRequests.cancelledAt,
+      removedAt: quotationLineItems.removedAt,
     })
     .from(quotationLineItems)
     .innerJoin(quotations, eq(quotations.id, quotationLineItems.quotationId))
@@ -374,6 +381,7 @@ export async function loadRemainingQuantities(
         quantityRemaining: Number(r.quantityRemaining),
         statusSequence: r.statusSequence,
         cancelledAt: r.cancelledAt,
+        removedAt: r.removedAt,
       },
     ]),
   );

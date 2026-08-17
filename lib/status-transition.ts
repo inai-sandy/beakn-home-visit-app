@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 
 import { db } from '@/db/client';
@@ -567,7 +567,14 @@ export async function transitionRequestStatus(
             const itemsCountRow = await db
               .select({ count: sql<number>`COUNT(*)::int` })
               .from(quotationLineItems)
-              .where(eq(quotationLineItems.quotationId, quoteRow.id));
+              .where(
+                and(
+                  eq(quotationLineItems.quotationId, quoteRow.id),
+                  // HVA-340: this number tells support how much work is
+                  // waiting. Items a CartPlus edit removed are not work.
+                  isNull(quotationLineItems.removedAt),
+                ),
+              );
             itemCount = itemsCountRow[0]?.count ?? 0;
           }
           await dispatchNotification('support.order_ready_for_dispatch', {

@@ -45,22 +45,38 @@ export interface FulfilmentItem {
   unitPricePaise: number;
   priority: 'low' | 'med' | 'high';
   targetDispatchDate: string | null;
+  /** HVA-340: set when a CartPlus edit dropped this item from the order
+   *  (HVA-280 soft-removal). NOT optional — every reader has to make a
+   *  deliberate decision about removed items, because the readers that
+   *  silently skipped the question are how support ended up able to ship
+   *  something the customer had deleted. */
+  removedAt: Date | null;
 }
 
-/** Per-product fulfilment state. Deliberately three-valued: a partially
- *  shipped product is the common case here, not an edge case. */
-export type ItemFulfilmentState = 'pending' | 'partial' | 'complete';
+/** Per-product fulfilment state. Four-valued: a partially shipped product
+ *  is the common case here rather than an edge case, and HVA-340 added
+ *  `removed` because "the customer took this off the order" is a state the
+ *  shipped-vs-pending axis genuinely cannot express. */
+export type ItemFulfilmentState =
+  | 'pending'
+  | 'partial'
+  | 'complete'
+  | 'removed';
 
 export const ITEM_STATE_LABEL: Record<ItemFulfilmentState, string> = {
   pending: 'Not shipped',
   partial: 'Partly shipped',
   complete: 'Shipped',
+  removed: 'Removed from order',
 };
 
 export const ITEM_STATE_TONE: Record<ItemFulfilmentState, string> = {
   pending: 'border-muted-foreground/30 text-muted-foreground bg-muted/40',
   partial: 'border-amber-500/30 text-amber-700 bg-amber-500/10',
   complete: 'border-emerald-500/30 text-emerald-700 bg-emerald-500/10',
+  // Deliberately the loudest tone on the table: support reads this row
+  // while deciding what to physically put in a box.
+  removed: 'border-rose-500/30 text-rose-700 bg-rose-500/10',
 };
 
 /**
@@ -69,10 +85,18 @@ export const ITEM_STATE_TONE: Record<ItemFulfilmentState, string> = {
  * Reads `quantityDispatched` rather than `quantityRemaining` for the
  * pending check: a data glitch that over-dispatches (remaining < 0)
  * should still read as shipped, not silently fall back to "not shipped".
+ *
+ * HVA-340: removal outranks everything else. An item the customer deleted
+ * is not "not shipped" however little of it went out — reading as pending
+ * is exactly what invited support to ship it.
  */
 export function itemFulfilmentState(
-  item: Pick<FulfilmentItem, 'quantityTotal' | 'quantityDispatched'>,
+  item: Pick<
+    FulfilmentItem,
+    'quantityTotal' | 'quantityDispatched' | 'removedAt'
+  >,
 ): ItemFulfilmentState {
+  if (item.removedAt !== null) return 'removed';
   if (item.quantityDispatched <= 0) return 'pending';
   if (item.quantityDispatched >= item.quantityTotal) return 'complete';
   return 'partial';
@@ -99,7 +123,7 @@ export interface FulfilmentSummary {
 export function summariseFulfilment(
   items: readonly Pick<
     FulfilmentItem,
-    'quantityTotal' | 'quantityDispatched'
+    'quantityTotal' | 'quantityDispatched' | 'removedAt'
   >[],
 ): FulfilmentSummary {
   let unitsTotal = 0;
@@ -107,7 +131,14 @@ export function summariseFulfilment(
   let productsComplete = 0;
   let productsPending = 0;
 
-  for (const item of items) {
+  // HVA-340: a removed item is no longer part of the order, so it leaves
+  // the totals entirely — "5 of 8 units shipped" has to describe the order
+  // as it stands now, not as it was before the customer edited it. What
+  // actually went out before the removal is still recorded on the item row
+  // and in the dispatch history; it just stops being something we owe.
+  const live = items.filter((i) => i.removedAt === null);
+
+  for (const item of live) {
     unitsTotal += item.quantityTotal;
     // Clamp so an over-dispatch can't inflate the shipped count past the
     // order size and render "7 of 5 shipped".
@@ -128,7 +159,7 @@ export function summariseFulfilment(
     unitsTotal,
     unitsShipped,
     unitsPending,
-    productsTotal: items.length,
+    productsTotal: live.length,
     productsComplete,
     productsPending,
     state,

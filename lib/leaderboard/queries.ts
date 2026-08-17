@@ -13,6 +13,7 @@ import {
   visitRequests,
 } from '@/db/schema';
 import { getConfig } from '@/lib/config';
+import { notCancelledFilter } from '@/lib/metrics/scope';
 
 import { loadStreaksForExecs } from './streak';
 
@@ -244,6 +245,11 @@ async function loadRawMetrics(
             gte(sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`, fromDate),
             lte(sql`(${requestStatusHistory.changedAt} AT TIME ZONE 'Asia/Kolkata')::date`, toDate),
             sql`${visitRequests.assignedExecUserId} IS NOT NULL`,
+            // HVA-339: a cancelled order is not a won order (HVA-334). The
+            // leaderboard is the most public finance surface in the product —
+            // it must not rank one exec above another on business the
+            // customer walked away from.
+            notCancelledFilter(),
           ),
         )
         .groupBy(visitRequests.assignedExecUserId),

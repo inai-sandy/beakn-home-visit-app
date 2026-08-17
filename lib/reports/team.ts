@@ -12,6 +12,8 @@ import {
   visitRequests,
 } from '@/db/schema';
 
+import { notCancelledFilter } from '@/lib/metrics/scope';
+
 import { formatPaise } from './sales';
 import { captainFilter, cityFilter, vrScope } from './scope';
 import type { ReportArgs, ReportResult } from './types';
@@ -226,6 +228,10 @@ async function loadExecAggregates(args: ReportArgs): Promise<ExecAggRow[]> {
                 AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date <= ${toDate}
                 AND rsh_later.changed_at > ${requestStatusHistory.changedAt}
             )`,
+            // HVA-339: a cancelled order is not booked business (HVA-334).
+            // This one query backs both the per-exec table and the captain
+            // rollup, so the two cannot drift apart.
+            notCancelledFilter(),
           ),
         )
         .groupBy(visitRequests.assignedExecUserId),

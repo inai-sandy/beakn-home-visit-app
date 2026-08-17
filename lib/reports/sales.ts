@@ -10,6 +10,8 @@ import {
   visitRequests,
 } from '@/db/schema';
 
+import { notCancelledFilter } from '@/lib/metrics/scope';
+
 import {
   captainFilter,
   cityFilter,
@@ -227,6 +229,8 @@ export async function reportOrdersTrend(
         args.scope.kind === 'global'
           ? captainFilter(filters.captainUserId)
           : undefined,
+        // HVA-339: a cancelled order is not a won order (HVA-334).
+        notCancelledFilter(),
       ),
     )
     .groupBy(bucketCol);
@@ -340,6 +344,10 @@ export async function reportOrderValueTrend(
             AND (rsh_later.changed_at AT TIME ZONE 'Asia/Kolkata')::date <= ${args.range.toDate}
             AND rsh_later.changed_at > ${requestStatusHistory.changedAt}
         )`,
+        // HVA-339: a cancelled order carries no booked value (HVA-334).
+        // Order value feeds AOV via reportAovTrend, so this one filter
+        // corrects both reports.
+        notCancelledFilter(),
       ),
     )
     .groupBy(bucketCol);

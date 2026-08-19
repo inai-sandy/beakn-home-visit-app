@@ -41,6 +41,11 @@ export interface SeededE2EUsers {
   /** HVA-317: parked at ORDER_CONFIRMED — advancing must open the date
    *  picker rather than moving the stage in one tap. */
   gateInstallRequest: { id: string; customerName: string; trackingToken: string };
+  /** HVA-341: parked at QUOTATION_GIVEN WITH a CartPlus quotation — the
+   *  advance to Order Confirmed must render disabled, because only CartPlus
+   *  confirms orders. The quotation matters: without it the refusal could be
+   *  the HVA-314 gate rather than this one. */
+  gateConfirmRequest: { id: string; customerName: string; trackingToken: string };
 }
 
 interface UserSeed {
@@ -172,6 +177,9 @@ export async function seedE2EUsers(
     const [orderConfirmedStage] = await sql<{ id: string }[]>`
       SELECT id FROM status_stages WHERE code = 'ORDER_CONFIRMED' LIMIT 1
     `;
+    const [quotationGivenStage] = await sql<{ id: string }[]>`
+      SELECT id FROM status_stages WHERE code = 'QUOTATION_GIVEN' LIMIT 1
+    `;
     if (!visitCompletedStage || !orderConfirmedStage) {
       throw new Error(
         'status_stages seed missing — VISIT_COMPLETED / ORDER_CONFIRMED absent. Migrations may be incomplete.',
@@ -215,6 +223,32 @@ export async function seedE2EUsers(
       ) VALUES (
         ${gateInstall.id}, 'CP-GATE-1', 2500000,
         ${veeraId}, 'portal', 'gate-portal-1', 1, NOW()
+      )
+    `;
+
+    // HVA-341: parked at Quotation Given, WITH a quotation, so the only thing
+    // standing between it and Order Confirmed is the system_only gate. If the
+    // quotation were missing the disabled button would prove nothing — the
+    // HVA-314 gate would refuse it first, for a different reason.
+    const [gateConfirm] = await sql<{ id: string; tracking_token: string }[]>`
+      INSERT INTO visit_requests (
+        customer_name, customer_phone, address, city_id,
+        bhk, interest, tracking_token, source,
+        status_stage_id, assigned_exec_user_id, assigned_captain_user_id, assigned_at
+      ) VALUES (
+        'Gate Confirm Customer', '+919876500005', '11 Gate Road, Hyderabad', ${city.id},
+        '3BHK'::bhk_type, '["Automation"]'::jsonb, 'e2egateconfirm1234567a', 'web',
+        ${quotationGivenStage!.id}, ${veeraId}, ${arjunId}, NOW()
+      )
+      RETURNING id, tracking_token
+    `;
+    await sql`
+      INSERT INTO quotations (
+        visit_request_id, quotation_number, total_order_value_paise,
+        submitted_by_user_id, source, portal_quotation_id, store_id, last_webhook_at
+      ) VALUES (
+        ${gateConfirm.id}, 'CP-GATE-2', 1800000,
+        ${veeraId}, 'portal', 'gate-portal-2', 1, NOW()
       )
     `;
 
@@ -266,6 +300,11 @@ export async function seedE2EUsers(
         id: gateQuotation.id,
         customerName: 'Gate Quotation Customer',
         trackingToken: gateQuotation.tracking_token,
+      },
+      gateConfirmRequest: {
+        id: gateConfirm.id,
+        customerName: 'Gate Confirm Customer',
+        trackingToken: gateConfirm.tracking_token,
       },
       gateInstallRequest: {
         id: gateInstall.id,

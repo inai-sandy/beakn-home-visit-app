@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
+import { notifyOrderReadyForDispatch } from './notify-order-confirmed';
 import {
   diffOrder,
   notifyOrderChanged,
@@ -150,6 +151,7 @@ export async function handleCartplusOrderStatusChanged(
       return {
         matched: true,
         quotationId: existing.id,
+        requestId: existing.requestId,
         statusResult,
         orderChange,
       };
@@ -178,6 +180,20 @@ export async function handleCartplusOrderStatusChanged(
         result.statusResult.cancelContext,
         order.order_number,
       );
+    }
+
+    // HVA-341: CartPlus just confirmed this order, so it is now work waiting
+    // for support. Announced after the commit — the dispatch queue must
+    // already contain the row by the time the notification links to it.
+    //
+    // `advanced` is the guard that makes this idempotent: the duplicate
+    // `order.updated` + `order.status_changed` pair CartPlus sends ~200ms
+    // apart only advances the stage once, so support is told once.
+    if (
+      result.statusResult?.advanced &&
+      result.statusResult.toStageCode === 'ORDER_CONFIRMED'
+    ) {
+      await notifyOrderReadyForDispatch(result.requestId);
     }
 
     // HVA-325: the order changed under a confirmed request. Announced after

@@ -19,6 +19,7 @@ import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
+import { notifyOrderReadyForDispatch } from './notify-order-confirmed';
 import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // drizzle's tx callback signature — same pattern as lib/status-transition.ts
@@ -351,6 +352,17 @@ export async function handleCartplusOrderCreated(
         result.statusResult.cancelContext,
         order.order_number,
       );
+    }
+
+    // 7c. HVA-341: an order can arrive already confirmed, in which case this
+    // webhook is the moment it becomes work for support. Same helper as the
+    // status_changed path, so "arrived confirmed" and "confirmed two days
+    // later" produce the identical notification.
+    if (
+      result.statusResult?.advanced &&
+      result.statusResult.toStageCode === 'ORDER_CONFIRMED'
+    ) {
+      await notifyOrderReadyForDispatch(result.requestId);
     }
 
     // 8. Mark event ok

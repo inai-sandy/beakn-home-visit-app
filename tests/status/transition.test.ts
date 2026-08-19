@@ -439,7 +439,12 @@ describe('HVA-137 transition service: allowSpecificBackwardTransition', () => {
         requestId,
         nextStatusId: target.id,
         actorUserId: captainId,
-        actorRole: 'captain',
+        // HVA-341: QUOTATION_GIVEN → ORDER_CONFIRMED is system_only —
+        // CartPlus confirms orders, and the only human who can is a
+        // super_admin using the audited override. Walk that one step as
+        // super_admin rather than weakening the gate, exactly as the
+        // HVA-314 quotation gate above is mirrored rather than bypassed.
+        actorRole: c === 'ORDER_CONFIRMED' ? 'super_admin' : 'captain',
         preUpdate:
           c === 'ASSIGNED'
             ? async (tx) => {

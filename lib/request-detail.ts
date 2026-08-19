@@ -97,6 +97,10 @@ export interface TransitionGate {
    * falls through to "super_admin only" — exactly what the engine does. */
   allowedRole: string;
   isActive: boolean;
+  // NOTE: `system_only` (HVA-341) is deliberately NOT part of this gate.
+  // Every field here HIDES the control; system_only must leave it visible
+  // and disabled with a reason, which the page handles via
+  // `advanceBlockedReason`. Adding it here would make the button vanish.
 }
 
 /**

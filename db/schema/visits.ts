@@ -86,6 +86,12 @@ export const statusTransitions = pgTable(
     emitsEvent: varchar('emits_event', { length: 100 }),
     description: text('description'),
     isActive: boolean('is_active').notNull().default(true),
+    // HVA-341: an integration owns this transition, not a person. The engine
+    // refuses it with SYSTEM_ONLY for everyone except super_admin, who keeps
+    // an override that is recorded in request_status_history. Distinct from
+    // is_active=false, which hides the control entirely and locks out
+    // super_admin too — see db/migrations/0091 for why that was rejected.
+    systemOnly: boolean('system_only').notNull().default(false),
     ...timestamps(),
   },
   (table) => [

@@ -44,6 +44,15 @@ import { log } from '@/lib/logger';
 // own connection and shouldn't be wrapped in the caller's tx.
 // =============================================================================
 
+/**
+ * HVA-341: stamped on the history + audit row when a super_admin takes a
+ * `system_only` transition by hand. Without it, an order confirmed manually
+ * during a webhook outage is indistinguishable from one CartPlus confirmed,
+ * and "who decided this order was real?" has no answer.
+ */
+export const SYSTEM_ONLY_OVERRIDE_REASON =
+  'SUPER_ADMIN_OVERRIDE: advanced manually; CartPlus did not confirm this order';
+
 export type StatusTransitionError =
   | { ok: false; status: 404; error: 'REQUEST_NOT_FOUND'; message: string }
   | { ok: false; status: 400; error: 'STAGE_NOT_FOUND'; message: string }
@@ -71,6 +80,14 @@ export type StatusTransitionError =
       error: 'ROLE_NOT_ALLOWED';
       message: string;
       requiredRole: string;
+    }
+  // HVA-341 — the transition is owned by an integration, not a person.
+  // super_admin bypasses this; everyone else is refused.
+  | {
+      ok: false;
+      status: 403;
+      error: 'SYSTEM_ONLY';
+      message: string;
     }
   // HVA-225 — admin set requires_reason=true; advance had empty/null reason.
   | {
@@ -304,11 +321,12 @@ export async function transitionRequestStatus(
   // Note the cycle of validation:
   //   a) pair exists in table  →  if not, FORWARD_ONLY
   //   b) is_active = true       →  if not, TRANSITION_INACTIVE
-  //   c) allowed_role           →  if not, ROLE_NOT_ALLOWED
-  //   d) requires_reason        →  if reason empty, REASON_REQUIRED
-  //   e) requires_quotation     →  if no quote row, QUOTATION_REQUIRED
+  //   c) system_only            →  if set, SYSTEM_ONLY
+  //   d) allowed_role           →  if not, ROLE_NOT_ALLOWED
+  //   e) requires_reason        →  if reason empty, REASON_REQUIRED
+  //   f) requires_quotation     →  if no quote row, QUOTATION_REQUIRED
   //
-  // super_admin always bypasses (c).
+  // super_admin always bypasses (c) and (d).
   void allowForwardSkip;
   void allowRollback;
   void allowSpecificBackwardTransition;
@@ -326,6 +344,7 @@ export async function transitionRequestStatus(
       autoTaskType: statusTransitions.autoTaskType,
       emitsEvent: statusTransitions.emitsEvent,
       isActive: statusTransitions.isActive,
+      systemOnly: statusTransitions.systemOnly,
     })
     .from(statusTransitions)
     .innerJoin(
@@ -363,6 +382,32 @@ export async function transitionRequestStatus(
       message: `Admin has disabled this transition (${currentRow.currentStageCode} → ${nextRow.code}). Ask admin to re-enable it at /admin/settings/workflow/transitions.`,
     };
   }
+
+  // HVA-341: system_only — an integration owns this transition. Sandeep's
+  // case is order confirmation: CartPlus decides whether an order is real,
+  // and the portal must not let a person assert it independently.
+  //
+  // Checked AFTER is_active and BEFORE allowed_role so the refusal names the
+  // actual reason. A person reading "this requires role X" would go asking
+  // for role X; there is no role that unlocks this.
+  //
+  // super_admin passes through as the escape hatch for the day a webhook
+  // never arrives — recorded below via SYSTEM_ONLY_OVERRIDE_REASON, so a
+  // manual confirmation is never indistinguishable from a real one.
+  if (transitionRow.systemOnly && actorRole !== USER_ROLES.SUPER_ADMIN) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'SYSTEM_ONLY',
+      message:
+        'This step is set by CartPlus, not in the portal. Confirm the order in CartPlus and it will move here automatically.',
+    };
+  }
+
+  const recordedReason =
+    transitionRow.systemOnly && (reason ?? '').trim().length === 0
+      ? SYSTEM_ONLY_OVERRIDE_REASON
+      : (reason ?? null);
 
   // Role check — super_admin always allowed; `any` means everyone; else
   // actor's role must match the configured role.
@@ -458,7 +503,7 @@ export async function transitionRequestStatus(
         sequenceNumber: nextRow.sequenceNumber,
         transitionOrder: sql`COALESCE((SELECT MAX(transition_order) FROM request_status_history WHERE request_id = ${requestId}), 0) + 1`,
         changedByUserId: actorUserId,
-        reason: reason ?? null,
+        reason: recordedReason,
       });
     });
   } catch (err) {
@@ -496,7 +541,7 @@ export async function transitionRequestStatus(
       sequenceNumber: nextRow.sequenceNumber,
       stageName: nextRow.name,
     },
-    reason: reason ?? null,
+    reason: recordedReason,
     ipAddress: ipAddress ?? null,
     userAgent: userAgent ?? null,
   });

@@ -422,10 +422,22 @@ export default async function RequestDetailPage({ params }: PageProps) {
   // button carrying the reason, rather than letting the exec click into a
   // 400. Quotations are raised and revised in CartPlus; the portal never
   // mints one, so the only way to satisfy this is an incoming order.
+  //
+  // HVA-341: same treatment for `system_only`. Order confirmation is decided
+  // in CartPlus and arrives by webhook; the portal must not let anyone assert
+  // it by hand. super_admin keeps the live button as the escape hatch for a
+  // webhook that never lands — the engine records that the override was used.
+  //
+  // Deliberately a blocked reason and not a `transitionPermits` rejection:
+  // that would drop `showAdvance` and remove the button entirely, and an exec
+  // staring at a stage with no control and no explanation is the exact
+  // failure HVA-314 was written to stop.
   const advanceBlockedReason =
     nextTransition?.requiresQuotation && !quotationMeta
       ? "Quotation must come from CartPlus"
-      : null;
+      : nextTransition?.systemOnly && role !== "super_admin"
+        ? "Order confirmation comes from CartPlus"
+        : null;
   // HVA-310: the rollback pair's own config. The page previously loaded
   // only the forward pair, so the Rollback button was decided with no
   // reference to `status_transitions` at all — it ignored both the row's

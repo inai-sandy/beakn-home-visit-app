@@ -104,6 +104,57 @@ test.describe('Workflow gates refuse on screen', () => {
     ).toBeVisible();
   });
 
+  test('Order Confirmed is disabled and names CartPlus (HVA-341)', async ({
+    page,
+  }) => {
+    // Sandeep, 2026-08-19: "order confirmation should come from CartPlus...
+    // we will disable the button in our portal." CartPlus decides whether an
+    // order is real; an exec must not be able to assert it.
+    const users = seededUsers();
+    await loginAs(page, 'exec');
+    await page.goto(`/requests/${users.gateConfirmRequest.id}`);
+
+    await expect(
+      page.getByText(users.gateConfirmRequest.customerName).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    // Present but refusing. The alternative implementation (is_active=false)
+    // would have removed the button altogether, and a control that silently
+    // disappears is the report this whole batch started from.
+    const advance = page.getByRole('button', {
+      name: /move to order confirmed/i,
+    });
+    await expect(advance).toBeVisible();
+    await expect(advance).toBeDisabled();
+
+    await expect(
+      page.getByText(/order confirmation comes from cartplus/i),
+    ).toBeVisible();
+  });
+
+  test('super_admin still gets a live Order Confirmed button (HVA-341)', async ({
+    page,
+  }) => {
+    // The escape hatch for the day a webhook never lands. If this ever goes
+    // red, nobody can rescue a stuck order without a database edit.
+    const users = seededUsers();
+    await loginAs(page, 'superAdmin');
+    await page.goto(`/requests/${users.gateConfirmRequest.id}`);
+
+    await expect(
+      page.getByText(users.gateConfirmRequest.customerName).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const advance = page.getByRole('button', {
+      name: /move to order confirmed/i,
+    });
+    await expect(advance).toBeVisible();
+    await expect(advance).toBeEnabled();
+    await expect(
+      page.getByText(/order confirmation comes from cartplus/i),
+    ).toHaveCount(0);
+  });
+
   test('the exec sees no rollback at Order Confirmed (HVA-313)', async ({
     page,
   }) => {

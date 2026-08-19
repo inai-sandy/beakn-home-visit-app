@@ -46,6 +46,7 @@ interface SeededTransition {
   allowedRole: string;
   isActive: boolean;
   requiresQuotation: boolean;
+  systemOnly: boolean;
 }
 
 async function loadSeededTransitions(): Promise<SeededTransition[]> {
@@ -59,6 +60,7 @@ async function loadSeededTransitions(): Promise<SeededTransition[]> {
       allowedRole: statusTransitions.allowedRole,
       isActive: statusTransitions.isActive,
       requiresQuotation: statusTransitions.requiresQuotation,
+      systemOnly: statusTransitions.systemOnly,
     })
     .from(statusTransitions)
     .innerJoin(fromStage, eq(fromStage.id, statusTransitions.fromStageId))
@@ -87,10 +89,10 @@ describe('seeded status_transitions are expressible by the UI', () => {
   it('inventories every transition that is restricted or disabled', async () => {
     const rows = await loadSeededTransitions();
     const restricted = rows
-      .filter((r) => r.allowedRole !== 'any' || !r.isActive)
+      .filter((r) => r.allowedRole !== 'any' || !r.isActive || r.systemOnly)
       .map(
         (r) =>
-          `${r.fromCode} → ${r.toCode} [${r.kind}] role=${r.allowedRole} active=${r.isActive}`,
+          `${r.fromCode} → ${r.toCode} [${r.kind}] role=${r.allowedRole} active=${r.isActive}${r.systemOnly ? ' system_only' : ''}`,
       );
 
     // Deliberately an exact-match assertion. Widening or narrowing who can
@@ -107,13 +109,45 @@ describe('seeded status_transitions are expressible by the UI', () => {
     //   - Captain Approval is a one-way door (decision 17)
     //   - the terminal rollback row is unreachable, so it no longer claims
     //     to be available (decision 3)
+    //   - HVA-341 (migration 0091): order confirmation is CartPlus's to make,
+    //     so the manual forward step is system_only. Note it stays
+    //     role='any' and active=true on purpose — the button must render
+    //     disabled with a reason, not disappear.
     expect(restricted).toEqual([
+      'QUOTATION_GIVEN → ORDER_CONFIRMED [forward] role=any active=true system_only',
       'ORDER_CONFIRMED → QUOTATION_GIVEN [rollback] role=super_admin active=true',
       'INSTALLATION_SCHEDULED → PENDING_CAPTAIN_APPROVAL [forward_skip] role=any active=false',
       'PENDING_CAPTAIN_APPROVAL → INSTALLATION_SCHEDULED [specific_backward] role=captain active=true',
       'PENDING_CAPTAIN_APPROVAL → INSTALLATION_CONFIGURATION_DONE [rollback] role=super_admin active=true',
       'ORDER_EXECUTED_SUCCESSFULLY → PENDING_CAPTAIN_APPROVAL [rollback] role=any active=false',
     ]);
+  });
+
+  it('keeps the advance control OFFERED for a system_only row (HVA-341)', async () => {
+    // The whole point of system_only over is_active=false. computeActionVisibility
+    // must still say "show the button" so the page can render it disabled with
+    // "Order confirmation comes from CartPlus"; a vanished control is the
+    // failure mode Sandeep reported in August and HVA-314 was written to fix.
+    const rows = await loadSeededTransitions();
+    const gate = rows.find((r) => r.systemOnly);
+    expect(gate).toBeDefined();
+
+    const vis = computeActionVisibility({
+      role: 'sales_executive',
+      userId: EXEC_ID,
+      currentStageCode: gate!.fromCode,
+      assignedExecUserId: EXEC_ID,
+      cityCaptainUserId: CAPTAIN_ID,
+      cancelledAt: null,
+      hasNextStage: true,
+      hasPreviousStage: true,
+      nextTransition: {
+        allowedRole: gate!.allowedRole,
+        isActive: gate!.isActive,
+      },
+    });
+
+    expect(vis.showAdvance).toBe(true);
   });
 
   it('requires a quotation before Quotation Given (HVA-314)', async () => {

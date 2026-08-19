@@ -93,6 +93,15 @@ export function TransitionsClient({ transitions }: Props) {
                 <th className="text-center py-2.5 px-3" title="Requires quotation">
                   Quote
                 </th>
+                {/* HVA-341: read-only. An integration owns these transitions;
+                    making them toggleable here would let an admin silently
+                    reopen a hole the super_admin override already covers. */}
+                <th
+                  className="text-center py-2.5 px-3"
+                  title="Set by an integration only — people are refused (super_admin can override)"
+                >
+                  System
+                </th>
                 <th className="text-center py-2.5 px-3" title="Requires date+time picker">
                   Date+time
                 </th>
@@ -190,6 +199,9 @@ function TransitionRowView({
       </td>
       <td className="py-2.5 px-3 text-center">
         {row.requiresQuotation ? '✓' : <span className="text-muted-foreground/50">—</span>}
+      </td>
+      <td className="py-2.5 px-3 text-center">
+        {row.systemOnly ? '✓' : <span className="text-muted-foreground/50">—</span>}
       </td>
       <td className="py-2.5 px-3 text-center">
         <Switch

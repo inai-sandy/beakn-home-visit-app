@@ -38,6 +38,10 @@ export interface TransitionRow {
   emitsEvent: string | null;
   description: string | null;
   isActive: boolean;
+  /** HVA-341: an integration owns this transition; humans are refused
+   *  (super_admin excepted). Read-only in the admin grid — see
+   *  db/migrations/0091. */
+  systemOnly: boolean;
 }
 
 export async function loadAllTransitions(): Promise<TransitionRow[]> {
@@ -64,6 +68,7 @@ export async function loadAllTransitions(): Promise<TransitionRow[]> {
       emitsEvent: statusTransitions.emitsEvent,
       description: statusTransitions.description,
       isActive: statusTransitions.isActive,
+      systemOnly: statusTransitions.systemOnly,
     })
     .from(statusTransitions)
     .innerJoin(fromStage, eq(fromStage.id, statusTransitions.fromStageId))
@@ -74,6 +79,11 @@ export async function loadAllTransitions(): Promise<TransitionRow[]> {
 /** Cached lookup by (fromCode, toCode) pair. Returns null if no row
  *  exists (transition not seeded — should not happen in practice but
  *  defensive default = false on requires_datetime).
+ *
+ *  HVA-341: also returns `systemOnly`. Unlike the others it does NOT hide
+ *  the control — the page turns it into a disabled button carrying the
+ *  reason, because a step that silently disappears is what produced the
+ *  "it was there before, now it's gone" reports.
  *
  *  HVA-310: now also returns `allowedRole` and `requiresReason`. The engine
  *  (lib/status-transition.ts) has always enforced both, but the request
@@ -89,6 +99,7 @@ export const loadTransitionByPair = cache(
     allowedRole: string;
     requiresReason: boolean;
     requiresQuotation: boolean;
+    systemOnly: boolean;
     autoTaskType: string | null;
     emitsEvent: string | null;
   } | null> => {
@@ -102,6 +113,7 @@ export const loadTransitionByPair = cache(
         allowedRole: statusTransitions.allowedRole,
         requiresReason: statusTransitions.requiresReason,
         requiresQuotation: statusTransitions.requiresQuotation,
+        systemOnly: statusTransitions.systemOnly,
         autoTaskType: statusTransitions.autoTaskType,
         emitsEvent: statusTransitions.emitsEvent,
       })

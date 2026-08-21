@@ -14,6 +14,7 @@ import { getConfig } from '@/lib/config';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 import { alias } from 'drizzle-orm/pg-core';
+import { rawTimestampToDate } from '@/lib/db/raw-timestamp';
 
 // =============================================================================
 // HVA-224: escalate-stale-approvals cron
@@ -82,7 +83,10 @@ export async function escalateStaleApprovals(): Promise<EscalateResult> {
       cityCaptainUserId: cities.captainUserId,
       cityName: cities.name,
       execName: execAlias.fullName,
-      mostRecentEntryAt: sql<Date>`MAX(${requestStatusHistory.changedAt})`,
+      // HVA-346: typed honestly. This one already coerced at its single use
+      // below — somebody hit this trap here and patched their own call site
+      // rather than the type, which is why it went on to break two others.
+      mostRecentEntryAt: sql<string>`MAX(${requestStatusHistory.changedAt})`,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -138,7 +142,7 @@ export async function escalateStaleApprovals(): Promise<EscalateResult> {
     }
 
     // Compute breach duration for the dispatch payload + audit.
-    const breachedAtMs = new Date(row.mostRecentEntryAt).getTime();
+    const breachedAtMs = rawTimestampToDate(row.mostRecentEntryAt).getTime();
     const hoursStuck = Math.floor((Date.now() - breachedAtMs) / (1000 * 60 * 60));
 
     await logEvent({

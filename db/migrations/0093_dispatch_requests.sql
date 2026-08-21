@@ -2,6 +2,16 @@
 -- HVA-342: the exec's material request becomes part of the order
 -- =============================================================================
 --
+-- Numbered 0093, not 0092. HVA-343 landed on main first and took 0092
+-- (0092_hva343_hard_warning_template_repoint.sql), and it was already applied
+-- to production by the time this merged. Two files sharing a number is not
+-- itself fatal, but this one sorts EARLIER than that one, so the runner's
+-- tamper check saw an unrecorded file preceding a recorded one and refused —
+-- correctly: that is exactly the shape of a migration edited after the fact.
+-- Renumbering is the fix; the file is otherwise unchanged and had never run
+-- against production.
+-- =============================================================================
+--
 -- The Assist section (HVA-199, migrations 0049/0050) let an exec type a
 -- product name into a text box and a quantity beside it. Nothing tied that
 -- text to the order it was about:

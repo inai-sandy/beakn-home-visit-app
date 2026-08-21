@@ -5,7 +5,7 @@
 // shipped nothing. Here every requested product is a `quotation_line_items`
 // row, so the request and the order cannot disagree.
 //
-// See db/migrations/0092_dispatch_requests.sql for the full reasoning,
+// See db/migrations/0093_dispatch_requests.sql for the full reasoning,
 // especially why the order group is its own table (partial approval).
 
 import { sql } from 'drizzle-orm';

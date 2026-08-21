@@ -67,6 +67,25 @@ import {
 //   * support decides per order, so one customer can ship while another waits
 // =============================================================================
 
+/**
+ * Unwrap a successful action result.
+ *
+ * The actions return a discriminated union, so `.data` is not reachable
+ * without narrowing on `ok` — and a bare `!` would hide the useful half of a
+ * failure. This surfaces the action's own error message instead.
+ */
+function okData<T>(
+  result: { ok: true; data?: T } | { ok: false; error: string },
+): T {
+  if (!result.ok) {
+    throw new Error(`expected the action to succeed, got: ${result.error}`);
+  }
+  if (result.data === undefined) {
+    throw new Error('action succeeded but returned no data');
+  }
+  return result.data;
+}
+
 async function seedSupportUser(): Promise<{
   id: string;
   phone: string;
@@ -377,7 +396,7 @@ describe('createDispatchRequestAction', () => {
     });
     expect(result.ok).toBe(true);
 
-    const detail = await loadDispatchRequestDetail(result.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(result).requestId);
     expect(detail!.groups).toHaveLength(2);
     expect(detail!.priority).toBe('high');
     expect(detail!.requiredByDate).toBe('2026-09-01');
@@ -417,8 +436,8 @@ describe('decideDispatchRequestOrderAction', () => {
       priority: 'medium',
     });
     expect(created.ok).toBe(true);
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
-    return { order, requestId: created.data!.requestId, detail: detail! };
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
+    return { order, requestId: okData(created).requestId, detail: detail! };
   }
 
   it('approving writes a real dispatch and drops the pending count', async () => {
@@ -431,7 +450,7 @@ describe('decideDispatchRequestOrderAction', () => {
       decision: 'approve',
     });
     expect(result.ok).toBe(true);
-    expect(result.data!.dispatchId).toBeTruthy();
+    expect(okData(result).dispatchId).toBeTruthy();
 
     // The shipment exists, against the real line item, for the real quantity.
     const items = await db
@@ -445,7 +464,7 @@ describe('decideDispatchRequestOrderAction', () => {
     const history = await db
       .select()
       .from(dispatchStatusHistory)
-      .where(eq(dispatchStatusHistory.dispatchId, result.data!.dispatchId!));
+      .where(eq(dispatchStatusHistory.dispatchId, okData(result).dispatchId!));
     expect(history).toHaveLength(1);
     expect(history[0].stage).toBe('created');
 
@@ -525,7 +544,7 @@ describe('decideDispatchRequestOrderAction', () => {
       ],
       priority: 'medium',
     });
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
     const groupA = detail!.groups.find((g) => g.requestId === a.requestId)!;
     const groupB = detail!.groups.find((g) => g.requestId === b.requestId)!;
 
@@ -536,7 +555,7 @@ describe('decideDispatchRequestOrderAction', () => {
     });
 
     // Partial approval: A shipped, B untouched, request still open.
-    let after = await loadDispatchRequestDetail(created.data!.requestId);
+    let after = await loadDispatchRequestDetail(okData(created).requestId);
     expect(
       after!.groups.find((g) => g.requestId === a.requestId)!.status,
     ).toBe('approved');
@@ -551,7 +570,7 @@ describe('decideDispatchRequestOrderAction', () => {
       reason: 'Discontinued',
     });
 
-    after = await loadDispatchRequestDetail(created.data!.requestId);
+    after = await loadDispatchRequestDetail(okData(created).requestId);
     expect(after!.status).toBe('closed');
   });
 
@@ -637,7 +656,7 @@ describe('cancelDispatchRequestAction', () => {
     expect(await loadExecPickList(f.execId)).toEqual([]);
 
     const cancelled = await cancelDispatchRequestAction(
-      created.data!.requestId,
+      okData(created).requestId,
     );
     expect(cancelled.ok).toBe(true);
 
@@ -660,8 +679,8 @@ describe('cancelDispatchRequestAction', () => {
       items: [{ lineItemId: order.lineItemId, qty: 1 }],
       priority: 'medium',
     });
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
-    await cancelDispatchRequestAction(created.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
+    await cancelDispatchRequestAction(okData(created).requestId);
 
     await asSupport(f);
     const result = await decideDispatchRequestOrderAction({
@@ -691,7 +710,7 @@ describe('cancelDispatchRequestAction', () => {
     const sess = await loginByPhone(other.phone, other.password);
     currentCookieHeader = sess.cookieHeader;
 
-    const result = await cancelDispatchRequestAction(created.data!.requestId);
+    const result = await cancelDispatchRequestAction(okData(created).requestId);
     expect(result.ok).toBe(false);
   });
 });
@@ -739,7 +758,7 @@ describe('support inbox', () => {
       items: [{ lineItemId: order.lineItemId, qty: 1 }],
       priority: 'medium',
     });
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
     await db
       .update(dispatchRequestItems)
       .set({ cancelledAt: new Date(), cancelledReason: 'Removed in CartPlus' })
@@ -784,7 +803,7 @@ describe('CartPlus removal sweep', () => {
     ]);
     expect(count).toBe(1);
 
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
     const item = detail!.groups[0].items[0];
     expect(item.cancelledAt).not.toBeNull();
     expect(item.cancelledReason).toBe(CARTPLUS_REMOVAL_REASON);
@@ -802,7 +821,7 @@ describe('CartPlus removal sweep', () => {
       items: [{ lineItemId: order.lineItemId, qty: 2 }],
       priority: 'medium',
     });
-    const detail = await loadDispatchRequestDetail(created.data!.requestId);
+    const detail = await loadDispatchRequestDetail(okData(created).requestId);
 
     await asSupport(f);
     await decideDispatchRequestOrderAction({
@@ -818,7 +837,7 @@ describe('CartPlus removal sweep', () => {
     ]);
     expect(count).toBe(0);
 
-    const after = await loadDispatchRequestDetail(created.data!.requestId);
+    const after = await loadDispatchRequestDetail(okData(created).requestId);
     expect(after!.groups[0].items[0].cancelledAt).toBeNull();
   });
 

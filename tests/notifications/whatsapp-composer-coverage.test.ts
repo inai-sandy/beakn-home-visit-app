@@ -30,11 +30,22 @@ import type { TemplateMessage } from '@/lib/whatsapp';
  * not grow it to make a failing test pass.
  */
 const KNOWN_UNREGISTERED_PENDING_META: readonly string[] = [
-  'internal_hard_warning_v1',
-  'internal_portal_order_received_v1',
-  'internal_support_ticket_received_v1',
-  'internal_support_ticket_reply_v1',
+  // HVA-343 emptied this list: every template a live rule can reach now has
+  // a composer behind it. Add to it only alongside a new rule whose template
+  // is genuinely still with Meta.
 ];
+
+/**
+ * Template keys that appear in HISTORICAL migration files but that no current
+ * rule points at any more. The parser below reads every .sql file ever
+ * shipped, so a superseded name keeps showing up long after it stopped
+ * meaning anything.
+ *
+ * `internal_hard_warning_v1` (HVA-343) was never a real template — no such
+ * name has ever existed at the provider. Migration 0092 repointed the rule at
+ * `hard_warning`, which had been APPROVED and unused since HVA-228.
+ */
+const RETIRED_TEMPLATE_KEYS: readonly string[] = ['internal_hard_warning_v1'];
 
 /**
  * Every template_key referenced by a whatsapp notification_rules row, read
@@ -99,7 +110,9 @@ describe('WhatsApp composer coverage', () => {
     // If this fails with something NEW in `missing`, a rule was added
     // referencing a template nobody wrote a composer for — wire it up
     // rather than appending to the allow-list.
-    expect(missing).toEqual([...KNOWN_UNREGISTERED_PENDING_META].sort());
+    expect(missing).toEqual(
+      [...KNOWN_UNREGISTERED_PENDING_META, ...RETIRED_TEMPLATE_KEYS].sort(),
+    );
   });
 });
 
@@ -170,6 +183,11 @@ describe('dispatch composers produce a sendable template', () => {
     for (const key of [
       'internal_items_dispatched_v1',
       'internal_dispatch_advanced_v1',
+      // HVA-343
+      'hard_warning',
+      'internal_portal_order_received_v1',
+      'internal_support_ticket_received_v1',
+      'internal_support_ticket_reply_v1',
     ]) {
       const composer = WHATSAPP_COMPOSERS[key];
       expect(composer, `${key} is not registered`).toBeDefined();
@@ -227,5 +245,142 @@ describe('HVA-319: the installation message states a real date', () => {
     });
     const params = bodyTextParams(msg);
     for (const text of params) expect(text.length).toBeGreaterThan(0);
+  });
+});
+
+
+// =============================================================================
+// HVA-343: the order + status composers
+// =============================================================================
+
+describe('HVA-343: hard_warning renders the approved 8-parameter body', () => {
+  // The approved body reads:
+  //   Hi {{1}}, ... hard warning {{2}}/5 ... Your {{3}} for {{4}} is {{5}}
+  //   against a target of {{6}}. Specifically: {{7}} ... captain ({{8}}) ...
+  // Parameter ORDER is the whole contract. Get it wrong and the exec is told
+  // their target is their shortfall.
+  const context = {
+    execName: 'Arun Prakash',
+    hardCount: 3,
+    metricLabel: 'revenue',
+    periodLabel: 'July 2026',
+    currentValueText: '₹1,20,000',
+    targetValueText: '₹3,00,000',
+    reason: 'No visits logged in the last two weeks.',
+    captainName: 'Meera Iyer',
+  };
+
+  it('places every value in the slot the approved body expects', () => {
+    const msg = WHATSAPP_COMPOSERS.hard_warning!({
+      target: '+919999999999',
+      context,
+      templateKey: 'hard_warning',
+      targetUserName: 'Arun Prakash',
+    });
+
+    expect(msg.name).toBe('hard_warning');
+    const params = bodyTextParams(msg);
+    expect(params).toHaveLength(8);
+    expect(params[0]).toBe('Arun');
+    expect(params[1]).toBe('3');
+    expect(params[2]).toBe('revenue');
+    expect(params[3]).toBe('July 2026');
+    expect(params[4]).toBe('₹1,20,000');
+    expect(params[5]).toBe('₹3,00,000');
+    expect(params[6]).toContain('No visits logged');
+    expect(params[7]).toBe('Meera Iyer');
+  });
+
+  it('never renders an empty captain slot', () => {
+    // The body prints this inside brackets, so a blank is both a Meta
+    // rejection and an unreadable sentence.
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.hard_warning!({
+        target: '+919999999999',
+        context: { ...context, captainName: null },
+        templateKey: 'hard_warning',
+        targetUserName: 'Arun Prakash',
+      }),
+    );
+    expect(params[7]).toBe('not assigned');
+  });
+});
+
+describe('HVA-343: order received tells exec and captain what arrived', () => {
+  const context = {
+    requestId: '019abcde-cafe-7000-8000-00000000000b',
+    customerName: 'Ramesh Kumar',
+    orderNumber: 'CP-20260821-XY12AB',
+    totalAmountInr: 8354,
+    cityName: 'Hyderabad',
+  };
+
+  it('renders the order number, total and city', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_portal_order_received_v1!({
+        target: '+919999999999',
+        context: { ...context, recipientRole: 'exec_assigned' },
+        templateKey: 'internal_portal_order_received_v1',
+        targetUserName: 'Arun Prakash',
+      }),
+    );
+    expect(params).toHaveLength(6);
+    expect(params[0]).toBe('Arun');
+    expect(params[1]).toBe('Ramesh Kumar');
+    expect(params[2]).toBe('CP-20260821-XY12AB');
+    // CartPlus sends total_amount in RUPEES. Reading it as paise would
+    // announce ₹84 for an ₹8,354 order.
+    expect(params[3]).toContain('8,354');
+    expect(params[4]).toBe('Hyderabad');
+    expect(params[5]).toContain('/requests/');
+  });
+
+  it('sends the captain to the captain page, not the exec page', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_portal_order_received_v1!({
+        target: '+919999999999',
+        context: { ...context, recipientRole: 'captain_owning_city' },
+        templateKey: 'internal_portal_order_received_v1',
+        targetUserName: 'Meera Iyer',
+      }),
+    );
+    expect(params[5]).toContain('/captain/requests/');
+  });
+});
+
+describe('HVA-343: support ticket composers', () => {
+  it('names the customer and the subject on a new ticket', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_support_ticket_received_v1!({
+        target: '+919999999999',
+        context: {
+          requestId: '019abcde-cafe-7000-8000-00000000000b',
+          customerName: 'Ramesh Kumar',
+          subject: 'Installation delayed by a week',
+        },
+        templateKey: 'internal_support_ticket_received_v1',
+        targetUserName: 'Arun Prakash',
+      }),
+    );
+    expect(params).toHaveLength(4);
+    expect(params[1]).toBe('Ramesh Kumar');
+    expect(params[2]).toBe('Installation delayed by a week');
+  });
+
+  it('carries the reply preview', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_support_ticket_reply_v1!({
+        target: '+919999999999',
+        context: {
+          requestId: '019abcde-cafe-7000-8000-00000000000b',
+          customerName: 'Ramesh Kumar',
+          bodyPreview: 'Still waiting to hear about a new date',
+        },
+        templateKey: 'internal_support_ticket_reply_v1',
+        targetUserName: 'Arun Prakash',
+      }),
+    );
+    expect(params).toHaveLength(4);
+    expect(params[2]).toBe('Still waiting to hear about a new date');
   });
 });

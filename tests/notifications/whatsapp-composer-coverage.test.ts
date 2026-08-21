@@ -188,6 +188,8 @@ describe('dispatch composers produce a sendable template', () => {
       'internal_portal_order_received_v1',
       'internal_support_ticket_received_v1',
       'internal_support_ticket_reply_v1',
+      // HVA-345
+      'internal_request_update_v1',
     ]) {
       const composer = WHATSAPP_COMPOSERS[key];
       expect(composer, `${key} is not registered`).toBeDefined();
@@ -382,5 +384,41 @@ describe('HVA-343: support ticket composers', () => {
     );
     expect(params).toHaveLength(4);
     expect(params[2]).toBe('Still waiting to hear about a new date');
+  });
+});
+
+
+describe('HVA-345: one template carries every order-update moment', () => {
+  it('puts the "what happened" line in slot 3 and routes the link by role', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_request_update_v1!({
+        target: '+919999999999',
+        context: {
+          requestId: '019abcde-cafe-7000-8000-00000000000b',
+          customerName: 'Ramesh Kumar',
+          updateSummary: 'Order CP-20260821-XY12AB is confirmed in CartPlus.',
+          recipientRole: 'captain_owning_city',
+        },
+        templateKey: 'internal_request_update_v1',
+        targetUserName: 'Meera Iyer',
+      }),
+    );
+    expect(params).toHaveLength(4);
+    expect(params[0]).toBe('Meera');
+    expect(params[1]).toBe('Ramesh Kumar');
+    expect(params[2]).toContain('confirmed in CartPlus');
+    expect(params[3]).toContain('/captain/requests/');
+  });
+
+  it('never leaves the summary blank — Meta rejects an empty parameter', () => {
+    const params = bodyTextParams(
+      WHATSAPP_COMPOSERS.internal_request_update_v1!({
+        target: '+919999999999',
+        context: { requestId: '019abcde-cafe-7000-8000-00000000000b' },
+        templateKey: 'internal_request_update_v1',
+        targetUserName: null,
+      }),
+    );
+    for (const text of params) expect(text.length).toBeGreaterThan(0);
   });
 });

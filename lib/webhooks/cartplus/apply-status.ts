@@ -46,6 +46,9 @@ const STATUS_TO_STAGE_CODE: Record<string, string> = {
 
 const CANCEL_STATUSES = new Set(['cancelled', 'canceled']);
 
+/** The one advance worth announcing — see `confirmContext`. */
+const CONFIRMED_STAGE_CODE = 'ORDER_CONFIRMED';
+
 /**
  * HVA-326: everything the `request.cancelled_in_cartplus` notification needs,
  * captured inside the transaction that performs the cancel.
@@ -60,7 +63,7 @@ const CANCEL_STATUSES = new Set(['cancelled', 'canceled']);
  * is what stops the `order.updated` + `order.cancelled` pair from notifying
  * twice.
  */
-export interface CancelNotificationContext {
+export interface RequestNotificationTargets {
   requestId: string;
   customerName: string;
   cityId: string | null;
@@ -68,6 +71,9 @@ export interface CancelNotificationContext {
   cityCaptainUserId: string | null;
   execUserId: string | null;
   captainUserId: string | null;
+}
+
+export interface CancelNotificationContext extends RequestNotificationTargets {
   /** Stage the request had reached when CartPlus cancelled it. */
   stageCode: string;
   stageName: string;
@@ -82,6 +88,19 @@ export interface ApplyStatusResult {
   cancelled: boolean;
   /** Target Beakn stage code, when one applied. */
   toStageCode?: string;
+  /**
+   * HVA-345: set ONLY on the call that actually advanced the request to
+   * ORDER_CONFIRMED. CartPlus is the sole source of order confirmation since
+   * HVA-341, and this path told nobody — the exec and captain learned that
+   * their order was confirmed by opening the app and noticing.
+   *
+   * Gated on `advanced` for the same reason the cancel context is gated on
+   * performing the cancel: CartPlus sends `order.updated` and
+   * `order.status_changed` ~200ms apart for one change, and the second finds
+   * the request already at ORDER_CONFIRMED. Forward-only advance means only
+   * the first call reports, so the pair announces once.
+   */
+  confirmContext?: RequestNotificationTargets;
   /**
    * Set only on the call that performed the cancellation. The caller
    * dispatches the notification AFTER the transaction commits — notifying
@@ -236,5 +255,22 @@ export async function applyCartplusOrderStatus(
     advanced = true;
   }
 
-  return { advanced, reactivated, cancelled: false, toStageCode: targetCode };
+  return {
+    advanced,
+    reactivated,
+    cancelled: false,
+    toStageCode: targetCode,
+    confirmContext:
+      advanced && targetCode === CONFIRMED_STAGE_CODE
+        ? {
+            requestId,
+            customerName: req.customerName,
+            cityId: req.cityId,
+            cityName: req.cityName,
+            cityCaptainUserId: req.cityCaptainUserId,
+            execUserId: req.execUserId,
+            captainUserId: req.captainUserId,
+          }
+        : undefined,
+  };
 }

@@ -331,6 +331,8 @@ export async function handleCartplusOrderCreated(
         totalAmountInr: order.total_amount,
         execUserId: execResult.userId,
         cityId: cityResult.cityId,
+        // HVA-343: named in the order-received WhatsApp body.
+        cityName: cityResult.cityName,
         // captain_owning_city resolver reads cityCaptainUserId; without it
         // the enabled captain rules skipped on every portal order.
         cityCaptainUserId: cityResult.captainUserId,
@@ -412,23 +414,36 @@ async function markEvent(
 
 async function resolveCity(storeId: number): Promise<{
   cityId: string;
+  cityName: string;
   captainUserId: string | null;
   fallback: boolean;
 }> {
+  // HVA-343: `name` rides along on the query that was already being made —
+  // the order-received WhatsApp names the city, which a captain owning more
+  // than one city needs in order to read the message at a glance.
   const [match] = await db
-    .select({ id: cities.id, captainUserId: cities.captainUserId })
+    .select({
+      id: cities.id,
+      name: cities.name,
+      captainUserId: cities.captainUserId,
+    })
     .from(cities)
     .where(eq(cities.cartplusStoreId, storeId))
     .limit(1);
   if (match) {
     return {
       cityId: match.id,
+      cityName: match.name,
       captainUserId: match.captainUserId,
       fallback: false,
     };
   }
   const [other] = await db
-    .select({ id: cities.id, captainUserId: cities.captainUserId })
+    .select({
+      id: cities.id,
+      name: cities.name,
+      captainUserId: cities.captainUserId,
+    })
     .from(cities)
     .where(eq(cities.name, OTHER_CITY_NAME))
     .limit(1);
@@ -437,6 +452,7 @@ async function resolveCity(storeId: number): Promise<{
   }
   return {
     cityId: other.id,
+    cityName: other.name,
     captainUserId: other.captainUserId,
     fallback: true,
   };

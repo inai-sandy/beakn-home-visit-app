@@ -303,6 +303,16 @@ describe('production composer registry (HVA-49)', () => {
         // disabled until the two templates are drafted + Meta-approved.
         'internal_items_dispatched_v1',
         'internal_dispatch_advanced_v1',
+        // HVA-343: the order + status set. `hard_warning` was APPROVED at
+        // Meta back in HVA-228 and never wired to anything — its rule
+        // pointed at `internal_hard_warning_v1`, a name that exists nowhere
+        // at the provider — so migration 0092 repoints it and switches it on.
+        'hard_warning',
+        // Composers ready; rules stay disabled until Meta approves. Order
+        // received is the one Sandeep wants first.
+        'internal_portal_order_received_v1',
+        'internal_support_ticket_received_v1',
+        'internal_support_ticket_reply_v1',
       ].sort(),
     );
   });

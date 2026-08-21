@@ -11,7 +11,11 @@ import { getServerSession } from '@/lib/auth-server';
 import { log } from '@/lib/logger';
 import { dispatchNotification } from '@/lib/notifications/engine';
 
-import { composeWarningMessage } from './compose';
+import {
+  composeWarningMessage,
+  formatWarningValue,
+  warningMetricLabel,
+} from './compose';
 import {
   HARD_WARNING_FIRE_THRESHOLD,
   WARNING_METRICS,
@@ -203,6 +207,23 @@ export async function issueWarningAction(
       hardThreshold: HARD_WARNING_FIRE_THRESHOLD,
       metricCode: parsed.data.metricCode,
       captainName,
+      // HVA-343: the approved `hard_warning` WhatsApp template takes the
+      // metric, period, values and reason as SEPARATE parameters — it
+      // cannot be fed `messageSnapshot`, which is one pre-rendered blob.
+      // Rendered here with the same helpers the snapshot uses so the two
+      // can never disagree. Additive: the in_app and push composers read
+      // their own keys and are untouched.
+      metricLabel: warningMetricLabel(parsed.data.metricCode),
+      periodLabel,
+      currentValueText: formatWarningValue(
+        parsed.data.metricCode,
+        parsed.data.currentValue,
+      ),
+      targetValueText: formatWarningValue(
+        parsed.data.metricCode,
+        parsed.data.targetValue,
+      ),
+      reason: parsed.data.reason,
     }).catch((err) =>
       actionLog.error(
         { eventType, err: err instanceof Error ? err.message : String(err) },

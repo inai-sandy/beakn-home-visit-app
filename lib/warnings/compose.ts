@@ -37,17 +37,22 @@ export interface ComposeWarningInput {
 
 export const HARD_WARNING_FIRE_THRESHOLD = 5;
 
-function fmt(metricCode: string, value: number): string {
+// HVA-343: exported because the `hard_warning` WhatsApp composer has to
+// render the same metric label, period label and values as the in-app
+// message_snapshot. Two renderings of one warning that can disagree is a
+// bug waiting to happen — the exec would read different numbers on
+// WhatsApp than in the app.
+export function formatWarningValue(metricCode: string, value: number): string {
   const m = metricByCode(metricCode);
   if (!m) return value.toString();
   return formatMetricValue(value, m.unit);
 }
 
-function metricLabel(metricCode: string): string {
+export function warningMetricLabel(metricCode: string): string {
   return metricByCode(metricCode)?.label ?? metricCode;
 }
 
-function periodLabel(periodCode: string): string {
+export function warningPeriodLabel(periodCode: string): string {
   return periodByCode(periodCode)?.label ?? periodCode;
 }
 
@@ -56,10 +61,10 @@ const SANDEEP_PHONE = '+91 98856 98665';
 export function composeSoftWarningMessage(
   input: ComposeWarningInput,
 ): string {
-  const metric = metricLabel(input.metricCode);
-  const period = periodLabel(input.periodCode);
-  const current = fmt(input.metricCode, input.currentValue);
-  const target = fmt(input.metricCode, input.targetValue);
+  const metric = warningMetricLabel(input.metricCode);
+  const period = warningPeriodLabel(input.periodCode);
+  const current = formatWarningValue(input.metricCode, input.currentValue);
+  const target = formatWarningValue(input.metricCode, input.targetValue);
   return [
     `Hi ${input.execName}, this is a check-in from Sandeep.`,
     ``,
@@ -78,10 +83,10 @@ export function composeSoftWarningMessage(
 export function composeHardWarningMessage(
   input: ComposeWarningInput,
 ): string {
-  const metric = metricLabel(input.metricCode);
-  const period = periodLabel(input.periodCode);
-  const current = fmt(input.metricCode, input.currentValue);
-  const target = fmt(input.metricCode, input.targetValue);
+  const metric = warningMetricLabel(input.metricCode);
+  const period = warningPeriodLabel(input.periodCode);
+  const current = formatWarningValue(input.metricCode, input.currentValue);
+  const target = formatWarningValue(input.metricCode, input.targetValue);
   const hardCount = input.hardCount ?? 0;
   const captainLine =
     input.captainName != null

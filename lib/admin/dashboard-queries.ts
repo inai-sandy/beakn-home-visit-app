@@ -37,6 +37,7 @@ import {
 } from '@/db/schema';
 import { loadMetrics } from '@/lib/metrics/registry';
 import type { DateRange } from '@/lib/metrics/types';
+import { rawTimestampToDate } from '@/lib/db/raw-timestamp';
 
 const VISIT_TASK_TYPES = ['Customer home visit', 'Sales pitch', 'Outlet visit'] as const;
 const ORDER_BOOK_MIN_SEQ = 6;          // ORDER_CONFIRMED and beyond
@@ -396,7 +397,11 @@ export async function loadAdminAlerts(): Promise<AdminAlert[]> {
       .select({
         id: visitRequests.id,
         customerName: visitRequests.customerName,
-        landedAt: sql<Date>`(
+        // HVA-346: sql<string>, not sql<Date>. A raw subquery is not mapped
+        // to a Date by drizzle — the driver returns the string, and typing it
+        // Date is what let `.getTime()` reach a string and take the admin
+        // dashboard down. Coerced below with rawTimestampToDate.
+        landedAt: sql<string>`(
           SELECT rsh.changed_at FROM ${requestStatusHistory} rsh
           INNER JOIN ${statusStages} ss ON ss.id = rsh.to_status_stage_id
           WHERE rsh.request_id = ${visitRequests.id}
@@ -450,7 +455,7 @@ export async function loadAdminAlerts(): Promise<AdminAlert[]> {
       id: r.id,
       title: `Approval >24h — ${r.customerName}`,
       href: `/requests/${r.id}`,
-      at: r.landedAt,
+      at: rawTimestampToDate(r.landedAt),
     });
   }
 

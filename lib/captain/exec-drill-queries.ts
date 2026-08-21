@@ -26,6 +26,7 @@ import {
   type DayCloseMetrics,
 } from '@/lib/today/metrics';
 import { getIstDateString } from '@/lib/today/time';
+import { rawTimestampToDate } from '@/lib/db/raw-timestamp';
 
 // =============================================================================
 // HVA-167: queries powering the captain drill-down at /captain/team/[execId]
@@ -588,7 +589,10 @@ export async function loadExecPendingCollections(
              WHEN ${payments.voidedAt} IS NULL AND ${payments.direction} = 'outbound' THEN -${payments.amountPaise}
              ELSE 0 END
       ), 0)::bigint`,
-      quotedAt: sql<Date>`MAX(${quotations.submittedAt})`,
+      // HVA-346: raw aggregate → string, not Date. Left as sql<Date> this
+      // reached formatDistanceToNow() on the Pending Collections tab and
+      // rendered an invalid date.
+      quotedAt: sql<string>`MAX(${quotations.submittedAt})`,
     })
     .from(visitRequests)
     .innerJoin(cities, eq(cities.id, visitRequests.cityId))
@@ -620,7 +624,7 @@ export async function loadExecPendingCollections(
       quotedPaise: Number(r.quotedPaise),
       paidPaise: Number(r.paidPaise),
       outstandingPaise: Number(r.quotedPaise) - Number(r.paidPaise),
-      quotedAt: r.quotedAt,
+      quotedAt: rawTimestampToDate(r.quotedAt),
     }))
     .filter((r) => r.outstandingPaise > 0)
     .sort((a, b) => b.outstandingPaise - a.outstandingPaise);

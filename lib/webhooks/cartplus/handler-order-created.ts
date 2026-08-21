@@ -19,7 +19,10 @@ import { normalizeIndianPhone, toStorageFormat } from '@/lib/phone';
 import { applyCartplusOrderStatus } from './apply-status';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
-import { notifyOrderReadyForDispatch } from './notify-order-confirmed';
+import {
+  notifyCartplusOrderConfirmed,
+  notifyOrderReadyForDispatch,
+} from './notify-order-confirmed';
 import { cartplusBreakdownPaise, cartplusOrderEventDataSchema } from './order-payload';
 
 // drizzle's tx callback signature — same pattern as lib/status-transition.ts
@@ -415,6 +418,17 @@ export async function handleCartplusOrderCreated(
       result.statusResult.toStageCode === 'ORDER_CONFIRMED'
     ) {
       await notifyOrderReadyForDispatch(result.requestId);
+      // HVA-345: support has been told since HVA-341; the exec who owns the
+      // order and the captain who owns the city were not. `confirmContext` is
+      // set by the same `advanced` guard as this branch, so it is present
+      // here and the pair of webhooks CartPlus sends announces once.
+      if (result.statusResult.confirmContext) {
+        await notifyCartplusOrderConfirmed(
+          result.statusResult.confirmContext,
+          order.order_number,
+          order.total_amount,
+        );
+      }
     }
 
     // 8. Mark event ok

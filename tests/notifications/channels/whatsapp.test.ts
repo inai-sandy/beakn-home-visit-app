@@ -313,6 +313,10 @@ describe('production composer registry (HVA-49)', () => {
         'internal_portal_order_received_v1',
         'internal_support_ticket_received_v1',
         'internal_support_ticket_reply_v1',
+        // HVA-345: one template for every order-update moment (confirmed,
+        // cancelled, edited, scheduled). Composer ready; rules disabled
+        // until Meta approves.
+        'internal_request_update_v1',
       ].sort(),
     );
   });

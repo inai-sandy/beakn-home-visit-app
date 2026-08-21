@@ -101,6 +101,10 @@ import {
   type InstallationScheduledContext,
 } from './request-installation-scheduled';
 import {
+  composeCartplusOrderConfirmedInApp,
+  type CartplusOrderConfirmedContext,
+} from './cartplus-order-confirmed';
+import {
   composeCartplusOrderReceivedInApp,
   type CartplusOrderReceivedContext,
 } from './cartplus-order-received';
@@ -329,6 +333,13 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
   'webhook.cartplus.order_changed': (ctx) =>
     composeCartplusOrderChangedInApp(
       ctx as unknown as CartplusOrderChangedContext,
+    ),
+  // HVA-345: CartPlus confirmed the order. Since HVA-341 removed the portal's
+  // Order Confirmed button, this path is the ONLY way a request reaches
+  // ORDER_CONFIRMED — and it announced nothing to the exec or the captain.
+  'webhook.cartplus.order_confirmed': (ctx) =>
+    composeCartplusOrderConfirmedInApp(
+      ctx as unknown as CartplusOrderConfirmedContext,
     ),
 };
 

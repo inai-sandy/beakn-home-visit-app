@@ -61,13 +61,30 @@ beforeEach(async () => {
   // back per test. in_app only — push reuses the same composer.
   await db
     .insert(notificationRules)
-    .values({
-      eventType: 'support.order_ready_for_dispatch',
-      channel: 'in_app' as const,
-      recipientRole: 'support_team_all',
-      enabled: true,
-      templateKey: null,
-    })
+    .values([
+      {
+        eventType: 'support.order_ready_for_dispatch',
+        channel: 'in_app' as const,
+        recipientRole: 'support_team_all',
+        enabled: true,
+        templateKey: null,
+      },
+      // HVA-345: the exec + captain rules migration 0095 seeds.
+      {
+        eventType: 'webhook.cartplus.order_confirmed',
+        channel: 'in_app' as const,
+        recipientRole: 'exec_assigned',
+        enabled: true,
+        templateKey: null,
+      },
+      {
+        eventType: 'webhook.cartplus.order_confirmed',
+        channel: 'in_app' as const,
+        recipientRole: 'captain_owning_city',
+        enabled: true,
+        templateKey: null,
+      },
+    ])
     .onConflictDoNothing();
 });
 
@@ -136,7 +153,9 @@ function orderPayload(
 
 /** Seeds the secret, the store→city mapping, the exec mapping and a support
  *  user, so the webhook can land and `support_team_all` has someone to tell. */
-async function setupWorld(portalOrderId: number): Promise<{ supportId: string }> {
+async function setupWorld(
+  portalOrderId: number,
+): Promise<{ supportId: string; execId: string; captainId: string }> {
   const admin = await seedSuperAdmin({ phone: `+91998341${nextDigits()}` });
   await db
     .insert(webhookSecrets)
@@ -175,10 +194,14 @@ async function setupWorld(portalOrderId: number): Promise<{ supportId: string }>
     .set({ portalExecId: portalExecIdFor(portalOrderId) })
     .where(eq(users.id, exec.id));
 
-  return { supportId: support.id };
+  return { supportId: support.id, execId: exec.id, captainId: captain.id };
 }
 
 async function supportNotifications(supportId: string) {
+  return notificationsFor(supportId);
+}
+
+async function notificationsFor(userId: string) {
   return db
     .select({
       title: inAppNotifications.title,
@@ -186,7 +209,7 @@ async function supportNotifications(supportId: string) {
       linkUrl: inAppNotifications.linkUrl,
     })
     .from(inAppNotifications)
-    .where(eq(inAppNotifications.userId, supportId));
+    .where(eq(inAppNotifications.userId, userId));
 }
 
 async function requestIdFor(portalOrderId: number): Promise<string> {
@@ -388,5 +411,142 @@ describe('HVA-341: CartPlus confirmation tells support', () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].body).toContain('1 item');
     expect(notes[0].body).not.toContain('3 items');
+  });
+});
+
+// =============================================================================
+// HVA-345: the same confirmation must also reach the exec and the captain
+// =============================================================================
+//
+// HVA-341 above wired support in. The exec who owns the order and the captain
+// who owns the city heard nothing — since HVA-341 removed the portal's Order
+// Confirmed button, CartPlus is the only route to ORDER_CONFIRMED, so the
+// moment a sale is booked reached nobody who is measured on it.
+// =============================================================================
+
+describe('HVA-345: CartPlus confirmation also tells the exec and the captain', () => {
+  it('says nothing while the order is still pending', async () => {
+    const { execId, captainId } = await setupWorld(34_550);
+    await fireWebhook(
+      {
+        id: `evt_345_34_550_order_created`,
+        type: 'order.created',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_550, 'pending', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.created',
+    );
+    expect(await notificationsFor(execId)).toHaveLength(0);
+    expect(await notificationsFor(captainId)).toHaveLength(0);
+  });
+
+  it('tells both when a later status_changed confirms the order', async () => {
+    const { execId, captainId } = await setupWorld(34_551);
+    await fireWebhook(
+      {
+        id: `evt_345_34_551_order_created`,
+        type: 'order.created',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_551, 'pending', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.created',
+    );
+    await fireWebhook(
+      {
+        id: `evt_345_34_551_order_status_changed`,
+        type: 'order.status_changed',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_551, 'confirmed', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.status_changed',
+    );
+
+    const execRows = await notificationsFor(execId);
+    const captainRows = await notificationsFor(captainId);
+    expect(execRows).toHaveLength(1);
+    expect(captainRows).toHaveLength(1);
+    expect(execRows[0].title).toContain('Order confirmed');
+
+    // The two roles have different pages; a captain sent to /requests/[id]
+    // lands somewhere they are not meant to be.
+    expect(execRows[0].linkUrl).toContain('/requests/');
+    expect(execRows[0].linkUrl).not.toContain('/captain/');
+    expect(captainRows[0].linkUrl).toContain('/captain/requests/');
+
+    // The captain is reading a city's worth of these — the value is what
+    // makes one worth opening.
+    expect(captainRows[0].body).toContain('₹1,000');
+    expect(captainRows[0].body).toContain('booked business');
+  });
+
+  it('tells both when the order arrives already confirmed', async () => {
+    const { execId, captainId } = await setupWorld(34_552);
+    await fireWebhook(
+      {
+        id: `evt_345_34_552_order_created`,
+        type: 'order.created',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_552, 'confirmed', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.created',
+    );
+    expect(await notificationsFor(execId)).toHaveLength(1);
+    expect(await notificationsFor(captainId)).toHaveLength(1);
+  });
+
+  it('announces once, not twice, for CartPlus’s duplicate delivery', async () => {
+    const { execId, captainId } = await setupWorld(34_553);
+    await fireWebhook(
+      {
+        id: `evt_345_34_553_order_created`,
+        type: 'order.created',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_553, 'pending', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.created',
+    );
+    // CartPlus sends order.updated and order.status_changed ~200ms apart for
+    // one confirmation. Forward-only advance means only the first reports.
+    await fireWebhook(
+      {
+        id: `evt_345_34_553_order_updated`,
+        type: 'order.updated',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_553, 'confirmed', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.updated',
+    );
+    await fireWebhook(
+      {
+        id: `evt_345_34_553_order_status_changed`,
+        type: 'order.status_changed',
+        store: { id: STORE_ID, slug: 'test', name: 'Test' },
+        data: {
+          order: orderPayload(34_553, 'confirmed', [{ id: 1, name: 'Smart Plug' }]),
+        },
+        created_at: '2026-08-21T10:00:00Z',
+      },
+      'order.status_changed',
+    );
+    expect(await notificationsFor(execId)).toHaveLength(1);
+    expect(await notificationsFor(captainId)).toHaveLength(1);
   });
 });

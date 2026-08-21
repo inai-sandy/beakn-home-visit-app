@@ -12,7 +12,10 @@ import { applyCartplusOrderStatus } from './apply-status';
 import { cancelRequestItemsForRemovedLineItems } from './cancel-request-items';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
-import { notifyOrderReadyForDispatch } from './notify-order-confirmed';
+import {
+  notifyCartplusOrderConfirmed,
+  notifyOrderReadyForDispatch,
+} from './notify-order-confirmed';
 import {
   diffOrder,
   notifyOrderChanged,
@@ -202,6 +205,16 @@ export async function handleCartplusOrderStatusChanged(
       result.statusResult.toStageCode === 'ORDER_CONFIRMED'
     ) {
       await notifyOrderReadyForDispatch(result.requestId);
+      // HVA-345: same gap on this door — support heard, exec and captain did
+      // not. Shares the `advanced` guard above, so the duplicate
+      // order.updated + order.status_changed pair still announces once.
+      if (result.statusResult.confirmContext) {
+        await notifyCartplusOrderConfirmed(
+          result.statusResult.confirmContext,
+          order.order_number,
+          order.total_amount,
+        );
+      }
     }
 
     // HVA-342: the customer deleted products an exec had already asked

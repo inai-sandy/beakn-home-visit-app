@@ -52,6 +52,8 @@ type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const handlerLog = log.child({ component: 'webhooks.cartplus.handler' });
 
 export const PORTAL_ORDER_RECEIVED_EVENT = 'webhook.cartplus.order_received';
+/** HVA-345: customer-facing, fires only when the order created a new request. */
+export const PORTAL_TRACKING_LINK_EVENT = 'webhook.cartplus.tracking_link_issued';
 const QUOTATION_GIVEN_CODE = 'QUOTATION_GIVEN';
 const OTHER_CITY_NAME = 'Other';
 const TOKEN_LEN = 16;
@@ -191,6 +193,11 @@ export async function handleCartplusOrderCreated(
 
       let requestId: string;
       let merged: boolean;
+      // HVA-345: only a request CREATED here gets a fresh tracking link sent.
+      // A merged order lands on a request the customer already holds a link
+      // for, and messaging them again would be the second link for one job.
+      let trackingToken: string | null = null;
+      let customerWhatsappOptIn = true;
 
       if (mergeTarget) {
         requestId = mergeTarget.id;
@@ -223,11 +230,12 @@ export async function handleCartplusOrderCreated(
         }
       } else {
         // 4b'. No merge target — create a brand-new request (original
-        //      behaviour). The customer is sent a fresh tracking link for
-        //      it via WhatsApp once the Meta template is live (HVA-282
-        //      follow-up — the send is wired separately).
+        //      behaviour). HVA-345 wires the fresh tracking-link WhatsApp
+        //      here: HVA-282 left it out as "blocked on a Meta template",
+        //      but `tracking_link_confirmation` has been approved and live
+        //      since 2026-05-31, so the block had already lifted.
         merged = false;
-        const trackingToken = nanoid(TOKEN_LEN);
+        trackingToken = nanoid(TOKEN_LEN);
         const [requestRow] = await tx
           .insert(visitRequests)
           .values({
@@ -248,8 +256,15 @@ export async function handleCartplusOrderCreated(
             assignedCaptainUserId: cityResult.captainUserId,
             assignedAt: execResult.userId ? new Date() : null,
           })
-          .returning({ id: visitRequests.id });
+          .returning({
+            id: visitRequests.id,
+            whatsappOptIn: visitRequests.whatsappOptIn,
+          });
         requestId = requestRow.id;
+        // Read the gate back off the row rather than assuming the column
+        // default, so a future change to that default cannot silently start
+        // messaging customers who are marked opted out.
+        customerWhatsappOptIn = requestRow.whatsappOptIn;
 
         // HVA-287: anchor the new request's status timeline. A CartPlus
         // order is created directly at QUOTATION_GIVEN, so without an
@@ -315,7 +330,7 @@ export async function handleCartplusOrderCreated(
         execResult.userId ?? capturerUserId,
       );
 
-      return { requestId, merged, statusResult };
+      return { requestId, merged, statusResult, trackingToken, customerWhatsappOptIn };
     });
 
     // 7. Notifications — fire-and-forget so DB commit is the source of truth
@@ -338,6 +353,41 @@ export async function handleCartplusOrderCreated(
         cityCaptainUserId: cityResult.captainUserId,
         fallbackUsed: cityResult.fallback || execResult.fallback,
       });
+
+      // HVA-345: the customer's order copy + tracking link.
+      //
+      // A CartPlus order that creates a new request generates a tracking
+      // token (above) and then told nobody about it — the customer had a
+      // /track page showing their items, order value and tax breakdown, and
+      // no way to reach it. Every other door sends this on `request.created`,
+      // which the CartPlus path never fires.
+      //
+      // Its own event rather than reusing `request.created`: that event also
+      // carries captain and super_admin rules, and those recipients already
+      // hear about this order through `webhook.cartplus.order_received`
+      // moments earlier. Reusing it would notify them twice for one arrival.
+      //
+      // Merged orders are deliberately excluded — see the token comment above.
+      if (!result.merged && result.trackingToken) {
+        const customerPhone = toStorageFormat(order.customer.phone);
+        if (customerPhone) {
+          void dispatchNotification(PORTAL_TRACKING_LINK_EVENT, {
+            requestId: result.requestId,
+            customerName: order.customer.name,
+            // CartPlus sends '+91 77788 85566'. The provider needs E.164 with
+            // no spaces, so this must be normalised — the raw payload value
+            // is stored on the row as-is and would not deliver.
+            customerPhone,
+            customerWhatsappOptIn: result.customerWhatsappOptIn,
+            trackingToken: result.trackingToken,
+          });
+        } else {
+          handlerLog.warn(
+            { webhookEventId, requestId: result.requestId },
+            'tracking_link_skipped_unparseable_phone',
+          );
+        }
+      }
     } catch (err) {
       handlerLog.warn(
         { webhookEventId, err: err instanceof Error ? err.message : String(err) },

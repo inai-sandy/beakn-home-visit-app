@@ -98,8 +98,7 @@ export async function sendViaWhatsApp(args: AdapterArgs): Promise<AdapterResult>
     const requestIdValue = args.context.requestId;
     const recipientUserId = args.context.execUserId
       ?? args.context.captainUserId
-      ?? args.context.assistExecUserId
-      ?? args.context.assistCaptainUserId
+      ?? args.context.dispatchRequestExecUserId
       ?? null;
     try {
       // onConflictDoNothing on external_id — stub provider returns a

@@ -57,20 +57,18 @@ import {
   composeRequestPendingApprovalForCaptain,
   type RequestPendingApprovalContext,
 } from './request-pending-approval';
+// HVA-342: './assist-events' retired with the Assist section.
 import {
-  composeAssistApprovedForAdmin,
-  composeAssistApprovedForExec,
-  composeAssistCreatedForAdmin,
-  composeAssistCreatedForCaptain,
-  composeAssistDispatchedForAdmin,
-  composeAssistDispatchedForExec,
-  composeAssistProcessingForAdmin,
-  composeAssistProcessingForExec,
-  composeAssistRejectedForAdmin,
-  composeAssistRejectedForExec,
-  type AssistCreatedContext,
-  type AssistStatusChangeContext,
-} from './assist-events';
+  composeDispatchRequestApprovedForExec,
+  composeDispatchRequestCreatedForAdmin,
+  composeDispatchRequestCreatedForSupport,
+  composeDispatchRequestHeldForExec,
+  composeDispatchRequestItemCancelledForExec,
+  composeDispatchRequestRejectedForExec,
+  type DispatchRequestCreatedContext,
+  type DispatchRequestDecisionContext,
+  type DispatchRequestItemCancelledContext,
+} from './dispatch-request-events';
 import {
   composeFifthHardWarningForAdmin,
   composeHardWarningInApp,
@@ -233,67 +231,39 @@ export const IN_APP_COMPOSERS: Record<string, InAppComposer> = {
       ctx as unknown as RequestPendingApprovalContext,
     );
   },
-  // HVA-199 — assist domain. recipientRole drives the variant.
-  'assist.created': (ctx) => {
+  // HVA-342 — exec dispatch requests. recipientRole drives the variant.
+  // Replaces the HVA-199 assist.* family: the captain is no longer in this
+  // path, so the "new request" event goes to the people who can ship it.
+  'dispatch_request.created': (ctx) => {
     const role =
       typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
     if (role === 'super_admin') {
-      return composeAssistCreatedForAdmin(
-        ctx as unknown as AssistCreatedContext,
+      return composeDispatchRequestCreatedForAdmin(
+        ctx as unknown as DispatchRequestCreatedContext,
       );
     }
-    return composeAssistCreatedForCaptain(
-      ctx as unknown as AssistCreatedContext,
+    return composeDispatchRequestCreatedForSupport(
+      ctx as unknown as DispatchRequestCreatedContext,
     );
   },
-  'assist.approved': (ctx) => {
-    const role =
-      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
-    if (role === 'super_admin') {
-      return composeAssistApprovedForAdmin(
-        ctx as unknown as AssistStatusChangeContext,
-      );
-    }
-    return composeAssistApprovedForExec(
-      ctx as unknown as AssistStatusChangeContext,
-    );
-  },
-  'assist.processing': (ctx) => {
-    const role =
-      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
-    if (role === 'super_admin') {
-      return composeAssistProcessingForAdmin(
-        ctx as unknown as AssistStatusChangeContext,
-      );
-    }
-    return composeAssistProcessingForExec(
-      ctx as unknown as AssistStatusChangeContext,
-    );
-  },
-  'assist.dispatched': (ctx) => {
-    const role =
-      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
-    if (role === 'super_admin') {
-      return composeAssistDispatchedForAdmin(
-        ctx as unknown as AssistStatusChangeContext,
-      );
-    }
-    return composeAssistDispatchedForExec(
-      ctx as unknown as AssistStatusChangeContext,
-    );
-  },
-  'assist.rejected': (ctx) => {
-    const role =
-      typeof ctx.recipientRole === 'string' ? ctx.recipientRole : '';
-    if (role === 'super_admin') {
-      return composeAssistRejectedForAdmin(
-        ctx as unknown as AssistStatusChangeContext,
-      );
-    }
-    return composeAssistRejectedForExec(
-      ctx as unknown as AssistStatusChangeContext,
-    );
-  },
+  // The three decisions only ever target the exec who asked, so there is no
+  // role branch — a variant nobody can receive is dead code.
+  'dispatch_request.approved': (ctx) =>
+    composeDispatchRequestApprovedForExec(
+      ctx as unknown as DispatchRequestDecisionContext,
+    ),
+  'dispatch_request.held': (ctx) =>
+    composeDispatchRequestHeldForExec(
+      ctx as unknown as DispatchRequestDecisionContext,
+    ),
+  'dispatch_request.rejected': (ctx) =>
+    composeDispatchRequestRejectedForExec(
+      ctx as unknown as DispatchRequestDecisionContext,
+    ),
+  'dispatch_request.item_cancelled': (ctx) =>
+    composeDispatchRequestItemCancelledForExec(
+      ctx as unknown as DispatchRequestItemCancelledContext,
+    ),
   // HVA-228: warnings — soft + hard + revoke + fifth-hard alert.
   // `exec.fifth_hard_warning` targets super_admin via the rule; the
   // composer renders the same body regardless of role.

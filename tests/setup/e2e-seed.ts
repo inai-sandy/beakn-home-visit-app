@@ -226,6 +226,26 @@ export async function seedE2EUsers(
       )
     `;
 
+    // HVA-342: give the confirmed order real line items, so the exec's
+    // dispatch pick list has something to offer. Attached to an EXISTING
+    // fixture rather than a new request on purpose — a new row would shift
+    // the exec + captain request-list visual baselines, which is exactly
+    // what HVA-341's fixture did.
+    await sql`
+      INSERT INTO quotation_line_items (
+        quotation_id, position, product_name, product_sku,
+        quantity, unit_price_paise, line_total_paise, priority
+      )
+      SELECT q.id, v.position, v.product_name, v.sku,
+             v.qty, v.unit_price, v.qty * v.unit_price, 'med'::line_item_priority
+      FROM quotations q
+      CROSS JOIN (VALUES
+        (1, 'Smart Door Lock', 'SDL-100', 2, 900000),
+        (2, 'Motion Sensor',   'MS-200',  3, 233333)
+      ) AS v(position, product_name, sku, qty, unit_price)
+      WHERE q.quotation_number = 'CP-GATE-1'
+    `;
+
     // HVA-341: parked at Quotation Given, WITH a quotation, so the only thing
     // standing between it and Order Confirmed is the system_only gate. If the
     // quotation were missing the disabled button would prove nothing — the

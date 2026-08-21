@@ -398,14 +398,13 @@ export const CONFIG_SCHEMA = {
       // afterState carries { scheduleId, startDate, endDate, reason? }.
       'exec_unavailability_scheduled',
       'exec_unavailability_schedule_removed',
-      // HVA-199 — exec submits material-request assist + captain/admin
-      // transitions through the 4-stage state machine. Five events; one
-      // per state change.
-      'assist.created',
-      'assist.approved',
-      'assist.processing',
-      'assist.dispatched',
-      'assist.rejected',
+      // HVA-342 — exec asks support to dispatch stock off their own orders;
+      // support decides per order. Replaces the HVA-199 assist.* family.
+      'dispatch_request.created',
+      'dispatch_request.approved',
+      'dispatch_request.held',
+      'dispatch_request.rejected',
+      'dispatch_request.item_cancelled',
       // HVA-50 — admin toggles a notification_rules row enabled/disabled.
       'notification_rule_toggled',
       // HVA-222 — admin edits the status_stages catalog (create / update /

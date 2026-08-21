@@ -68,12 +68,14 @@ export const EXEC_DRAWER_NAV: ExecDrawerNavItem[] = [
   { label: 'Requests', icon: 'list_alt', href: '/requests' },
   // HVA-308: centralized pending-to-ship list across all my orders.
   // Drawer-only, not bottom-nav — D10 locks the bottom nav at 5 items.
+  //
+  // HVA-342: this is now where material is REQUESTED as well as read. The
+  // separate 'Assist' entry is gone — two exec screens listing the same
+  // pending products is how the old Assist section drifted out of step with
+  // the orders it was supposed to be about.
   { label: 'Dispatch', icon: 'local_shipping', href: '/dispatch' },
   // HVA-255 (HVA-232 Phase 2): customer support tickets queue.
   { label: 'Tickets', icon: 'help_center', href: '/tickets' },
-  // HVA-199: assist requests — exec submits material requests; captain
-  // / admin processes through a 4-stage workflow.
-  { label: 'Assist', icon: 'support_agent', href: '/assist' },
   // PR13 2026-05-27: exec self-view of the finance dashboard (mirror
   // of /captain/collections scoped to assigned_exec = me).
   { label: 'Finance', icon: 'payments', href: '/finance' },

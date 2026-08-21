@@ -96,12 +96,8 @@ export const ADMIN_NAV: AdminNavGroup[] = [
         icon: 'support',
         href: '/admin/tickets',
       },
-      // HVA-199: global queue of all assist requests across teams.
-      {
-        label: 'Assist Requests',
-        icon: 'support_agent',
-        href: '/admin/operations/assist',
-      },
+      // HVA-342: 'Assist Requests' removed with the Assist section. Exec
+      // dispatch requests are worked from the support queue.
       // HVA-201: global exec leaderboard.
       {
         label: 'Leaderboard',

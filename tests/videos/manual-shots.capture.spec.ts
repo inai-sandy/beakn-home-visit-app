@@ -239,7 +239,8 @@ test('E1 remaining exec pages', async ({ page }) => {
   await loginAs(page, 'exec');
   const pages: Array<[string, string]> = [
     ['/leads', '23-contacts'],
-    ['/assist', '24-assist'],
+    // HVA-342: /assist retired; requesting material lives on /dispatch.
+    ['/dispatch/requests', '24-dispatch-requests'],
     ['/dashboard', '25-dashboard'],
     ['/finance', '26-finance'],
     ['/leaderboard', '27-leaderboard'],

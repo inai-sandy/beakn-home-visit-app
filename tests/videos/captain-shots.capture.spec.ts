@@ -212,18 +212,19 @@ test('E1 tasks + calendar + contacts', async ({ page }) => {
 });
 
 // ---------------------------------------------------------------------------
-// F. Tickets + assist
+// F. Tickets
 // ---------------------------------------------------------------------------
+//
+// HVA-342: the assist shot went with the section. The captain is no longer
+// part of the material-request path, so there is no captain screen for it.
 
-test('F1 tickets queue + assist', async ({ page }) => {
+test('F1 tickets queue', async ({ page }) => {
   await loginAs(page, 'captain');
   await page.goto('/captain/tickets');
   await expect(page.getByRole('button', { name: /take this/i }).first()).toBeVisible({
     timeout: 15_000,
   });
   await shoot(page, '17-tickets');
-  await page.goto('/captain/assist');
-  await shoot(page, '18-assist');
 });
 
 // ---------------------------------------------------------------------------

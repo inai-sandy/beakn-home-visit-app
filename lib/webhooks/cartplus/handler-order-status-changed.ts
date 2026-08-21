@@ -9,6 +9,7 @@ import {
 import { log } from '@/lib/logger';
 
 import { applyCartplusOrderStatus } from './apply-status';
+import { cancelRequestItemsForRemovedLineItems } from './cancel-request-items';
 import type { CartplusEnvelope } from './envelope';
 import { notifyCartplusCancellation } from './notify-cancelled';
 import { notifyOrderReadyForDispatch } from './notify-order-confirmed';
@@ -104,8 +105,14 @@ export async function handleCartplusOrderStatusChanged(
         })
         .where(eq(quotations.id, existing.id));
 
-      // Upsert line items by portal_line_item_id
-      await upsertLineItems(tx, existing.id, order.items);
+      // Upsert line items by portal_line_item_id. HVA-342: the ids this
+      // removes are carried out of the transaction so open dispatch requests
+      // pointing at them can be cancelled once the removal has committed.
+      const removedLineItemIds = await upsertLineItems(
+        tx,
+        existing.id,
+        order.items,
+      );
 
       // HVA-285: map the CartPlus order status onto the Beakn stage —
       // pending → QUOTATION_GIVEN, confirmed → ORDER_CONFIRMED, cancelled →
@@ -154,6 +161,7 @@ export async function handleCartplusOrderStatusChanged(
         requestId: existing.requestId,
         statusResult,
         orderChange,
+        removedLineItemIds,
       };
     });
 
@@ -196,6 +204,18 @@ export async function handleCartplusOrderStatusChanged(
       await notifyOrderReadyForDispatch(result.requestId);
     }
 
+    // HVA-342: the customer deleted products an exec had already asked
+    // support to dispatch. Cancel those request lines and tell the exec —
+    // otherwise support hits the HVA-340 refusal on approval while the exec
+    // is still chasing the customer about stock that is no longer ordered.
+    //
+    // After the commit, because the sweep reads the removal it is reacting
+    // to. Fail-soft inside, so a webhook never fails over this.
+    const removedLineItemIds = result.removedLineItemIds ?? [];
+    if (removedLineItemIds.length > 0) {
+      await cancelRequestItemsForRemovedLineItems(removedLineItemIds);
+    }
+
     // HVA-325: the order changed under a confirmed request. Announced after
     // the commit so we never report a change a rollback would undo.
     if (result.orderChange) {
@@ -225,11 +245,16 @@ export async function handleCartplusOrderStatusChanged(
   }
 }
 
+/**
+ * Returns the ids of line items this edit REMOVED from the order (HVA-342),
+ * so the caller can cancel dispatch requests that were waiting on them once
+ * the transaction has committed.
+ */
 async function upsertLineItems(
   tx: DbTx,
   quotationId: string,
   items: ReturnType<typeof cartplusOrderEventDataSchema.parse>['order']['items'],
-): Promise<void> {
+): Promise<string[]> {
   // Pull existing rows for this quotation to decide insert vs update.
   const existing = await tx
     .select({
@@ -303,6 +328,8 @@ async function upsertLineItems(
       .set({ removedAt: new Date(), updatedAt: new Date() })
       .where(inArray(quotationLineItems.id, toRemoveIds));
   }
+
+  return toRemoveIds;
 }
 
 async function markEvent(

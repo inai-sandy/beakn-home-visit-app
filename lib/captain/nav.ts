@@ -58,8 +58,8 @@ export const CAPTAIN_NAV_ITEMS: CaptainNavItem[] = [
   // shell (sidebar / topbar) wraps it. Was /tickets which left the
   // portal entirely. Scope handled server-side via the captain's team.
   { href: '/captain/tickets', label: 'Tickets', icon: 'help_center', noAdminPortalRoute: true },
-  // HVA-199: assist requests from the captain's team execs.
-  { href: '/captain/assist', label: 'Assist Requests', icon: 'support_agent' },
+  // HVA-342: 'Assist Requests' removed. The captain is no longer part of
+  // the material-request path — the exec asks and support ships.
   { href: '/captain/collections', label: 'Finance', icon: 'payments' },
   // HVA-201: global leaderboard across all execs.
   { href: '/captain/leaderboard', label: 'Leaderboard', icon: 'leaderboard' },

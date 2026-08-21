@@ -14,7 +14,9 @@ export * from './audit';
 export * from './config';
 export * from './notes';
 export * from './content';
-export * from './assist';
+// HVA-342: './assist' retired. The free-text material-request tables are
+// replaced by dispatch-requests, which point at real order line items.
+export * from './dispatch-requests';
 export * from './warnings';
 export * from './order-comments';
 export * from './webhooks';

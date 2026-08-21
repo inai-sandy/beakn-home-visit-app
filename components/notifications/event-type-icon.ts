@@ -10,12 +10,12 @@ const ICON_BY_EVENT: Record<string, string> = {
   'request.rejected': 'cancel',
   'request.completed': 'task_alt',
   'request.escalated': 'priority_high',
-  // HVA-199 — assist domain events.
-  'assist.created': 'support_agent',
-  'assist.approved': 'check_circle',
-  'assist.processing': 'sync',
-  'assist.dispatched': 'local_shipping',
-  'assist.rejected': 'cancel',
+  // HVA-342 — exec dispatch requests. Replaces the assist.* family.
+  'dispatch_request.created': 'inventory_2',
+  'dispatch_request.approved': 'local_shipping',
+  'dispatch_request.held': 'pause_circle',
+  'dispatch_request.rejected': 'cancel',
+  'dispatch_request.item_cancelled': 'remove_shopping_cart',
 };
 
 export function getEventTypeIcon(eventType: string): string {

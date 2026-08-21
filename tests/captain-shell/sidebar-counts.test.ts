@@ -51,8 +51,6 @@ describe('loadCaptainSidebarCounts', () => {
       newRequestsCount: 0,
       pendingApprovalsCount: 0,
       outstandingFinanceCount: 0,
-      // HVA-199: captain has no cities → no team execs → no assists.
-      openAssistCount: 0,
       openTicketsCount: 0,
     });
   });

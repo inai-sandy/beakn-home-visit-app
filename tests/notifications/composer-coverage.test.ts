@@ -54,16 +54,45 @@ interface RuleRow {
  * dot-namespaced, which keeps unrelated INSERT ... VALUES lines in other
  * migrations from being mistaken for rules.
  *
- * No migration ever DELETEs from notification_rules (verified), so the
- * union of inserts is the live rule set.
+ * HVA-342 retired the assist.* section and DELETEd its rules — the first
+ * migration to remove any. So the live set is the union of the inserts MINUS
+ * anything a later migration deleted, and this parser has to understand both
+ * or it reports rules that no longer exist (which is exactly how it started
+ * failing when Assist was removed).
+ *
+ * Deletes are collected across all files and applied at the end rather than
+ * interleaved by filename order. That is correct as long as no migration
+ * re-inserts an event type it previously deleted; if one ever does, this
+ * needs to become an ordered replay.
  */
 function ruleRowsFromMigrations(): RuleRow[] {
   const dir = join(process.cwd(), 'db', 'migrations');
   const rows: RuleRow[] = [];
+  const deletePatterns: RegExp[] = [];
 
-  for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql'))) {
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
     for (const line of readFileSync(join(dir, file), 'utf8').split('\n')) {
       const trimmed = line.trimStart();
+
+      // DELETE FROM notification_rules WHERE event_type LIKE 'assist.%';
+      // ...or ... event_type = 'some.event';
+      const del = trimmed.match(
+        /^DELETE\s+FROM\s+notification_rules\s+WHERE\s+event_type\s+(LIKE|=)\s+'([^']*)'/i,
+      );
+      if (del) {
+        const [, op, pattern] = del;
+        deletePatterns.push(
+          op.toUpperCase() === 'LIKE'
+            ? new RegExp(
+                `^${pattern
+                  .replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')
+                  .replace(/%/g, '.*')}$`,
+              )
+            : new RegExp(`^${pattern.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&')}$`),
+        );
+        continue;
+      }
+
       if (!trimmed.startsWith('(')) continue;
       const quoted = trimmed.match(/'([^']*)'/g);
       if (!quoted || quoted.length < 2) continue;
@@ -74,7 +103,8 @@ function ruleRowsFromMigrations(): RuleRow[] {
       rows.push({ eventType, channel });
     }
   }
-  return rows;
+
+  return rows.filter((r) => !deletePatterns.some((re) => re.test(r.eventType)));
 }
 
 describe('in-app / push / email composer coverage', () => {

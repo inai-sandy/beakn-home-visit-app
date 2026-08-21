@@ -21,7 +21,6 @@ import {
   visitRequests,
 } from '@/db/schema';
 
-import { loadOpenAssistCountForCaptain } from '@/lib/assist/queries';
 import { openTicketCountForRole } from '@/lib/support-tickets/queue-queries';
 
 import { buildCaptainRequestVisibilityWhere } from './team-scope';
@@ -30,9 +29,6 @@ export interface CaptainSidebarCounts {
   newRequestsCount: number;
   pendingApprovalsCount: number;
   outstandingFinanceCount: number;
-  // HVA-199: unresolved assist requests (status NOT IN dispatched/rejected)
-  // for this captain's team.
-  openAssistCount: number;
   // HVA-232 Phase 3: open + in-progress support tickets in the captain's
   // team scope (drives the Tickets nav badge).
   openTicketsCount: number;
@@ -42,7 +38,6 @@ const EMPTY_COUNTS: CaptainSidebarCounts = {
   newRequestsCount: 0,
   pendingApprovalsCount: 0,
   outstandingFinanceCount: 0,
-  openAssistCount: 0,
   openTicketsCount: 0,
 };
 
@@ -78,7 +73,7 @@ export async function loadCaptainSidebarCounts(
   const submittedStageId = submittedStage[0]?.id ?? null;
   const pendingApprovalStageId = pendingApprovalStage[0]?.id ?? null;
 
-  const [newRow, pendingRow, outstandingRow, openAssistCount, openTicketsCount] = await Promise.all([
+  const [newRow, pendingRow, outstandingRow, openTicketsCount] = await Promise.all([
     // New = SUBMITTED + unassigned + not cancelled, within visibility scope.
     submittedStageId
       ? db
@@ -135,8 +130,6 @@ export async function loadCaptainSidebarCounts(
           ), 0)`,
         ),
       ),
-    // HVA-199: open assist count (non-terminal statuses for team execs).
-    loadOpenAssistCountForCaptain(captainUserId),
     // HVA-232 Phase 3: open + in-progress tickets in this captain's scope.
     openTicketCountForRole('captain', captainUserId),
   ]);
@@ -145,7 +138,6 @@ export async function loadCaptainSidebarCounts(
     newRequestsCount: newRow[0]?.cnt ?? 0,
     pendingApprovalsCount: pendingRow[0]?.cnt ?? 0,
     outstandingFinanceCount: outstandingRow[0]?.cnt ?? 0,
-    openAssistCount,
     openTicketsCount,
   };
 }

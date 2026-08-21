@@ -86,6 +86,13 @@ const SAFE_TRUNCATE_TABLES = [
   // adds a different FK that changes the cascade graph.
   'dispatch_status_history',
   'dispatch_items',
+  // HVA-342: dispatch_request_items → quotation_line_items is ON DELETE
+  // RESTRICT, and dispatch_request_orders → dispatches likewise. Both must
+  // go before dispatches and quotations below, or the truncate trips the
+  // restrict instead of cascading.
+  'dispatch_request_items',
+  'dispatch_request_orders',
+  'dispatch_requests',
   'dispatches',
   'day_plans',
   'holidays',

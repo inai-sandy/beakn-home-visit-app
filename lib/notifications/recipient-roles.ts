@@ -46,8 +46,8 @@ export const ENGINE_RECIPIENT_ROLES = [
   'super_admin',
   'support_team_all',
   'mentioned_users',
-  'assist_team_captain',
-  'assist_submitter',
+  // HVA-342: replaces 'assist_submitter' and 'assist_team_captain'.
+  'dispatch_request_submitter',
 ] as const;
 
 export type EngineRecipientRole = (typeof ENGINE_RECIPIENT_ROLES)[number];
@@ -68,14 +68,11 @@ export const ROLE_TO_RECIPIENT_ROLES: Record<Role, readonly string[]> = {
     'exec',
     'exec_assigned',
     'exec_removed',
-    'assist_submitter',
+    'dispatch_request_submitter',
   ],
-  captain: [
-    'captain_owning_city',
-    'captain_assigning',
-    'captain_acting',
-    'assist_team_captain',
-  ],
+  // HVA-342: 'assist_team_captain' dropped — the captain is no longer part
+  // of the material-request path, so there is no rule for them to manage.
+  captain: ['captain_owning_city', 'captain_assigning', 'captain_acting'],
   super_admin: ['super_admin'],
   // HVA-327: was `[]`. The engine has resolved this since HVA-240 and
   // production rules use it, so the settings page was hiding live

@@ -201,18 +201,6 @@ export function CaptainSidebar({
                           : sidebarCounts!.outstandingFinanceCount}
                       </Badge>
                     )}
-                  {item.href === "/captain/assist" &&
-                    (sidebarCounts?.openAssistCount ?? 0) > 0 && (
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] tabular-nums border-primary/50 text-primary"
-                        aria-label={`${sidebarCounts!.openAssistCount} open assist requests`}
-                      >
-                        {sidebarCounts!.openAssistCount > 99
-                          ? "99+"
-                          : sidebarCounts!.openAssistCount}
-                      </Badge>
-                    )}
                   {/* HVA-232 Phase 3: open support tickets in team scope. */}
                   {item.href === "/captain/tickets" &&
                     (sidebarCounts?.openTicketsCount ?? 0) > 0 && (

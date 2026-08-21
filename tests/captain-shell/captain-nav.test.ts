@@ -87,11 +87,6 @@ describe('HVA-152: shared captain nav config', () => {
           "noAdminPortalRoute": true,
         },
         {
-          "href": "/captain/assist",
-          "icon": "support_agent",
-          "label": "Assist Requests",
-        },
-        {
           "href": "/captain/collections",
           "icon": "payments",
           "label": "Finance",

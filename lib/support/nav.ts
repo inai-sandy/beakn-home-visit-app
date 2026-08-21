@@ -18,6 +18,9 @@ export interface SupportNavItem {
 
 export const SUPPORT_NAV: ReadonlyArray<SupportNavItem> = [
   { href: '/support', label: 'Pending', iconName: 'inventory_2' },
+  // HVA-342: what the sales team has explicitly asked to be dispatched.
+  // Above In-progress on purpose — somebody is waiting on each of these.
+  { href: '/support/requests', label: 'Requests', iconName: 'assignment' },
   { href: '/support/in-progress', label: 'In-progress', iconName: 'sync' },
   { href: '/support/orders', label: 'Orders', iconName: 'receipt_long' },
   { href: '/support/activity', label: 'Activity', iconName: 'history' },

@@ -78,9 +78,9 @@ describe('isExecNavItemActive', () => {
 
 describe('EXEC_DRAWER_NAV', () => {
   it('exposes drawer destinations in locked order (HVA-71 added Calendar)', () => {
-    // HVA-199: 'Assist' inserted between Requests and Finance.
     // HVA-201: 'Leaderboard' inserted between Finance and Resources.
-    // HVA-255: 'Tickets' inserted between Requests and Assist.
+    // HVA-255: 'Tickets' inserted between Requests and Finance.
+    // HVA-342: 'Assist' removed — requesting material moved onto Dispatch.
     // HVA-308: 'Dispatch' inserted directly after Requests — it's the
     // cross-order view of what those requests still owe customers.
     expect(EXEC_DRAWER_NAV.map((i) => i.label)).toEqual([
@@ -92,7 +92,6 @@ describe('EXEC_DRAWER_NAV', () => {
       'Requests',
       'Dispatch',
       'Tickets',
-      'Assist',
       'Finance',
       'Leaderboard',
       'Reports',

@@ -268,30 +268,18 @@ async function resolveRecipients(
       }
       return filtered;
     }
-    // HVA-199: assist domain resolvers. Assist is exec-bound (not city-
-    // bound) — exec belongs to ONE captain regardless of which city the
-    // related request is in.
-    case 'assist_team_captain': {
-      const userId = context.assistCaptainUserId;
+    // HVA-342: the exec who raised a dispatch request. Replaces the HVA-199
+    // `assist_submitter` / `assist_team_captain` pair — the captain is no
+    // longer in this path, so only the person waiting on the stock is
+    // notified of a decision.
+    case 'dispatch_request_submitter': {
+      const userId = context.dispatchRequestExecUserId;
       if (typeof userId !== 'string' || userId.length === 0) {
         return [
           {
             userId: null,
             directAddress: null,
-            reason: 'assistCaptainUserId missing from context',
-          },
-        ];
-      }
-      return [{ userId, directAddress: null }];
-    }
-    case 'assist_submitter': {
-      const userId = context.assistExecUserId;
-      if (typeof userId !== 'string' || userId.length === 0) {
-        return [
-          {
-            userId: null,
-            directAddress: null,
-            reason: 'assistExecUserId missing from context',
+            reason: 'dispatchRequestExecUserId missing from context',
           },
         ];
       }

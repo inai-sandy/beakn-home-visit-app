@@ -1,10 +1,13 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import {
   DispatchQueueView,
   type DispatchQueueMode,
 } from '@/components/dispatch/DispatchQueueView';
+import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/ui/icon';
 import { getServerSession } from '@/lib/auth-server';
 import {
   loadDispatchQueue,
@@ -71,6 +74,23 @@ export default async function ExecDispatchPage({ searchParams }: PageProps) {
   return (
     <main className="min-h-svh bg-background">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 py-6 md:max-w-5xl">
+        {/* HVA-342: this list stopped being read-only. An exec looking at
+            what they are owed can now ask for it from the same screen —
+            that is the whole Assist merge. super_admin holds no orders, so
+            they get the overview without the controls. */}
+        {user.role === 'sales_executive' && (
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Button asChild>
+              <Link href="/dispatch/new">
+                <Icon name="add" size="sm" aria-hidden />
+                Request dispatch
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/dispatch/requests">My requests</Link>
+            </Button>
+          </div>
+        )}
         <DispatchQueueView
           rows={queue.rows}
           summary={summary}

@@ -33,7 +33,12 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   task_added: 'Task added',
   task_completed: 'Task completed',
   task_postponed: 'Task postponed',
-  assist_request_created: 'Assist requested',
+  // HVA-342: replaces assist_request_created.
+  dispatch_request_created: 'Dispatch requested',
+  dispatch_request_cancelled: 'Dispatch request withdrawn',
+  dispatch_request_approved: 'Dispatch request approved',
+  dispatch_request_held: 'Dispatch request put on hold',
+  dispatch_request_rejected: 'Dispatch request declined',
   user_login: 'Signed in',
   user_logout: 'Signed out',
 };

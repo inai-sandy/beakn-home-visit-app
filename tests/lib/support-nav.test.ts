@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { activeSupportNav, SUPPORT_NAV } from '@/lib/support/nav';
 
 describe('SUPPORT_NAV', () => {
-  it('HVA-245: has 4 entries — Pending, In-progress, Orders, Activity', () => {
+  // HVA-342: 'Requests' inserted after Pending — what the sales team has
+  // explicitly asked support to dispatch. Above In-progress on purpose:
+  // somebody is waiting on each of those rows.
+  it('has 5 entries — Pending, Requests, In-progress, Orders, Activity', () => {
     expect(SUPPORT_NAV.map((i) => i.label)).toEqual([
       'Pending',
+      'Requests',
       'In-progress',
       'Orders',
       'Activity',

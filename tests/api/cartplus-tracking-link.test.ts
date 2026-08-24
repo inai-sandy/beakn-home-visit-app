@@ -8,6 +8,7 @@ import {
   cities,
   leads,
   notificationRules,
+  quotations,
   users,
   visitRequests,
   webhookSecrets,
@@ -216,6 +217,24 @@ async function waitForOrderReceived(requestId: string): Promise<void> {
   throw new Error('order_received dispatch never landed — cannot trust a negative assertion');
 }
 
+/**
+ * The request a given CartPlus order landed on, found through its quotation.
+ *
+ * Deliberately NOT "the newest request" or "count all requests": notifications
+ * are fire-and-forget, so a neighbouring test's async write can land after its
+ * own afterEach TRUNCATE and sit in this test's window. A global query then
+ * reads somebody else's row and the assertion fails for a reason that has
+ * nothing to do with what is being tested. Scoping to the order under test
+ * makes these assertions immune to that.
+ */
+async function requestForOrder(portalOrderId: number): Promise<string | null> {
+  const [q] = await db
+    .select({ requestId: quotations.visitRequestId })
+    .from(quotations)
+    .where(eq(quotations.portalQuotationId, String(portalOrderId)));
+  return q?.requestId ?? null;
+}
+
 describe('HVA-345: CartPlus tracking link to the customer', () => {
   it('sends the link, and normalises the spaced phone CartPlus supplies', async () => {
     await seedEnvironment(345_001);
@@ -230,12 +249,9 @@ describe('HVA-345: CartPlus tracking link to the customer', () => {
     );
     expect(res.status).toBe(200);
 
-    const [created] = await db
-      .select({ id: visitRequests.id })
-      .from(visitRequests)
-      .orderBy(desc(visitRequests.createdAt))
-      .limit(1);
-    const deliveries = await trackingLinkDeliveries(created.id);
+    const createdId = await requestForOrder(34_510);
+    expect(createdId, 'the order should have created a request').toBeTruthy();
+    const deliveries = await trackingLinkDeliveries(createdId!);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0].channel).toBe('whatsapp');
     // The load-bearing assertion: no spaces, E.164. Passing through the raw
@@ -254,11 +270,12 @@ describe('HVA-345: CartPlus tracking link to the customer', () => {
         phone: '+91 77788 85567',
       }),
     );
+    const createdId = await requestForOrder(34_520);
+    expect(createdId, 'the order should have created a request').toBeTruthy();
     const [row] = await db
       .select({ token: visitRequests.trackingToken })
       .from(visitRequests)
-      .orderBy(desc(visitRequests.createdAt))
-      .limit(1);
+      .where(eq(visitRequests.id, createdId!));
     expect(row?.token).toBeTruthy();
     expect(row!.token!.length).toBeGreaterThan(8);
   });
@@ -307,7 +324,10 @@ describe('HVA-345: CartPlus tracking link to the customer', () => {
     // assertion below would pass for the wrong reason.
     const reqs = await db
       .select({ id: visitRequests.id, token: visitRequests.trackingToken })
-      .from(visitRequests);
+      .from(visitRequests)
+      // Scoped to this customer — a neighbouring test's leaked row must not
+      // read as "the order created a second request".
+      .where(eq(visitRequests.customerPhone, phone));
     expect(reqs, 'order should have merged, not created a second request').toHaveLength(1);
     expect(reqs[0].token).toBe('existing-token-345');
 

@@ -42,6 +42,13 @@ interface ExecSpec {
   phone: string;
   city: string;
   email?: string;
+  /**
+   * The CartPlus "employee id". Stored on `users.portal_exec_id`, which is how
+   * the order webhook turns `created_by.id` into one of our users. Without it
+   * every order this person raises in CartPlus resolves to
+   * `unmapped_portal_exec_id` and arrives unassigned.
+   */
+  portalExecId?: number;
 }
 
 function requireEnv(name: string): string {
@@ -72,6 +79,29 @@ function toStoragePhone(input: string): string {
   return `+91${n}`;
 }
 
+/**
+ * `users.portal_exec_id` is uniquely indexed where not null. Silently moving an
+ * id between people would redirect a colleague's incoming orders, so a clash
+ * with a different user is an error rather than an overwrite.
+ */
+async function assertPortalIdFree(
+  db: ReturnType<typeof drizzle>,
+  portalExecId: number,
+  intendedUserId: string | null,
+): Promise<void> {
+  const [holder] = await db
+    .select({ id: users.id, name: users.fullName })
+    .from(users)
+    .where(eq(users.portalExecId, portalExecId))
+    .limit(1);
+  if (holder && holder.id !== intendedUserId) {
+    throw new Error(
+      `portal exec id ${portalExecId} already belongs to ${holder.name}. ` +
+        'Two people cannot share one CartPlus employee id.',
+    );
+  }
+}
+
 function tempPassword(): string {
   return randomBytes(9).toString('base64url');
 }
@@ -89,11 +119,21 @@ async function main(): Promise<void> {
   // Reject duplicate phones up front. Two rows differing only by name would
   // otherwise fail halfway through on the unique index, leaving a partial import.
   const seen = new Map<string, string>();
+  const seenPortalIds = new Map<number, string>();
   for (const spec of roster) {
     const p = toStoragePhone(spec.phone);
     const prior = seen.get(p);
     if (prior) throw new Error(`duplicate phone in roster: ${spec.name} and ${prior}`);
     seen.set(p, spec.name);
+    if (spec.portalExecId !== undefined) {
+      const priorId = seenPortalIds.get(spec.portalExecId);
+      if (priorId) {
+        throw new Error(
+          `duplicate portal exec id ${spec.portalExecId}: ${spec.name} and ${priorId}`,
+        );
+      }
+      seenPortalIds.set(spec.portalExecId, spec.name);
+    }
   }
 
   const client = postgres(process.env.DATABASE_URL, { max: 1 });
@@ -150,6 +190,10 @@ async function main(): Promise<void> {
       );
     }
 
+    if (spec.portalExecId !== undefined) {
+      await assertPortalIdFree(db, spec.portalExecId, user?.id ?? null);
+    }
+
     if (!user) {
       log(`${spec.name}: CREATE sales executive in ${city.name}`);
       if (!dryRun) {
@@ -164,6 +208,7 @@ async function main(): Promise<void> {
             emailVerified: false,
             phoneVerified: false,
             isActive: true,
+            portalExecId: spec.portalExecId ?? null,
             // Forces a change at first login, matching the captains created in HVA-348.
             mustChangePassword: true,
           })
@@ -179,6 +224,15 @@ async function main(): Promise<void> {
       }
     } else {
       log(`${spec.name}: exists (${user.id}) — password left untouched`);
+      if (spec.portalExecId !== undefined && user.portalExecId !== spec.portalExecId) {
+        log(`  portal exec id ${user.portalExecId ?? 'none'} -> ${spec.portalExecId}`);
+        if (!dryRun) {
+          await db
+            .update(users)
+            .set({ portalExecId: spec.portalExecId, updatedAt: new Date() })
+            .where(eq(users.id, user.id));
+        }
+      }
     }
 
     if (!dryRun && user) {

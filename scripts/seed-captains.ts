@@ -42,6 +42,11 @@ interface CaptainSpec {
   name: string;
   phone: string;
   cities: string[];
+  /**
+   * The CartPlus "employee id". Captains raise orders in CartPlus too, so
+   * without this on `users.portal_exec_id` their own orders arrive unassigned.
+   */
+  portalExecId?: number;
 }
 
 function requireEnv(name: string): string {
@@ -70,6 +75,29 @@ function toStoragePhone(input: string): string {
     throw new Error(`'${input}' is not a valid Indian mobile number`);
   }
   return `+91${n}`;
+}
+
+/**
+ * `users.portal_exec_id` is uniquely indexed where not null. Moving an id
+ * between people would redirect a colleague's incoming orders, so a clash with
+ * a different user is an error rather than an overwrite.
+ */
+async function assertPortalIdFree(
+  db: ReturnType<typeof drizzle>,
+  portalExecId: number,
+  intendedUserId: string | null,
+): Promise<void> {
+  const [holder] = await db
+    .select({ id: users.id, name: users.fullName })
+    .from(users)
+    .where(eq(users.portalExecId, portalExecId))
+    .limit(1);
+  if (holder && holder.id !== intendedUserId) {
+    throw new Error(
+      `portal exec id ${portalExecId} already belongs to ${holder.name}. ` +
+        'Two people cannot share one CartPlus employee id.',
+    );
+  }
 }
 
 function tempPassword(): string {
@@ -121,6 +149,10 @@ async function main(): Promise<void> {
       }
     }
 
+    if (spec.portalExecId !== undefined) {
+      await assertPortalIdFree(db, spec.portalExecId, user?.id ?? null);
+    }
+
     if (!user) {
       log(`${spec.name}: CREATE captain`);
       if (!dryRun) {
@@ -135,6 +167,7 @@ async function main(): Promise<void> {
             emailVerified: false,
             phoneVerified: false,
             isActive: true,
+            portalExecId: spec.portalExecId ?? null,
             // Forces a change at first login, matching how the bootstrap admin
             // and the existing captains were created.
             mustChangePassword: true,
@@ -151,6 +184,15 @@ async function main(): Promise<void> {
       }
     } else {
       log(`${spec.name}: exists (${user.id}) — password left untouched`);
+      if (spec.portalExecId !== undefined && user.portalExecId !== spec.portalExecId) {
+        log(`  portal exec id ${user.portalExecId ?? 'none'} -> ${spec.portalExecId}`);
+        if (!dryRun) {
+          await db
+            .update(users)
+            .set({ portalExecId: spec.portalExecId, updatedAt: new Date() })
+            .where(eq(users.id, user.id));
+        }
+      }
     }
 
     if (!dryRun && user) {
